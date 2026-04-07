@@ -1,0 +1,78 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { callPipeboard } from '@/lib/pipeboard';
+import { createServiceClient } from '@/lib/supabase';
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = request.nextUrl;
+
+    const account_id = searchParams.get('account_id');
+    if (!account_id || account_id === 'null' || account_id === 'undefined' || account_id.trim() === '') {
+      return NextResponse.json(
+        { error: 'Invalid ad account ID' },
+        { status: 400 }
+      );
+    }
+
+    const time_range = searchParams.get('time_range') || 'last_30d';
+    const since = searchParams.get('since');
+    const until = searchParams.get('until');
+    const level = searchParams.get('level') || 'account';
+
+    // Map breakdown levels to PipeBoard params
+    const breakdownLevels: Record<string, { pipeboardLevel: string; breakdowns: string }> = {
+      age: { pipeboardLevel: 'account', breakdowns: 'age' },
+      gender: { pipeboardLevel: 'account', breakdowns: 'gender' },
+      placement: { pipeboardLevel: 'account', breakdowns: 'publisher_platform,platform_position' },
+    };
+
+    const breakdownConfig = breakdownLevels[level];
+
+    // Build PipeBoard args — explicit date range overrides preset time_range
+    const pipeboardArgs: Record<string, unknown> = {
+      object_id: account_id,
+      level: breakdownConfig?.pipeboardLevel ?? level,
+    };
+
+    if (breakdownConfig) {
+      pipeboardArgs.breakdowns = breakdownConfig.breakdowns;
+    }
+
+    if (since && until) {
+      // Use explicit date range (YYYY-MM-DD format)
+      pipeboardArgs.time_range = { since, until };
+    } else {
+      pipeboardArgs.time_range = time_range;
+    }
+
+    try {
+      const result = await callPipeboard('get_insights', pipeboardArgs);
+      return NextResponse.json(result);
+    } catch (pipeboardError) {
+      // PipeBoard failed — fall back to cached data in meta_insights_daily
+      const supabase = createServiceClient();
+      const { data: cachedData, error: dbError } = await supabase
+        .from('meta_insights_daily')
+        .select('*')
+        .eq('account_id', account_id)
+        .order('date', { ascending: false });
+
+      if (dbError || !cachedData || cachedData.length === 0) {
+        // Both PipeBoard and DB fallback failed — return the original error
+        const message = pipeboardError instanceof Error ? pipeboardError.message : 'Unknown error';
+        const status = message.includes('not configured') ? 500 : 502;
+        return NextResponse.json({ error: message }, { status });
+      }
+
+      return NextResponse.json({ data: cachedData, source: 'cache' });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    const status = message.includes('not configured') ? 500 : 502;
+
+    return NextResponse.json(
+      { error: message },
+      { status }
+    );
+  }
+}
