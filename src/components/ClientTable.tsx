@@ -1256,7 +1256,7 @@ export default function ClientTable() {
                                     value={client.monthly_revenue}
                                     onSaved={handleFieldSaved}
                                     extraPatchFields={{ revenue_override: true }}
-                                    className="text-amber-600"
+                                    className="text-slate-900"
                                   />
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleResetRevenue(client.id); }}
@@ -1271,7 +1271,7 @@ export default function ClientTable() {
                               );
                             }
 
-                            // Calculated from fee_config — show solid green value, click to override
+                            // Calculated from fee_config
                             if (rev.source === 'calculated' && rev.value != null) {
                               return (
                                 <div title={feeTooltip}>
@@ -1282,13 +1282,13 @@ export default function ClientTable() {
                                     onSaved={handleFieldSaved}
                                     extraPatchFields={{ revenue_override: true }}
                                     placeholder={`$${Math.round(rev.value).toLocaleString()}`}
-                                    className="text-emerald-700 font-medium"
+                                    className="text-slate-900"
                                   />
                                 </div>
                               );
                             }
 
-                            // No fee_config — show editable field
+                            // No fee_config — show DB value or editable placeholder
                             return (
                               <InlineCurrencyInput
                                 clientId={client.id}
@@ -1297,7 +1297,7 @@ export default function ClientTable() {
                                 onSaved={handleFieldSaved}
                                 extraPatchFields={{ revenue_override: true }}
                                 placeholder="--"
-                                className="text-slate-500"
+                                className="text-slate-900"
                               />
                             );
                           })()}
