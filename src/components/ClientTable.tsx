@@ -552,26 +552,6 @@ function InlineStatusSelect({
   );
 }
 
-function ChurnRiskDot({ level, score, factors }: { level: 'LOW' | 'MEDIUM' | 'HIGH'; score: number; factors: string[] }) {
-  const colors: Record<string, string> = {
-    LOW: 'bg-emerald-500',
-    MEDIUM: 'bg-amber-400',
-    HIGH: 'bg-red-500',
-  };
-  const ringColors: Record<string, string> = {
-    LOW: 'ring-emerald-500/30',
-    MEDIUM: 'ring-amber-400/30',
-    HIGH: 'ring-red-500/30',
-  };
-  const tooltip = `Churn Risk: ${level} (${score} pts)\n${factors.length > 0 ? factors.join('\n') : 'No risk factors'}`;
-
-  return (
-    <span
-      className={`inline-block w-2 h-2 rounded-full ${colors[level]} ring-2 ${ringColors[level]} flex-shrink-0`}
-      title={tooltip}
-    />
-  );
-}
 
 function SortHeader({ label, sortKey: key, currentKey, direction, onSort }: {
   label: string;
@@ -722,9 +702,6 @@ export default function ClientTable() {
   // Last contact data per client
   const [lastContact, setLastContact] = useState<Record<string, { last_contact_date: string; days_ago: number; source: string }>>({});
 
-  // Churn risk scores per client_id
-  const [churnRisk, setChurnRisk] = useState<Record<string, { score: number; level: 'LOW' | 'MEDIUM' | 'HIGH'; factors: string[]; client_name: string }>>({});
-
   // Per-client profitability data
   const [profitability, setProfitability] = useState<{
     clients: Record<string, { revenue: number; operator_cost: number; profit: number; margin_pct: number }>;
@@ -740,12 +717,6 @@ export default function ClientTable() {
       .then(res => res.json())
       .then(data => {
         if (data && !data.error) setLastContact(data);
-      })
-      .catch(() => {});
-    fetch('/api/clients/churn-risk')
-      .then(res => res.json())
-      .then(data => {
-        if (data && !data.error) setChurnRisk(data);
       })
       .catch(() => {});
     fetch('/api/clients/profitability')
@@ -1283,13 +1254,6 @@ export default function ClientTable() {
                           {isFirstInGroup ? (
                             <div>
                               <div className="flex items-center gap-2">
-                                {!!client.client_id && churnRisk[client.client_id as string] && (
-                                  <ChurnRiskDot
-                                    level={churnRisk[client.client_id as string].level}
-                                    score={churnRisk[client.client_id as string].score}
-                                    factors={churnRisk[client.client_id as string].factors}
-                                  />
-                                )}
                                 <span className="text-sm font-semibold text-slate-900">{client.client_name}</span>
                                 {!!client.client_id && lastContact[client.client_id as string] && (
                                   <LastContactBadge
