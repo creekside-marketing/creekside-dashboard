@@ -1004,40 +1004,6 @@ export default function ClientTable() {
     return { uniqueClients, googleCount, metaCount, total: filtered.length, totalEstRevenue };
   }, [filtered, clientRevenue]);
 
-  // Revenue concentration alert
-  const concentrationAlert = useMemo(() => {
-    const totalRevenue = stats.totalEstRevenue;
-    if (totalRevenue <= 0) return { level: 'green' as const, message: 'Revenue concentration healthy' };
-
-    // Get unique client names with their revenue, sorted descending
-    const clientNames = [...new Set(filtered.map(c => c.client_name))];
-    const clientsByRevenue = clientNames
-      .map(name => ({ name, revenue: clientRevenue[name] ?? 0, pct: ((clientRevenue[name] ?? 0) / totalRevenue) * 100 }))
-      .sort((a, b) => b.revenue - a.revenue);
-
-    // RED: any single client > 25%
-    const redClient = clientsByRevenue.find(c => c.pct > 25);
-    if (redClient) {
-      return {
-        level: 'red' as const,
-        message: `Revenue Risk: ${redClient.name} represents ${redClient.pct.toFixed(1)}% of total revenue`,
-      };
-    }
-
-    // YELLOW: top 3 clients > 60%
-    const top3 = clientsByRevenue.slice(0, 3);
-    const top3Pct = top3.reduce((sum, c) => sum + c.pct, 0);
-    if (top3Pct > 60) {
-      const names = top3.map(c => c.name).join(', ');
-      return {
-        level: 'yellow' as const,
-        message: `Top 3 clients (${names}) represent ${top3Pct.toFixed(1)}% of total revenue`,
-      };
-    }
-
-    return { level: 'green' as const, message: 'Revenue concentration healthy' };
-  }, [filtered, clientRevenue, stats.totalEstRevenue]);
-
   // ── Render helpers ──────────────────────────────────────────────────
 
   function renderLiveCell(client: Client, field: 'spend' | 'conversions' | 'costPerConversion') {
@@ -1151,24 +1117,6 @@ export default function ClientTable() {
           <p className="text-xl font-bold text-blue-600">{stats.metaCount}</p>
         </div>
       </div>
-
-      {/* Revenue Concentration Alert — only show when there's an actual warning */}
-      {concentrationAlert.level !== 'green' && (
-        <div className={`rounded-xl border px-6 py-4 flex items-center gap-3 ${
-          concentrationAlert.level === 'red'
-            ? 'bg-red-50 border-red-200'
-            : 'bg-amber-50 border-amber-200'
-        }`}>
-          <span className={`flex-shrink-0 w-2.5 h-2.5 rounded-full ${
-            concentrationAlert.level === 'red' ? 'bg-red-500' : 'bg-amber-500'
-          }`} />
-          <p className={`text-sm font-medium ${
-            concentrationAlert.level === 'red' ? 'text-red-700' : 'text-amber-700'
-          }`}>
-            {concentrationAlert.message}
-          </p>
-        </div>
-      )}
 
       {/* Refresh bar */}
       <div className="flex items-center justify-between">
