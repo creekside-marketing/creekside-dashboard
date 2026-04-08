@@ -61,7 +61,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
       .from('clients')
       .select('gdrive_folder_id, clickup_folder_id, contract_url, primary_contact_name, primary_contact_email, website, gchat_url')
       .eq('id', client.client_id)
-      .single();
+      .maybeSingle();
     clientMeta = data;
   } else {
     // Fallback: match by name — strip segment suffix for grouped clients like Perfect Parking
@@ -71,7 +71,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
       .select('gdrive_folder_id, clickup_folder_id, contract_url, primary_contact_name, primary_contact_email, website, gchat_url')
       .eq('name', baseName)
       .limit(1)
-      .single();
+      .maybeSingle();
     clientMeta = data;
   }
 
