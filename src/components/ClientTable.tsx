@@ -1189,31 +1189,23 @@ export default function ClientTable() {
         </div>
       </div>
 
-      {/* Revenue Concentration Alert */}
-      <div className={`rounded-xl border px-6 py-4 flex items-center gap-3 ${
-        concentrationAlert.level === 'red'
-          ? 'bg-red-50 border-red-200'
-          : concentrationAlert.level === 'yellow'
-            ? 'bg-amber-50 border-amber-200'
-            : 'bg-emerald-50 border-emerald-200'
-      }`}>
-        <span className={`flex-shrink-0 w-2.5 h-2.5 rounded-full ${
+      {/* Revenue Concentration Alert — only show when there's an actual warning */}
+      {concentrationAlert.level !== 'green' && (
+        <div className={`rounded-xl border px-6 py-4 flex items-center gap-3 ${
           concentrationAlert.level === 'red'
-            ? 'bg-red-500'
-            : concentrationAlert.level === 'yellow'
-              ? 'bg-amber-500'
-              : 'bg-emerald-500'
-        }`} />
-        <p className={`text-sm font-medium ${
-          concentrationAlert.level === 'red'
-            ? 'text-red-700'
-            : concentrationAlert.level === 'yellow'
-              ? 'text-amber-700'
-              : 'text-emerald-700'
+            ? 'bg-red-50 border-red-200'
+            : 'bg-amber-50 border-amber-200'
         }`}>
-          {concentrationAlert.message}
-        </p>
-      </div>
+          <span className={`flex-shrink-0 w-2.5 h-2.5 rounded-full ${
+            concentrationAlert.level === 'red' ? 'bg-red-500' : 'bg-amber-500'
+          }`} />
+          <p className={`text-sm font-medium ${
+            concentrationAlert.level === 'red' ? 'text-red-700' : 'text-amber-700'
+          }`}>
+            {concentrationAlert.message}
+          </p>
+        </div>
+      )}
 
       {/* Refresh bar */}
       <div className="flex items-center justify-between">
@@ -1392,20 +1384,12 @@ export default function ClientTable() {
                             if (!prof || prof.operator_cost === 0) {
                               return <span className="text-slate-300">--</span>;
                             }
-                            const marginColor = prof.margin_pct >= 30
-                              ? 'text-emerald-600'
-                              : prof.margin_pct >= 15
-                                ? 'text-amber-600'
-                                : 'text-red-600';
                             const costStr = prof.operator_cost >= 1000
                               ? `$${(prof.operator_cost / 1000).toFixed(1).replace(/\.0$/, '')}K`
                               : `$${Math.round(prof.operator_cost)}`;
                             return (
                               <div title={`Cost: ${formatCurrency(prof.operator_cost)} | Profit: ${formatCurrency(prof.profit)} | Margin: ${prof.margin_pct}%`}>
                                 <span className="text-slate-700">{costStr}</span>
-                                <div className={`text-[11px] font-semibold ${marginColor}`}>
-                                  {prof.margin_pct}%
-                                </div>
                               </div>
                             );
                           })() : null}
