@@ -915,7 +915,18 @@ export default function ClientTable() {
         }
       }
 
-      // 3. No fee_config or no live data — show nothing
+      // 3. Fall back to budget-based calculation when live data is missing or errored
+      if (c.fee_config && c.monthly_budget != null && c.monthly_budget > 0) {
+        const budgetAsSpend = Number(c.monthly_budget);
+        const totalBudgetByClient = clients
+          .filter(cl => cl.client_name === c.client_name)
+          .reduce((sum, cl) => sum + Number(cl.monthly_budget ?? 0), 0);
+        const fee = calculatePlatformRevenue(c.fee_config, budgetAsSpend, totalBudgetByClient);
+        result[c.id] = { value: fee, source: 'calculated' };
+        continue;
+      }
+
+      // 4. No fee_config and no budget — show nothing
       result[c.id] = { value: null, source: 'none' };
     }
 
