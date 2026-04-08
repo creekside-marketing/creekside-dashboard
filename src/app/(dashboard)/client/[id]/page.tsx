@@ -1,7 +1,6 @@
 import { createServiceClient } from '@/lib/supabase';
 import ClientReport from '@/components/ClientReport';
 import PerformanceGoals from '@/components/PerformanceGoals';
-import ReportLinkWidget from '@/components/reports/ReportLinkWidget';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
@@ -106,11 +105,6 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
           {clientMeta?.website && <QuickLink href={clientMeta.website.startsWith('http') ? clientMeta.website : `https://${clientMeta.website}`} label="Website" icon="🌐" />}
         </div>
       </div>
-
-      {/* Report Link Management */}
-      {client.report_token && (
-        <ReportLinkWidget clientId={client.id} reportToken={client.report_token} />
-      )}
 
       {/* Contact Info */}
       {clientMeta?.primary_contact_name && (

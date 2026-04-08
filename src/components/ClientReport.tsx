@@ -930,7 +930,7 @@ export default function ClientReport({ client }: { client: ReportingClient }) {
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-3xl font-bold text-slate-900">{client.client_name}</h1>
+            <h1 className="text-3xl font-bold text-[var(--text-primary)]">{client.client_name}</h1>
             {PARTNER_NOTES[client.client_name] && (
               <span className="text-sm text-slate-400 font-normal">{PARTNER_NOTES[client.client_name]}</span>
             )}
