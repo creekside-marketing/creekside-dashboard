@@ -16,6 +16,8 @@ const ALLOWED_UPDATE_FIELDS = [
   'report_token',
   'client_type',
   'client_report_notes',
+  'fee_config',
+  'revenue_override',
 ];
 
 // Fields that should be tracked in manual_overrides when changed by a user
@@ -30,6 +32,7 @@ const MANUAL_OVERRIDE_FIELDS = new Set([
   'ad_account_id',
   'churned_date',
   'churn_reason',
+  'revenue_override',
 ]);
 
 export async function GET() {

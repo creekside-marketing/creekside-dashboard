@@ -3,6 +3,8 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import FilterBar from './FilterBar';
+import { calculatePlatformRevenue, describeFeeConfig } from '@/lib/fee-engine';
+import type { FeeConfig } from '@/lib/fee-engine';
 
 interface Client {
   id: string;
@@ -16,6 +18,8 @@ interface Client {
   account_manager: string | null;
   platform_operator: string | null;
   status: string;
+  fee_config: FeeConfig | null;
+  revenue_override: boolean;
   [key: string]: unknown;
 }
 
@@ -39,44 +43,6 @@ interface LiveAccountData {
 }
 
 type SortKey = 'client_name' | 'platform' | 'monthly_budget' | 'est_revenue' | 'priority' | 'account_manager' | 'platform_operator';
-
-// ── Fee tier calculator ─────────────────────────────────────────────────
-// Creekside charges % of ad spend: 20% ($0-15k), 15% ($15-30k), 10% ($30-45k), 5% ($45k+)
-// Minimums: $1,000/platform; $2,000 when managing both Google + Meta
-function calcExpectedFee(totalAdSpend: number, platformCount: number): number {
-  if (totalAdSpend <= 0) return 0;
-
-  let fee = 0;
-  let remaining = totalAdSpend;
-
-  // Tier 1: 0-15k at 20%
-  const t1 = Math.min(remaining, 15000);
-  fee += t1 * 0.20;
-  remaining -= t1;
-
-  // Tier 2: 15k-30k at 15%
-  if (remaining > 0) {
-    const t2 = Math.min(remaining, 15000);
-    fee += t2 * 0.15;
-    remaining -= t2;
-  }
-
-  // Tier 3: 30k-45k at 10%
-  if (remaining > 0) {
-    const t3 = Math.min(remaining, 15000);
-    fee += t3 * 0.10;
-    remaining -= t3;
-  }
-
-  // Tier 4: 45k+ at 5%
-  if (remaining > 0) {
-    fee += remaining * 0.05;
-  }
-
-  // Enforce minimums
-  const minimum = platformCount >= 2 ? 2000 : 1000;
-  return Math.max(fee, minimum);
-}
 
 // Partners — excluded from the client dashboard entirely
 const PARTNER_NAMES = new Set([
@@ -245,6 +211,7 @@ function InlineCurrencyInput({
   onSaved,
   placeholder = '--',
   className = '',
+  extraPatchFields,
 }: {
   clientId: string;
   field: string;
@@ -252,6 +219,7 @@ function InlineCurrencyInput({
   onSaved: (clientId: string, field: string, val: string) => void;
   placeholder?: string;
   className?: string;
+  extraPatchFields?: Record<string, unknown>;
 }) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
@@ -276,7 +244,7 @@ function InlineCurrencyInput({
       const res = await fetch('/api/clients', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: clientId, [field]: numValue }),
+        body: JSON.stringify({ id: clientId, [field]: numValue, ...extraPatchFields }),
       });
       if (res.ok) {
         onSaved(clientId, field, numValue as unknown as string);
@@ -728,9 +696,31 @@ export default function ClientTable() {
   }, []);
 
   const handleFieldSaved = useCallback((clientId: string, field: string, value: string) => {
-    setClients(prev => prev.map(c =>
-      c.id === clientId ? { ...c, [field]: value } : c
-    ));
+    setClients(prev => prev.map(c => {
+      if (c.id !== clientId) return c;
+      const updated = { ...c, [field]: value };
+      // When user manually edits revenue, also set revenue_override
+      if (field === 'monthly_revenue' && value != null) {
+        updated.revenue_override = true;
+      }
+      return updated;
+    }));
+  }, []);
+
+  /** Reset revenue override — clears manual value and lets fee_config recalculate */
+  const handleResetRevenue = useCallback(async (clientId: string) => {
+    try {
+      const res = await fetch('/api/clients', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: clientId, revenue_override: false, monthly_revenue: null }),
+      });
+      if (res.ok) {
+        setClients(prev => prev.map(c =>
+          c.id === clientId ? { ...c, revenue_override: false, monthly_revenue: null } : c
+        ));
+      }
+    } catch { /* ignore */ }
   }, []);
 
   // Cooldown timer
@@ -894,45 +884,53 @@ export default function ClientTable() {
     });
   }, [clients, selectedPlatform, selectedManager, selectedPriority]);
 
-  // Revenue per client: use monthly_revenue if set, otherwise fall back to fee tier formula
+  // ── Per-row revenue calculation using fee_config + live spend ────────
+  // Returns { value: number | null, source: 'override' | 'calculated' | 'none' } keyed by row id
+  const calculatedRevenue = useMemo(() => {
+    const result: Record<string, { value: number | null; source: 'override' | 'calculated' | 'none' }> = {};
+
+    // Pre-compute total live spend per client_name (needed for "fixed" and "tiered" scope "total")
+    const totalSpendByClient: Record<string, number> = {};
+    for (const c of clients) {
+      const spend = c.ad_account_id ? (liveData[c.ad_account_id]?.spend ?? 0) : 0;
+      totalSpendByClient[c.client_name] = (totalSpendByClient[c.client_name] ?? 0) + spend;
+    }
+
+    for (const c of clients) {
+      // 1. If revenue_override is true, use monthly_revenue as-is
+      if (c.revenue_override && c.monthly_revenue != null) {
+        result[c.id] = { value: c.monthly_revenue, source: 'override' };
+        continue;
+      }
+
+      // 2. If fee_config exists and we have live spend, calculate
+      if (c.fee_config && c.ad_account_id && liveData[c.ad_account_id]) {
+        const live = liveData[c.ad_account_id];
+        if (!live.error) {
+          const thisPlatformSpend = live.spend;
+          const totalClientSpend = totalSpendByClient[c.client_name] ?? thisPlatformSpend;
+          const fee = calculatePlatformRevenue(c.fee_config, thisPlatformSpend, totalClientSpend);
+          result[c.id] = { value: fee, source: 'calculated' };
+          continue;
+        }
+      }
+
+      // 3. No fee_config or no live data — show nothing
+      result[c.id] = { value: null, source: 'none' };
+    }
+
+    return result;
+  }, [clients, liveData]);
+
+  // Aggregate revenue per client name for summary stats and sorting
   const clientRevenue = useMemo(() => {
     const revenueMap: Record<string, number> = {};
-    const budgetsByClient: Record<string, { total: number; platforms: number; manualRevenue: number; hasManual: boolean }> = {};
     for (const c of clients) {
-      if (!budgetsByClient[c.client_name]) {
-        budgetsByClient[c.client_name] = { total: 0, platforms: 0, manualRevenue: 0, hasManual: false };
-      }
-      budgetsByClient[c.client_name].total += Number(c.monthly_budget ?? 0);
-      budgetsByClient[c.client_name].platforms += 1;
-      if (c.monthly_revenue != null) {
-        budgetsByClient[c.client_name].manualRevenue += Number(c.monthly_revenue);
-        budgetsByClient[c.client_name].hasManual = true;
-      }
-    }
-    for (const [name, data] of Object.entries(budgetsByClient)) {
-      revenueMap[name] = data.hasManual
-        ? data.manualRevenue
-        : (data.total > 0 ? calcExpectedFee(data.total, data.platforms) : 0);
+      const rev = calculatedRevenue[c.id]?.value ?? 0;
+      revenueMap[c.client_name] = (revenueMap[c.client_name] ?? 0) + rev;
     }
     return revenueMap;
-  }, [clients]);
-
-
-  // Track which clients have confirmed vs estimated revenue
-  const isEstimatedRevenue = useMemo(() => {
-    const estimatedMap: Record<string, boolean> = {};
-    const seen: Record<string, boolean> = {};
-    for (const c of clients) {
-      if (!seen[c.client_name]) {
-        seen[c.client_name] = true;
-        estimatedMap[c.client_name] = true; // assume estimated
-      }
-      if (c.monthly_revenue != null) {
-        estimatedMap[c.client_name] = false; // confirmed
-      }
-    }
-    return estimatedMap;
-  }, [clients]);
+  }, [clients, calculatedRevenue]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -1281,51 +1279,99 @@ export default function ClientTable() {
                             )}
                           </div>
                         </td>
-                        {/* Est. Revenue — editable per row via monthly_revenue */}
-                        <td className={`py-4 px-6 text-right text-sm font-medium ${
-                          isEstimatedRevenue[client.client_name] ? 'text-red-500' : 'text-emerald-700'
-                        }`} onClick={(e) => e.stopPropagation()}>
-                          {isFirstInGroup ? (
-                            <InlineCurrencyInput
-                              clientId={client.id}
-                              field="monthly_revenue"
-                              value={client.monthly_revenue}
-                              onSaved={handleFieldSaved}
-                              placeholder={
-                                clientRevenue[client.client_name] != null
-                                  ? `~${formatCurrency(clientRevenue[client.client_name])}`
-                                  : '--'
-                              }
-                              className={isEstimatedRevenue[client.client_name] ? 'text-red-500' : 'text-emerald-700'}
-                            />
-                          ) : null}
+                        {/* Est. Revenue — per-row, calculated from fee_config + live spend */}
+                        <td className="py-4 px-6 text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
+                          {(() => {
+                            const rev = calculatedRevenue[client.id];
+                            if (!rev) return <span className="text-slate-300">--</span>;
+
+                            const feeTooltip = client.fee_config ? describeFeeConfig(client.fee_config) : undefined;
+
+                            // Override: show manual value with reset button
+                            if (rev.source === 'override') {
+                              return (
+                                <div className="inline-flex items-center gap-1" title={feeTooltip}>
+                                  <InlineCurrencyInput
+                                    clientId={client.id}
+                                    field="monthly_revenue"
+                                    value={client.monthly_revenue}
+                                    onSaved={handleFieldSaved}
+                                    extraPatchFields={{ revenue_override: true }}
+                                    className="text-amber-600"
+                                  />
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleResetRevenue(client.id); }}
+                                    className="text-slate-300 hover:text-red-500 transition-colors flex-shrink-0"
+                                    title="Reset to calculated value"
+                                  >
+                                    <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
+                                      <path d="M2.5 1a.5.5 0 0 1 .5.5V4h2.5a.5.5 0 0 1 0 1H2.5a.5.5 0 0 1-.5-.5v-3a.5.5 0 0 1 .5-.5zM4.54 3.827a4.5 4.5 0 1 1-.724 6.28.5.5 0 1 1 .748-.662A3.5 3.5 0 1 0 4.5 4.5H4.54l-.01-.673z" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              );
+                            }
+
+                            // Calculated from fee_config — show as placeholder, editing creates an override
+                            if (rev.source === 'calculated' && rev.value != null) {
+                              return (
+                                <div title={feeTooltip}>
+                                  <InlineCurrencyInput
+                                    clientId={client.id}
+                                    field="monthly_revenue"
+                                    value={null}
+                                    onSaved={handleFieldSaved}
+                                    extraPatchFields={{ revenue_override: true }}
+                                    placeholder={formatCurrency(rev.value)}
+                                    className="text-emerald-700"
+                                  />
+                                </div>
+                              );
+                            }
+
+                            // No fee_config — show editable placeholder
+                            return (
+                              <InlineCurrencyInput
+                                clientId={client.id}
+                                field="monthly_revenue"
+                                value={client.monthly_revenue}
+                                onSaved={handleFieldSaved}
+                                extraPatchFields={{ revenue_override: true }}
+                                placeholder="--"
+                                className="text-red-500"
+                              />
+                            );
+                          })()}
                         </td>
-                        {/* Proj. Cost — operator hourly_rate x estimated hours for this client */}
+                        {/* Proj. Cost — per-row */}
                         <td className="py-4 px-6 text-right text-sm font-medium text-slate-500">
-                          {isFirstInGroup ? (() => {
+                          {(() => {
                             const prof = profitability?.clients[client.client_name];
                             if (!prof || prof.operator_cost === 0) {
                               return <span className="text-slate-300">--</span>;
                             }
-                            const costStr = prof.operator_cost >= 1000
-                              ? `$${(prof.operator_cost / 1000).toFixed(1).replace(/\.0$/, '')}K`
-                              : `$${Math.round(prof.operator_cost)}`;
+                            // Split cost proportionally across platform rows for the same client
+                            const groupRows = group.rows.length;
+                            const rowCost = prof.operator_cost / groupRows;
+                            const costStr = rowCost >= 1000
+                              ? `$${(rowCost / 1000).toFixed(1).replace(/\.0$/, '')}K`
+                              : `$${Math.round(rowCost)}`;
                             return (
-                              <div title={`Cost: ${formatCurrency(prof.operator_cost)} | Profit: ${formatCurrency(prof.profit)} | Margin: ${prof.margin_pct}%`}>
+                              <div title={`Cost: ${formatCurrency(rowCost)} | Total client cost: ${formatCurrency(prof.operator_cost)} | Margin: ${prof.margin_pct}%`}>
                                 <span className="text-slate-700">{costStr}</span>
                               </div>
                             );
-                          })() : null}
+                          })()}
                         </td>
+                        {/* Priority — per-row */}
                         <td className="py-4 px-6" onClick={(e) => e.stopPropagation()}>
-                          {isFirstInGroup ? (
-                            <InlinePrioritySelect
-                              clientId={client.id}
-                              value={client.priority}
-                              onSaved={handleFieldSaved}
-                            />
-                          ) : null}
+                          <InlinePrioritySelect
+                            clientId={client.id}
+                            value={client.priority}
+                            onSaved={handleFieldSaved}
+                          />
                         </td>
+                        {/* Manager — grouped (first row only) */}
                         <td className="py-4 px-6 text-sm text-slate-600" onClick={(e) => e.stopPropagation()}>
                           {isFirstInGroup ? (
                             <InlineTableSelect
