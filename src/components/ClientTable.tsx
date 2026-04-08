@@ -670,10 +670,10 @@ export default function ClientTable() {
   // Last contact data per client
   const [lastContact, setLastContact] = useState<Record<string, { last_contact_date: string; days_ago: number; source: string }>>({});
 
-  // Per-client profitability data
-  const [profitability, setProfitability] = useState<{
-    clients: Record<string, { revenue: number; operator_cost: number; profit: number; margin_pct: number }>;
-    totals: { revenue: number; operator_cost: number; profit: number; margin_pct: number };
+  // Operator cost data from API (revenue/profit computed client-side)
+  const [operatorCosts, setOperatorCosts] = useState<{
+    clients: Record<string, { operator_cost: number }>;
+    totals: { operator_cost: number };
   } | null>(null);
 
   useEffect(() => {
@@ -690,7 +690,7 @@ export default function ClientTable() {
     fetch('/api/clients/profitability')
       .then(res => res.json())
       .then(data => {
-        if (data && !data.error && data.clients) setProfitability(data);
+        if (data && !data.error && data.clients) setOperatorCosts(data);
       })
       .catch(() => {});
   }, []);
@@ -999,10 +999,14 @@ export default function ClientTable() {
     const uniqueClients = new Set(filtered.map(c => c.client_name)).size;
     const googleCount = filtered.filter(c => c.platform === 'google').length;
     const metaCount = filtered.filter(c => c.platform === 'meta').length;
-    const totalEstRevenue = [...new Set(filtered.map(c => c.client_name))]
-      .reduce((sum, name) => sum + (clientRevenue[name] ?? 0), 0);
-    return { uniqueClients, googleCount, metaCount, total: filtered.length, totalEstRevenue };
-  }, [filtered, clientRevenue]);
+    const totalEstRevenue = filtered.reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
+    const googleRevenue = filtered.filter(c => c.platform === 'google').reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
+    const metaRevenue = filtered.filter(c => c.platform === 'meta').reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
+    const totalOperatorCost = operatorCosts?.totals.operator_cost ?? 0;
+    const profit = totalEstRevenue - totalOperatorCost;
+    const marginPct = totalEstRevenue > 0 ? Math.round((profit / totalEstRevenue) * 10000) / 100 : 0;
+    return { uniqueClients, googleCount, metaCount, total: filtered.length, totalEstRevenue, googleRevenue, metaRevenue, totalOperatorCost, profit, marginPct };
+  }, [filtered, calculatedRevenue, operatorCosts]);
 
   // ── Render helpers ──────────────────────────────────────────────────
 
@@ -1070,51 +1074,39 @@ export default function ClientTable() {
   return (
     <div className="space-y-6">
       {/* Summary Stats */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-3 lg:grid-cols-6 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
           <p className="text-sm font-medium text-slate-500">Active Clients</p>
-          <p className="text-3xl font-bold text-slate-900 mt-1">{stats.uniqueClients}</p>
+          <p className="text-2xl font-bold text-slate-900 mt-1">{stats.uniqueClients}</p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
           <p className="text-sm font-medium text-slate-500">Est. Monthly Revenue</p>
-          <p className="text-3xl font-bold text-emerald-600 mt-1">{formatCurrency(stats.totalEstRevenue)}</p>
+          <p className="text-2xl font-bold text-emerald-600 mt-1">{formatCurrency(stats.totalEstRevenue)}</p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
           <p className="text-sm font-medium text-slate-500">Operator Costs</p>
-          <p className="text-3xl font-bold text-slate-700 mt-1">
-            {profitability ? formatCurrency(profitability.totals.operator_cost) : <span className="text-slate-300">--</span>}
+          <p className="text-2xl font-bold text-slate-700 mt-1">
+            {operatorCosts ? formatCurrency(stats.totalOperatorCost) : <span className="text-slate-300">--</span>}
           </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
           <p className="text-sm font-medium text-slate-500">Profit / Margin</p>
-          <p className={`text-3xl font-bold mt-1 ${
-            profitability
-              ? profitability.totals.margin_pct >= 30
-                ? 'text-emerald-600'
-                : profitability.totals.margin_pct >= 15
-                  ? 'text-amber-600'
-                  : 'text-red-600'
-              : 'text-slate-300'
+          <p className={`text-2xl font-bold mt-1 ${
+            stats.marginPct >= 30 ? 'text-emerald-600' : stats.marginPct >= 15 ? 'text-amber-600' : 'text-red-600'
           }`}>
-            {profitability ? (
-              <>
-                {formatCurrency(profitability.totals.profit)}
-                <span className="text-lg font-semibold ml-1.5">({profitability.totals.margin_pct}%)</span>
-              </>
-            ) : '--'}
+            {formatCurrency(stats.profit)}
+            <span className="text-sm font-semibold ml-1">({stats.marginPct}%)</span>
           </p>
         </div>
-      </div>
-
-      {/* Platform breakdown (compact) */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-white rounded-xl border border-slate-200 px-6 py-3 flex items-center justify-between">
-          <p className="text-sm font-medium text-slate-500">Google Ads Accounts</p>
-          <p className="text-xl font-bold text-emerald-600">{stats.googleCount}</p>
+        <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
+          <p className="text-sm font-medium text-slate-500">Google Revenue</p>
+          <p className="text-2xl font-bold text-emerald-600 mt-1">{formatCurrency(stats.googleRevenue)}</p>
+          <p className="text-xs text-slate-400 mt-0.5">{stats.googleCount} accounts</p>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 px-6 py-3 flex items-center justify-between">
-          <p className="text-sm font-medium text-slate-500">Meta Ads Accounts</p>
-          <p className="text-xl font-bold text-blue-600">{stats.metaCount}</p>
+        <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
+          <p className="text-sm font-medium text-slate-500">Meta Revenue</p>
+          <p className="text-2xl font-bold text-blue-600 mt-1">{formatCurrency(stats.metaRevenue)}</p>
+          <p className="text-xs text-slate-400 mt-0.5">{stats.metaCount} accounts</p>
         </div>
       </div>
 
@@ -1305,18 +1297,19 @@ export default function ClientTable() {
                         {/* Proj. Cost — per-row */}
                         <td className="py-4 px-6 text-right text-sm font-medium text-slate-500">
                           {(() => {
-                            const prof = profitability?.clients[client.client_name];
-                            if (!prof || prof.operator_cost === 0) {
+                            const costs = operatorCosts?.clients[client.client_name];
+                            if (!costs || costs.operator_cost === 0) {
                               return <span className="text-slate-300">--</span>;
                             }
-                            // Split cost proportionally across platform rows for the same client
                             const groupRows = group.rows.length;
-                            const rowCost = prof.operator_cost / groupRows;
+                            const rowCost = costs.operator_cost / groupRows;
+                            const rowRevenue = calculatedRevenue[client.id]?.value ?? 0;
+                            const rowProfit = rowRevenue - rowCost;
                             const costStr = rowCost >= 1000
                               ? `$${(rowCost / 1000).toFixed(1).replace(/\.0$/, '')}K`
                               : `$${Math.round(rowCost)}`;
                             return (
-                              <div title={`Cost: ${formatCurrency(rowCost)} | Total client cost: ${formatCurrency(prof.operator_cost)} | Margin: ${prof.margin_pct}%`}>
+                              <div title={`Cost: ${formatCurrency(rowCost)} | Profit: ${formatCurrency(rowProfit)}`}>
                                 <span className="text-slate-700">{costStr}</span>
                               </div>
                             );

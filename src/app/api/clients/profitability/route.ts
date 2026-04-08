@@ -24,43 +24,6 @@
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 
-interface ClientProfitability {
-  revenue: number;
-  operator_cost: number;
-  profit: number;
-  margin_pct: number;
-}
-
-// Fee tier calculator — mirrors the one in ClientTable.tsx
-function calcExpectedFee(totalAdSpend: number, platformCount: number): number {
-  if (totalAdSpend <= 0) return 0;
-
-  let fee = 0;
-  let remaining = totalAdSpend;
-
-  const t1 = Math.min(remaining, 15000);
-  fee += t1 * 0.20;
-  remaining -= t1;
-
-  if (remaining > 0) {
-    const t2 = Math.min(remaining, 15000);
-    fee += t2 * 0.15;
-    remaining -= t2;
-  }
-
-  if (remaining > 0) {
-    const t3 = Math.min(remaining, 15000);
-    fee += t3 * 0.10;
-    remaining -= t3;
-  }
-
-  if (remaining > 0) {
-    fee += remaining * 0.05;
-  }
-
-  const minimum = platformCount >= 2 ? 2000 : 1000;
-  return Math.max(fee, minimum);
-}
 
 export async function GET() {
   try {
@@ -113,99 +76,47 @@ export async function GET() {
       }
     }
 
-    // Aggregate client data: revenue per client_name, and which operators serve them
-    // Also count how many clients each operator serves
-    const clientData: Record<string, {
-      totalRevenue: number;
-      totalBudget: number;
-      platformCount: number;
-      hasManualRevenue: boolean;
-      operators: Set<string>;
-    }> = {};
-
+    // Aggregate operators per client
+    const clientOperators: Record<string, Set<string>> = {};
     for (const row of clients) {
-      const name = row.client_name;
-      if (!clientData[name]) {
-        clientData[name] = {
-          totalRevenue: 0,
-          totalBudget: 0,
-          platformCount: 0,
-          hasManualRevenue: false,
-          operators: new Set(),
-        };
+      if (!clientOperators[row.client_name]) {
+        clientOperators[row.client_name] = new Set();
       }
-
-      clientData[name].platformCount += 1;
-      clientData[name].totalBudget += Number(row.monthly_budget ?? 0);
-
-      if (row.monthly_revenue != null) {
-        clientData[name].totalRevenue += Number(row.monthly_revenue);
-        clientData[name].hasManualRevenue = true;
-      }
-
       if (row.platform_operator) {
-        clientData[name].operators.add(row.platform_operator);
+        clientOperators[row.client_name].add(row.platform_operator);
       }
     }
 
     // Count how many unique clients each operator serves
     const operatorClientCount: Record<string, number> = {};
-    for (const data of Object.values(clientData)) {
-      for (const op of data.operators) {
+    for (const ops of Object.values(clientOperators)) {
+      for (const op of ops) {
         operatorClientCount[op] = (operatorClientCount[op] ?? 0) + 1;
       }
     }
 
-    // Calculate profitability per client
-    const result: Record<string, ClientProfitability> = {};
-    let totalRevenue = 0;
+    // Calculate operator cost per client (revenue computed client-side from fee_config)
+    const result: Record<string, { operator_cost: number }> = {};
     let totalCost = 0;
 
-    for (const [clientName, data] of Object.entries(clientData)) {
-      // Revenue: use manual if available, otherwise fee tier formula
-      const revenue = data.hasManualRevenue
-        ? data.totalRevenue
-        : (data.totalBudget > 0 ? calcExpectedFee(data.totalBudget, data.platformCount) : 0);
-
-      // Operator cost: sum across all operators serving this client
+    for (const [clientName, ops] of Object.entries(clientOperators)) {
       let operatorCost = 0;
-      for (const opName of data.operators) {
+      for (const opName of ops) {
         const op = operatorMap[opName];
         if (op && operatorClientCount[opName] > 0) {
           const hoursForClient = op.estimated_hours / operatorClientCount[opName];
           operatorCost += hoursForClient * op.hourly_rate;
         }
       }
-
       operatorCost = Math.round(operatorCost * 100) / 100;
-      const profit = Math.round((revenue - operatorCost) * 100) / 100;
-      const marginPct = revenue > 0
-        ? Math.round((profit / revenue) * 10000) / 100
-        : 0;
-
-      result[clientName] = {
-        revenue: Math.round(revenue * 100) / 100,
-        operator_cost: operatorCost,
-        profit,
-        margin_pct: marginPct,
-      };
-
-      totalRevenue += revenue;
+      result[clientName] = { operator_cost: operatorCost };
       totalCost += operatorCost;
     }
-
-    const totalProfit = Math.round((totalRevenue - totalCost) * 100) / 100;
-    const avgMargin = totalRevenue > 0
-      ? Math.round((totalProfit / totalRevenue) * 10000) / 100
-      : 0;
 
     return NextResponse.json({
       clients: result,
       totals: {
-        revenue: Math.round(totalRevenue * 100) / 100,
         operator_cost: Math.round(totalCost * 100) / 100,
-        profit: totalProfit,
-        margin_pct: avgMargin,
       },
     });
   } catch (err) {
