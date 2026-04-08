@@ -11,6 +11,7 @@ export default function ReportLinkWidget({ clientId, reportToken }: ReportLinkWi
   const [token, setToken] = useState(reportToken);
   const [copied, setCopied] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fullUrl = typeof window !== 'undefined'
     ? `${window.location.origin}/report/${token}`
@@ -37,6 +38,7 @@ export default function ReportLinkWidget({ clientId, reportToken }: ReportLinkWi
   const handleRegenerate = async () => {
     if (!confirm('Regenerate this report link? The old link will stop working.')) return;
     setRegenerating(true);
+    setError(null);
     try {
       const newToken = crypto.randomUUID();
       const res = await fetch('/api/clients', {
@@ -46,13 +48,20 @@ export default function ReportLinkWidget({ clientId, reportToken }: ReportLinkWi
       });
       if (res.ok) {
         setToken(newToken);
+      } else {
+        setError(res.status === 401 ? 'Session expired — refresh the page' : 'Failed to regenerate');
+        setTimeout(() => setError(null), 5000);
       }
-    } catch { /* ignore */ }
+    } catch {
+      setError('Network error — try again');
+      setTimeout(() => setError(null), 5000);
+    }
     setRegenerating(false);
   };
 
   return (
     <div className="flex items-center gap-3 bg-slate-50 rounded-lg px-4 py-2 border border-slate-200">
+      {error && <span className="text-xs font-medium text-red-500 shrink-0">{error}</span>}
       <span className="text-xs font-medium text-slate-500 shrink-0">Report URL:</span>
       <code className="text-xs text-slate-600 truncate flex-1">{fullUrl}</code>
       <button

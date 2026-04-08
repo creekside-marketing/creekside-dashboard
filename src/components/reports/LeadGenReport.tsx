@@ -228,6 +228,7 @@ export default function LeadGenReport({
             costPerConversion: calcChange(cpl, pCpl),
             convRate: calcChange(convRate, pConvRate),
             cpc: calcChange(t.cpc, pt.cpc),
+            conversions: calcChange(t.conversions, pt.conversions),
           });
         } catch { setKpiChanges(null); }
       }
@@ -372,8 +373,8 @@ export default function LeadGenReport({
             <KpiCard
               label="Conversions"
               value={fmt(totals.conversions)}
-              change={kpiChanges?.costPerConversion.pct}
-              changeDirection={kpiChanges?.costPerConversion.direction}
+              change={kpiChanges?.conversions.pct}
+              changeDirection={kpiChanges?.conversions.direction}
               changeSentiment="positive-up"
               size="sm"
             />

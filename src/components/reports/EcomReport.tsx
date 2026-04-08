@@ -481,11 +481,13 @@ export default function EcomReport({
                 { key: 'cpp', label: 'CPP', align: 'right', format: nullMoney },
               ]}
               data={adsData.map((row) => {
-                const actions = ((row as Record<string, unknown>).actions ?? []) as Array<{ action_type: string; value: string }>;
+                const r = row as Record<string, unknown>;
+                const actions = (r.actions ?? []) as Array<{ action_type: string; value: string }>;
                 const purchases = getActionValue(actions, 'offsite_conversion.fb_pixel_purchase');
-                const spend = Number((row as Record<string, unknown>).spend ?? 0);
+                const spend = Number(r.spend ?? 0);
                 return {
                   ...row,
+                  ad_name: r.ad_name ?? r.name ?? 'Unknown Ad',
                   purchases,
                   cpp: purchases > 0 ? spend / purchases : 0,
                 };

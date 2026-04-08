@@ -19,6 +19,10 @@ export async function GET(request: NextRequest) {
     const until = searchParams.get('until');
     const level = searchParams.get('level') || 'account';
 
+    // Validate date inputs
+    const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+    const hasValidDates = since && until && datePattern.test(since) && datePattern.test(until);
+
     // Map breakdown levels to PipeBoard params
     const breakdownLevels: Record<string, { pipeboardLevel: string; breakdowns: string }> = {
       age: { pipeboardLevel: 'account', breakdowns: 'age' },
@@ -38,9 +42,11 @@ export async function GET(request: NextRequest) {
       pipeboardArgs.breakdowns = breakdownConfig.breakdowns;
     }
 
-    if (since && until) {
-      // Use explicit date range (YYYY-MM-DD format)
+    if (hasValidDates) {
       pipeboardArgs.time_range = { since, until };
+    } else if (since || until) {
+      // One date provided but invalid — ignore and use preset
+      pipeboardArgs.time_range = time_range;
     } else {
       pipeboardArgs.time_range = time_range;
     }
