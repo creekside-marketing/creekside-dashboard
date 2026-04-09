@@ -235,11 +235,11 @@ export default function EcomMetaReport({
       const aid = encodeURIComponent(client.ad_account_id);
       const tr = range.metaParam;
 
-      const campaignUrl = `/api/meta/insights?account_id=${aid}&level=campaign&time_range=${tr}`;
-      const accountUrl = `/api/meta/insights?account_id=${aid}&level=account&time_range=${tr}&time_increment=1`;
-      const adUrl = `/api/meta/insights?account_id=${aid}&level=ad&time_range=${tr}`;
-
       const periods = computePriorPeriod(dateRangeIndex);
+
+      const campaignUrl = `/api/meta/insights?account_id=${aid}&level=campaign&time_range=${tr}`;
+      const accountUrl = `/api/meta/insights?account_id=${aid}&level=account&since=${periods.currentSince}&until=${periods.currentUntil}&time_increment=1`;
+      const adUrl = `/api/meta/insights?account_id=${aid}&level=ad&time_range=${tr}`;
       const priorCampaignUrl = `/api/meta/insights?account_id=${aid}&level=campaign&since=${periods.priorSince}&until=${periods.priorUntil}`;
 
       const [campaignRes, accountRes, priorRes, adRes] = await Promise.all([

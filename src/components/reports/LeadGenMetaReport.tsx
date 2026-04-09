@@ -19,7 +19,7 @@ import ReportHeader, {
 import ReportChart from './ReportChart';
 import BreakdownTable from './BreakdownTable';
 import ReportNotes from './ReportNotes';
-import { SparklineKpiCard, InsightsBlock } from './shared';
+import { SparklineKpiCard } from './shared';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -39,7 +39,6 @@ interface DailyRow {
   date: string; impressions: number; linkClicks: number; spend: number;
   leads: number; reach: number; frequency: number; cpm: number; cpl: number; lctr: number;
 }
-type Insight = { type: 'win' | 'concern' | 'action'; text: string };
 type MetaAction = { action_type: string; value: string };
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -99,22 +98,6 @@ function parseDailyRows(rows: any[]): DailyRow[] {
   }).sort((a, b) => a.date.localeCompare(b.date));
 }
 
-function buildInsights(t: Omit<LeadGenRow, 'name'>, p: Omit<LeadGenRow, 'name'> | null): Insight[] {
-  const out: Insight[] = [];
-  if (!p) return out;
-  if (p.cpl > 0 && t.cpl < p.cpl)
-    out.push({ type: 'win', text: `Cost per lead decreased ${(((p.cpl - t.cpl) / p.cpl) * 100).toFixed(1)}% vs. prior period.` });
-  if (p.leads > 0 && t.leads > p.leads)
-    out.push({ type: 'win', text: `Lead volume increased ${(((t.leads - p.leads) / p.leads) * 100).toFixed(1)}% vs. prior period.` });
-  if (t.frequency > 3.0)
-    out.push({ type: 'concern', text: `Frequency is ${t.frequency.toFixed(1)} (above 3.0) — audiences may be experiencing creative fatigue.` });
-  const cpmDelta = p.cpm > 0 ? ((t.cpm - p.cpm) / p.cpm) * 100 : 0;
-  if (cpmDelta > 20)
-    out.push({ type: 'concern', text: `CPM increased ${cpmDelta.toFixed(1)}% vs. prior period — possible audience saturation.` });
-  if (t.frequency > 3.0 || cpmDelta > 20)
-    out.push({ type: 'action', text: 'Consider refreshing creatives or expanding audience targeting to reduce frequency and CPM pressure.' });
-  return out;
-}
 
 const COOLDOWN_MS = 5 * 60 * 1000;
 const ZERO: Omit<LeadGenRow, 'name'> = { impressions: 0, linkClicks: 0, spend: 0, leads: 0, reach: 0, frequency: 0, cpm: 0, cpl: 0, lctr: 0 };
@@ -127,8 +110,6 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
   const [priorTotals, setPriorTotals] = useState<Omit<LeadGenRow, 'name'> | null>(null);
   const [dailyData, setDailyData] = useState<DailyRow[]>([]);
   const [adsData, setAdsData] = useState<Record<string, unknown>[]>([]);
-  const [ageData, setAgeData] = useState<Record<string, unknown>[]>([]);
-  const [genderData, setGenderData] = useState<Record<string, unknown>[]>([]);
   const [kpiChanges, setKpiChanges] = useState<Record<string, { pct: string; direction: 'up' | 'down' | 'flat' }> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -157,13 +138,11 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
       const tr = DATE_RANGES[dateRangeIndex].metaParam;
       const base = `/api/meta/insights?account_id=${aid}`;
       const periods = computePriorPeriod(dateRangeIndex);
-      const [campaignRes, accountRes, priorRes, adRes, ageRes, genderRes] = await Promise.all([
+      const [campaignRes, accountRes, priorRes, adRes] = await Promise.all([
         fetch(`${base}&level=campaign&time_range=${tr}`),
-        fetch(`${base}&level=account&time_range=${tr}&time_increment=1`),
+        fetch(`${base}&level=account&since=${periods.currentSince}&until=${periods.currentUntil}&time_increment=1`),
         fetch(`${base}&level=campaign&since=${periods.priorSince}&until=${periods.priorUntil}`),
         fetch(`${base}&level=ad&time_range=${tr}`).catch(() => null),
-        fetch(`${base}&level=age&time_range=${tr}`).catch(() => null),
-        fetch(`${base}&level=gender&time_range=${tr}`).catch(() => null),
       ]);
       if (!campaignRes.ok) { const b = await campaignRes.json().catch(() => ({})); throw new Error(b.error || `HTTP ${campaignRes.status}`); }
 
@@ -197,7 +176,7 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
           return Array.isArray(j.data) ? j.data : (Array.isArray(j) ? j : []);
         } catch { return []; }
       };
-      setAdsData(await parseBd(adRes)); setAgeData(await parseBd(ageRes)); setGenderData(await parseBd(genderRes));
+      setAdsData(await parseBd(adRes));
       setLastRefreshed(new Date()); startCooldown();
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed to fetch data'); }
     finally { setLoading(false); }
@@ -217,11 +196,6 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
   const pctCol = (v: unknown) => fmtPct(Number(v ?? 0));
   const numCol = (v: unknown) => fmt(Number(v ?? 0));
   const nullMoney = (v: unknown) => { const n = Number(v ?? 0); return n > 0 ? fmtMoney(n) : '--'; };
-  const insights = buildInsights(totals, priorTotals);
-  const demoMap = (row: Record<string, unknown>) => {
-    const actions = (row.actions ?? []) as MetaAction[];
-    return { ...row, leads: getLeads(actions) };
-  };
 
   return (
     <div className="space-y-6">
@@ -320,26 +294,6 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
           })} />
         )}
 
-        {/* 10. Demographics */}
-        {(ageData.length > 0 || genderData.length > 0) && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {ageData.length > 0 && <BreakdownTable title="Age Overview" columns={[
-              { key: 'age', label: 'Age' }, { key: 'impressions', label: 'Impr.', align: 'right', format: numCol },
-              { key: 'inline_link_clicks', label: 'Clicks', align: 'right', format: numCol },
-              { key: 'spend', label: 'Spent', align: 'right', format: moneyCol },
-              { key: 'leads', label: 'Leads', align: 'right', format: numCol },
-            ]} data={ageData.map(demoMap)} />}
-            {genderData.length > 0 && <BreakdownTable title="Gender Overview" columns={[
-              { key: 'gender', label: 'Gender' }, { key: 'impressions', label: 'Impr.', align: 'right', format: numCol },
-              { key: 'inline_link_clicks', label: 'Clicks', align: 'right', format: numCol },
-              { key: 'spend', label: 'Spent', align: 'right', format: moneyCol },
-              { key: 'leads', label: 'Leads', align: 'right', format: numCol },
-            ]} data={genderData.map(demoMap)} />}
-          </div>
-        )}
-
-        {/* 11. Insights */}
-        <InsightsBlock insights={insights} />
       </>)}
 
       {/* 12. Notes */}

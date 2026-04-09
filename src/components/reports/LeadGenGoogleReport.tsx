@@ -20,7 +20,6 @@ import BreakdownTable from './BreakdownTable';
 import ReportNotes from './ReportNotes';
 import {
   SparklineKpiCard,
-  InsightsBlock,
   DemographicChart,
 } from './shared';
 import { useGoogleAdsData, type Campaign, type Totals, type KpiChangeSet } from '@/hooks/useGoogleAdsData';
@@ -36,54 +35,12 @@ interface ReportingClient {
   client_report_notes: string | null;
 }
 
-type InsightEntry = { type: 'win' | 'concern' | 'action'; text: string };
-
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 const moneyCol = (v: unknown) => fmtMoney(Number(v ?? 0));
 const pctCol = (v: unknown) => fmtPct(Number(v ?? 0));
 const numCol = (v: unknown) => fmt(Number(v ?? 0));
 
-function generateInsights(
-  totals: Totals,
-  kpiChanges: KpiChangeSet | null,
-  campaigns: Campaign[],
-  budget: number | null,
-  spent: number,
-  daysElapsed: number,
-  daysInPeriod: number,
-): InsightEntry[] {
-  const insights: InsightEntry[] = [];
-  const cpl = totals.conversions > 0 ? totals.cost / totals.conversions : 0;
-
-  if (kpiChanges?.costPerConversion.direction === 'down' && kpiChanges.costPerConversion.pct !== '--') {
-    insights.push({ type: 'win', text: `Cost per lead decreased ${kpiChanges.costPerConversion.pct} vs. prior period.` });
-  }
-  if (kpiChanges?.conversions.direction === 'up' && kpiChanges.conversions.pct !== '--') {
-    insights.push({ type: 'win', text: `Lead volume increased ${kpiChanges.conversions.pct} vs. prior period (${fmt(totals.conversions)} total).` });
-  }
-  if (budget && daysInPeriod > 0) {
-    const expectedPct = daysElapsed / daysInPeriod;
-    const spentPct = spent / budget;
-    if (spentPct > expectedPct * 1.2) {
-      insights.push({ type: 'concern', text: `Spend is pacing ${((spentPct / expectedPct - 1) * 100).toFixed(0)}% above expected rate. Consider reducing daily budgets.` });
-    }
-  }
-  const zeroCampaigns = campaigns.filter((c) => {
-    const s = String(c.status ?? '').toLowerCase();
-    return (s === 'active' || s === 'enabled') && c.conversions === 0 && c.cost > 100;
-  });
-  if (zeroCampaigns.length > 0) {
-    const names = zeroCampaigns.slice(0, 3).map((c) => c.name).join(', ');
-    insights.push({ type: 'concern', text: `${zeroCampaigns.length} active campaign(s) have $100+ spend with 0 conversions: ${names}.` });
-  }
-  if (cpl > 0 && kpiChanges?.costPerConversion.direction === 'up') {
-    insights.push({ type: 'concern', text: `CPL rose to ${fmtMoney(cpl)} — review keyword bids and negative keyword list.` });
-  }
-  insights.push({ type: 'action', text: 'Review search term report for new negative keyword opportunities and bid adjustments in the next optimization cycle.' });
-
-  return insights;
-}
 
 /**
  * Merges separate age and gender API responses into AgeGenderRow format
@@ -162,11 +119,6 @@ export default function LeadGenGoogleReport({
   const targetCpl = client.monthly_budget && totals.conversions > 0
     ? client.monthly_budget / Math.max(totals.conversions * (30 / Math.max(daysElapsed, 1)), 1)
     : undefined;
-
-  const insights = generateInsights(
-    totals, kpiChanges, campaigns,
-    client.monthly_budget, totals.cost, daysElapsed, daysInPeriod,
-  );
 
   // ── Render ───────────────────────────────────────────────────────────
 
@@ -387,8 +339,6 @@ export default function LeadGenGoogleReport({
             />
           )}
 
-          {/* 12. Insights */}
-          <InsightsBlock insights={insights} />
         </>
       )}
 

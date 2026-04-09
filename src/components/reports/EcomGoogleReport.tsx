@@ -16,7 +16,7 @@ import ReportHeader, { DATE_RANGES, DEFAULT_RANGE_INDEX, computePriorPeriod, cal
 import ReportChart from './ReportChart';
 import BreakdownTable from './BreakdownTable';
 import ReportNotes from './ReportNotes';
-import { SparklineKpiCard, FunnelChart, InsightsBlock } from './shared';
+import { SparklineKpiCard, FunnelChart } from './shared';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -73,26 +73,6 @@ function computeTotals(campaigns: EcomCampaign[]): EcomTotals {
   t.cpa = t.conversions > 0 ? t.cost / t.conversions : 0;
   t.aov = t.conversions > 0 ? t.conversionValue / t.conversions : 0;
   return t;
-}
-
-// ── Insights generator ───────────────────────────────────────────────────
-
-function generateInsights(t: EcomTotals, pt: EcomTotals | null, campaigns: EcomCampaign[]) {
-  const out: { type: 'win' | 'concern' | 'action'; text: string }[] = [];
-  if (t.roas >= 4) out.push({ type: 'win', text: `Overall ROAS of ${t.roas.toFixed(2)}x exceeds the 4.0x target.` });
-  else if (t.roas > 0 && t.roas < 1) out.push({ type: 'concern', text: `Overall ROAS is ${t.roas.toFixed(2)}x — spending more than earning.` });
-  if (pt && pt.conversionValue > 0) {
-    const d = ((t.conversionValue - pt.conversionValue) / pt.conversionValue) * 100;
-    if (d > 5) out.push({ type: 'win', text: `Revenue up ${d.toFixed(1)}% vs. prior period.` });
-  }
-  if (pt && pt.cpc > 0) {
-    const d = ((t.cpc - pt.cpc) / pt.cpc) * 100;
-    if (d > 15) out.push({ type: 'concern', text: `CPC increased ${d.toFixed(1)}% vs. prior period — monitor auction competitiveness.` });
-  }
-  const bad = campaigns.filter((c) => c.cost > 0 && c.roas < 1);
-  if (bad.length > 0) out.push({ type: 'concern', text: `${bad.length} campaign(s) with ROAS < 1x: ${bad.slice(0, 3).map((c) => c.name).join(', ')}.` });
-  out.push({ type: 'action', text: 'Review keyword expansion opportunities and Shopping feed optimization for top-performing product categories.' });
-  return out;
 }
 
 const COOLDOWN_MS = 5 * 60 * 1000;
@@ -202,7 +182,6 @@ export default function EcomGoogleReport({ client, mode }: { client: ReportingCl
   useEffect(() => { fetchData(); return () => { if (cdRef.current) clearInterval(cdRef.current); }; }, [drIdx]);
 
   const onRangeChange = (i: number) => { if (i === drIdx) return; setDrIdx(i); setCooldown(0); if (cdRef.current) clearInterval(cdRef.current); };
-  const insights = generateInsights(totals, priorTotals, campaigns);
   return (
     <div className="space-y-6">
       <ReportHeader clientName={client.client_name} platform={client.platform} dateRangeIndex={drIdx} onDateRangeChange={onRangeChange} loading={loading} onRefresh={fetchData} lastRefreshed={lastRefreshed} cooldownRemaining={cooldown} />
@@ -286,8 +265,6 @@ export default function EcomGoogleReport({ client, mode }: { client: ReportingCl
           ]} />
         )}
 
-        {/* ── Insights ────────────────────────────────────────────────── */}
-        <InsightsBlock insights={insights} />
       </>)}
 
       {/* ── Notes ───────────────────────────────────────────────────────── */}
