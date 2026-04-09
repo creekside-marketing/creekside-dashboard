@@ -109,6 +109,7 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
   const [totals, setTotals] = useState(ZERO);
   const [dailyData, setDailyData] = useState<DailyRow[]>([]);
   const [adsData, setAdsData] = useState<Record<string, unknown>[]>([]);
+  const [adThumbnails, setAdThumbnails] = useState<Record<string, string>>({});
   const [kpiChanges, setKpiChanges] = useState<Record<string, { pct: string; direction: 'up' | 'down' | 'flat' }> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -184,7 +185,28 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
           return Array.isArray(j.data) ? j.data : (Array.isArray(j) ? j : []);
         } catch { return []; }
       };
-      setAdsData(await parseBd(adRes));
+      // Parse ads data into a local variable (used for both state and extracting IDs)
+      const parsedAds = await parseBd(adRes);
+      setAdsData(parsedAds);
+
+      // Fetch ad creative thumbnails using the ad IDs we just got
+      const creativesMap: Record<string, string> = {};
+      try {
+        const adIds = parsedAds
+          .map((row: Record<string, unknown>) => String(row.ad_id ?? row.id ?? ''))
+          .filter(Boolean);
+
+        if (adIds.length > 0) {
+          const creativesRes = await fetch(`/api/meta/creatives?ad_ids=${adIds.join(',')}`);
+          if (creativesRes.ok) {
+            const cJson = await creativesRes.json();
+            const thumbMap = cJson.data ?? {};
+            Object.assign(creativesMap, thumbMap);
+          }
+        }
+      } catch { /* optional — thumbnails are a nice-to-have */ }
+      setAdThumbnails(creativesMap);
+
       setLastRefreshed(new Date()); startCooldown();
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed to fetch data'); }
     finally { setLoading(false); }
@@ -285,22 +307,72 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
           { key: 'frequency', label: 'Freq.', align: 'right', format: (v: unknown) => Number(v ?? 0).toFixed(2) },
         ]} />
 
-        {/* 9. Ads Overview */}
-        {adsData.length > 0 && (
-          <BreakdownTable title="Ads Overview" maxRows={15} columns={[
-            { key: 'ad_name', label: 'Ad' },
-            { key: 'impressions', label: 'Impr.', align: 'right', format: numCol },
-            { key: 'inline_link_clicks', label: 'Clicks', align: 'right', format: numCol },
-            { key: 'spend', label: 'Spent', align: 'right', format: moneyCol },
-            { key: 'leads', label: 'Leads', align: 'right', format: numCol },
-            { key: 'cpl', label: 'CPL', align: 'right', format: nullMoney },
-          ]} data={adsData.map((row) => {
+        {/* 9. Ads Overview with Thumbnails */}
+        {adsData.length > 0 && (() => {
+          const processedAds = adsData.map((row) => {
             const r = row as Record<string, unknown>;
-            const leads = getLeads((r.actions ?? []) as MetaAction[]);
+            const actions = (r.actions ?? []) as MetaAction[];
+            const leads = getLeads(actions);
             const spend = Number(r.spend ?? 0);
-            return { ...row, ad_name: r.ad_name ?? r.name ?? 'Unknown Ad', leads, cpl: leads > 0 ? spend / leads : 0 };
-          }).sort((a, b) => Number(b.leads ?? 0) - Number(a.leads ?? 0))} />
-        )}
+            return {
+              adId: String(r.ad_id ?? r.id ?? ''),
+              adName: String(r.ad_name ?? r.name ?? 'Unknown Ad'),
+              impressions: Number(r.impressions ?? 0),
+              linkClicks: Number(r.inline_link_clicks ?? r.clicks ?? 0),
+              spend,
+              leads,
+              cpl: leads > 0 ? spend / leads : 0,
+            };
+          }).sort((a, b) => b.leads - a.leads).slice(0, 15);
+
+          return (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-6 py-3 border-b border-slate-200 bg-slate-50/50">
+                <h3 className="text-sm font-semibold text-slate-700">Ads Overview</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50/80">
+                      <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-left">Ad</th>
+                      <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-right">Impr.</th>
+                      <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-right">Clicks</th>
+                      <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-right">Spent</th>
+                      <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-right">Leads</th>
+                      <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-right">CPL</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {processedAds.map((ad, idx) => {
+                      const thumbUrl = adThumbnails[ad.adId];
+                      return (
+                        <tr key={idx} className="border-b border-slate-100 hover:bg-blue-50/50 transition-colors">
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-3">
+                              {thumbUrl ? (
+                                <img src={thumbUrl} alt="" className="w-10 h-10 rounded-md object-cover border border-slate-200 shrink-0" />
+                              ) : (
+                                <div className="w-10 h-10 rounded-md bg-slate-100 border border-slate-200 shrink-0 flex items-center justify-center">
+                                  <span className="text-slate-300 text-xs">No img</span>
+                                </div>
+                              )}
+                              <span className="text-sm font-medium text-slate-900 truncate max-w-[200px]">{ad.adName}</span>
+                            </div>
+                          </td>
+                          <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums">{fmt(ad.impressions)}</td>
+                          <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums">{fmt(ad.linkClicks)}</td>
+                          <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums">{fmtMoney(ad.spend)}</td>
+                          <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums">{fmt(ad.leads)}</td>
+                          <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums">{ad.leads > 0 ? fmtMoney(ad.cpl) : '--'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })()}
 
       </>)}
 

@@ -318,22 +318,23 @@ export default function EcomMetaReport({
         } catch { return []; }
       };
 
-      setAdsData(await parseBreakdown(adRes));
+      // Parse ads data into a local variable (used for both state and extracting IDs)
+      const parsedAds = await parseBreakdown(adRes);
+      setAdsData(parsedAds);
 
-      // Fetch ad creative thumbnails (nice-to-have, non-blocking)
+      // Fetch ad creative thumbnails using the ad IDs we just got
       const creativesMap: Record<string, string> = {};
       try {
-        const creativesRes = await fetch(`/api/meta/creatives?account_id=${aid}`);
-        if (creativesRes.ok) {
-          let cJson = await creativesRes.json();
-          cJson = unwrapPipeboardResponse(cJson);
-          const ads = cJson.data ?? cJson ?? [];
-          if (Array.isArray(ads)) {
-            for (const ad of ads) {
-              const id = ad.id ?? ad.ad_id;
-              const thumb = ad.creative?.thumbnail_url ?? ad.creative?.image_url ?? null;
-              if (id && thumb) creativesMap[String(id)] = thumb;
-            }
+        const adIds = parsedAds
+          .map((row: Record<string, unknown>) => String(row.ad_id ?? row.id ?? ''))
+          .filter(Boolean);
+
+        if (adIds.length > 0) {
+          const creativesRes = await fetch(`/api/meta/creatives?ad_ids=${adIds.join(',')}`);
+          if (creativesRes.ok) {
+            const cJson = await creativesRes.json();
+            const thumbMap = cJson.data ?? {};
+            Object.assign(creativesMap, thumbMap);
           }
         }
       } catch { /* optional — thumbnails are a nice-to-have */ }
