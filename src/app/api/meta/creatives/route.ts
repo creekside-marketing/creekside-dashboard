@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { callPipeboard } from '@/lib/pipeboard';
+import { unwrapPipeboardResponse } from '@/components/reports/ReportHeader';
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,10 +27,15 @@ export async function GET(request: NextRequest) {
     // Cap at 50 to avoid oversized requests
     const capped = adIds.slice(0, 50);
 
-    const result = await callPipeboard('bulk_get_ad_creatives', {
+    const rawResult = await callPipeboard('bulk_get_ad_creatives', {
       ad_ids: capped,
       limit: capped.length,
     });
+
+    // Unwrap MCP content envelope if present (PipeBoard wraps responses)
+    const result = (rawResult && typeof rawResult === 'object')
+      ? unwrapPipeboardResponse(rawResult as Record<string, unknown>)
+      : rawResult;
 
     // Build a map of ad_id → thumbnail URL
     const thumbnails: Record<string, string> = {};
