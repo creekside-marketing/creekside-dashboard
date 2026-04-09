@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
     const account_id = searchParams.get('account_id');
-    if (!account_id || account_id === 'null' || account_id.trim() === '') {
+    if (!account_id || account_id === 'null' || account_id === 'undefined' || account_id.trim() === '') {
       return NextResponse.json({ error: 'Invalid ad account ID' }, { status: 400 });
     }
 

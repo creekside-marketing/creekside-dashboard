@@ -193,7 +193,7 @@ export default function EcomMetaReport({
 }) {
   const [campaigns, setCampaigns] = useState<EcomCampaign[]>([]);
   const [totals, setTotals] = useState<EcomTotals>({ impressions: 0, linkClicks: 0, lctr: 0, spend: 0, atc: 0, checkouts: 0, purchases: 0, purchaseRevenue: 0, roas: 0, cpci: 0, cpp: 0, cpm: 0 });
-  const [priorTotals, setPriorTotals] = useState<EcomTotals | null>(null);
+  const [, setPriorTotals] = useState<EcomTotals | null>(null);
   const [dailyData, setDailyData] = useState<DailyRow[]>([]);
   const [adsData, setAdsData] = useState<Record<string, unknown>[]>([]);
   const [adThumbnails, setAdThumbnails] = useState<Record<string, string>>({});
@@ -313,7 +313,7 @@ export default function EcomMetaReport({
       setAdsData(await parseBreakdown(adRes));
 
       // Fetch ad creative thumbnails (nice-to-have, non-blocking)
-      let creativesMap: Record<string, string> = {};
+      const creativesMap: Record<string, string> = {};
       try {
         const creativesRes = await fetch(`/api/meta/creatives?account_id=${aid}`);
         if (creativesRes.ok) {
