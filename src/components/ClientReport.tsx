@@ -4,13 +4,6 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import KpiCard from './KpiCard';
 import CampaignsTable from './CampaignsTable';
 
-const PARTNER_NOTES: Record<string, string> = {
-  'Chris Ideson Meal Prep': 'via Bottle.com',
-  'Punch Drunk Chef Meal Prep': 'via Bottle.com',
-  'Unrefined Meal Prep': 'via Bottle.com',
-  'Tilly Mill Auto Center': 'via FirstUp Marketing',
-  'Polaris Dentistry': 'via FirstUp Marketing',
-};
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -931,9 +924,6 @@ export default function ClientReport({ client }: { client: ReportingClient }) {
         <div className="min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-3xl font-bold text-[var(--text-primary)]">{client.client_name}</h1>
-            {PARTNER_NOTES[client.client_name] && (
-              <span className="text-sm text-slate-400 font-normal">{PARTNER_NOTES[client.client_name]}</span>
-            )}
             <PlatformBadge platform={client.platform} />
           </div>
           <div className="flex items-center gap-4 mt-2 text-sm text-slate-500 flex-wrap">

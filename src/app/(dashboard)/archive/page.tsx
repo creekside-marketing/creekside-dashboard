@@ -30,13 +30,6 @@ type SortKey = 'client_name' | 'platform' | 'monthly_budget' | 'priority' | 'acc
 
 const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
-const PARTNER_NOTES: Record<string, string> = {
-  'Chris Ideson Meal Prep': 'via Bottle.com',
-  'Punch Drunk Chef Meal Prep': 'via Bottle.com',
-  'Unrefined Meal Prep': 'via Bottle.com',
-  'Tilly Mill Auto Center': 'via FirstUp Marketing',
-  'Polaris Dentistry': 'via FirstUp Marketing',
-};
 
 function formatCurrency(value: number): string {
   return `$${value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -379,9 +372,6 @@ export default function ArchivePage() {
                               <span className="text-sm font-semibold text-slate-900">{client.client_name}</span>
                               {(client.contact_name as string) && (
                                 <span className="block text-xs text-slate-400 font-normal mt-0.5">{client.contact_name as string}</span>
-                              )}
-                              {PARTNER_NOTES[client.client_name] && (
-                                <span className="block text-[11px] text-slate-400 font-normal mt-0.5">{PARTNER_NOTES[client.client_name]}</span>
                               )}
                             </div>
                           ) : null}

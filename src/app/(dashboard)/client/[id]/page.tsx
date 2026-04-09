@@ -38,7 +38,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
     .from('reporting_clients')
     .select('*')
     .eq('id', id)
-    .single();
+    .maybeSingle();
 
   if (!client) {
     notFound();

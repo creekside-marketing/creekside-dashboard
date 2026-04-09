@@ -34,7 +34,8 @@ export async function GET() {
       supabase
         .from('reporting_clients')
         .select('client_name, monthly_revenue, monthly_budget, platform_operator, status')
-        .neq('status', 'churned'),
+        .eq('status', 'active')
+        .not('client_name', 'in', '("Bottle.com","Comet Fuel","FirstUp Marketing","Full Circle Media","Suff Digital")'),
       supabase
         .from('team_members')
         .select('name, role, hourly_rate, estimated_hours_per_month, status')
