@@ -473,7 +473,8 @@ function InlineGoalEditor({
         <select
           value={type}
           onChange={(e) => setType(e.target.value)}
-          className="text-sm border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)] focus:border-transparent"
+          style={{ color: '#1e293b', backgroundColor: '#ffffff' }}
+          className="text-sm border border-slate-300 rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)] focus:border-transparent"
         >
           {GOAL_TYPES.map(g => (
             <option key={g.value} value={g.value}>{g.label}</option>
@@ -491,7 +492,8 @@ function InlineGoalEditor({
           }}
           disabled={saving}
           placeholder="0"
-          className="w-20 px-2 py-1.5 text-sm border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)] focus:border-transparent text-right tabular-nums"
+          style={{ color: '#1e293b', backgroundColor: '#ffffff' }}
+          className="w-20 px-2 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)] focus:border-transparent text-right tabular-nums"
         />
         <button
           onClick={handleSave}
@@ -1578,7 +1580,8 @@ export default function ClientTable() {
                             } else if (goalType === 'cpl' || goalType === 'cpa') {
                               currentValue = live.costPerConversion;
                             } else if (goalType === 'roas') {
-                              currentValue = live.roas ?? null;
+                              // Use roas from bulk response if available, otherwise calculate from conversion value
+                              currentValue = live.roas ?? (live.spend > 0 && live.conversions > 0 ? (live as Record<string, unknown>).conversionValue as number / live.spend : null) ?? null;
                             } else if (goalType === 'spend') {
                               currentValue = live.spend;
                             }
@@ -1586,14 +1589,12 @@ export default function ClientTable() {
                             if (currentValue == null) return <span className="text-slate-300">--</span>;
 
                             // Color: green if meeting/beating target, red if not
-                            const target = client.goal_target;
+                            const target = Number(client.goal_target);
                             let colorClass = 'text-slate-700';
-                            if (target != null) {
+                            if (!isNaN(target)) {
                               if (goalType === 'cpl' || goalType === 'cpa') {
-                                // Lower is better
                                 colorClass = currentValue <= target ? 'text-emerald-600' : 'text-red-600';
                               } else {
-                                // Higher is better
                                 colorClass = currentValue >= target ? 'text-emerald-600' : 'text-red-600';
                               }
                             }
