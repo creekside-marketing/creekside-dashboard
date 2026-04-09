@@ -753,23 +753,25 @@ function parseMetaInsights(rawJson: Record<string, unknown>): { spend: number; c
 // ── Google response parsing ────────────────────────────────────────────
 
 function parseGoogleInsights(json: {
-  data?: Array<{ cost?: number; conversions?: number }>;
+  data?: Array<{ cost?: number; conversions?: number; conversion_value?: number }>;
   conversionBreakdown?: Array<{ name: string; conversions: number }>;
-}): { spend: number; conversions: number; conversionBreakdown: ConversionEntry[] } {
+}): { spend: number; conversions: number; conversionValue: number; conversionBreakdown: ConversionEntry[] } {
   let totalSpend = 0;
   let totalConversions = 0;
+  let totalConversionValue = 0;
 
   const rows = json?.data ?? [];
   for (const row of rows) {
     totalSpend += row.cost ?? 0;
     totalConversions += row.conversions ?? 0;
+    totalConversionValue += row.conversion_value ?? 0;
   }
 
   const conversionBreakdown: ConversionEntry[] = (json?.conversionBreakdown ?? [])
     .map(cb => ({ type: cb.name, label: cb.name, count: cb.conversions }))
     .sort((a, b) => b.count - a.count);
 
-  return { spend: totalSpend, conversions: totalConversions, conversionBreakdown };
+  return { spend: totalSpend, conversions: totalConversions, conversionValue: totalConversionValue, conversionBreakdown };
 }
 
 // ── Main component ─────────────────────────────────────────────────────
@@ -1013,6 +1015,7 @@ export default function ClientTable() {
           conversions: parsed.conversions,
           costPerConversion: parsed.conversions > 0 ? parsed.spend / parsed.conversions : 0,
           conversionBreakdown: parsed.conversionBreakdown,
+          roas: parsed.spend > 0 ? parsed.conversionValue / parsed.spend : undefined,
         }] as [string, LiveAccountData];
       } catch {
         return [customerId, { spend: 0, conversions: 0, costPerConversion: 0, conversionBreakdown: [] as ConversionEntry[], error: 'Network error' }] as [string, LiveAccountData];
