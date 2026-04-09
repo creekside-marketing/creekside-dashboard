@@ -22,6 +22,7 @@ interface Client {
   revenue_override: boolean;
   goal_type: string | null;
   goal_target: number | null;
+  client_category: string | null;
   [key: string]: unknown;
 }
 
@@ -1173,6 +1174,16 @@ export default function ClientTable() {
     return groups;
   }, [sorted]);
 
+  const activeGroups = useMemo(() =>
+    grouped.filter(g => g.rows.every(r => (r.client_category ?? 'active') !== 'retainer')),
+    [grouped]
+  );
+
+  const retainerGroups = useMemo(() =>
+    grouped.filter(g => g.rows.some(r => r.client_category === 'retainer')),
+    [grouped]
+  );
+
   const handleSort = useCallback((key: SortKey) => {
     if (sortKey === key) {
       setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -1184,16 +1195,17 @@ export default function ClientTable() {
 
   // Summary stats
   const stats = useMemo(() => {
-    const uniqueClients = new Set(filtered.map(c => c.client_name)).size;
-    const googleCount = filtered.filter(c => c.platform === 'google').length;
-    const metaCount = filtered.filter(c => c.platform === 'meta').length;
-    const totalEstRevenue = filtered.reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
-    const googleRevenue = filtered.filter(c => c.platform === 'google').reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
-    const metaRevenue = filtered.filter(c => c.platform === 'meta').reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
+    const activeFiltered = filtered.filter(c => (c.client_category ?? 'active') !== 'retainer');
+    const uniqueClients = new Set(activeFiltered.map(c => c.client_name)).size;
+    const googleCount = activeFiltered.filter(c => c.platform === 'google').length;
+    const metaCount = activeFiltered.filter(c => c.platform === 'meta').length;
+    const totalEstRevenue = activeFiltered.reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
+    const googleRevenue = activeFiltered.filter(c => c.platform === 'google').reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
+    const metaRevenue = activeFiltered.filter(c => c.platform === 'meta').reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
     const totalOperatorCost = operatorCosts?.totals.operator_cost ?? 0;
     const profit = totalEstRevenue - totalOperatorCost;
     const marginPct = totalEstRevenue > 0 ? Math.round((profit / totalEstRevenue) * 10000) / 100 : 0;
-    return { uniqueClients, googleCount, metaCount, total: filtered.length, totalEstRevenue, googleRevenue, metaRevenue, totalOperatorCost, profit, marginPct };
+    return { uniqueClients, googleCount, metaCount, total: activeFiltered.length, totalEstRevenue, googleRevenue, metaRevenue, totalOperatorCost, profit, marginPct };
   }, [filtered, calculatedRevenue, operatorCosts]);
 
   // ── Render helpers ──────────────────────────────────────────────────
@@ -1368,14 +1380,14 @@ export default function ClientTable() {
               </tr>
             </thead>
             <tbody>
-              {grouped.length === 0 ? (
+              {activeGroups.length === 0 ? (
                 <tr>
                   <td colSpan={11} className="text-center text-slate-400 py-16 text-sm">
                     No clients match the current filters.
                   </td>
                 </tr>
               ) : (
-                grouped.map((group, groupIdx) => (
+                activeGroups.map((group, groupIdx) => (
                   group.rows.map((client, rowIdx) => {
                     const isFirstInGroup = rowIdx === 0;
                     return (
@@ -1626,6 +1638,84 @@ export default function ClientTable() {
           </span>
         </div>
       </div>
+
+      {/* Retainer Clients Section */}
+      {retainerGroups.length > 0 && (
+        <div className="mt-8">
+          <div className="flex items-center gap-3 mb-4 px-2">
+            <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Retainer Clients</h2>
+            <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">White Label</span>
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">
+            <table className="w-full bg-white">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Client</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Platform</th>
+                  <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Est. Revenue</th>
+                  <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Proj. Cost (75%)</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Manager</th>
+                  <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Budget</th>
+                  <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Spend</th>
+                </tr>
+              </thead>
+              <tbody>
+                {retainerGroups.map((group, groupIdx) => (
+                  group.rows.map((client, rowIdx) => {
+                    const isFirstInGroup = rowIdx === 0;
+                    const rev = calculatedRevenue[client.id]?.value ?? 0;
+                    const projCost = rev * 0.75;
+                    const accountId = client.ad_account_id;
+                    const liveSpend = accountId && liveData[accountId] && !liveData[accountId].error ? liveData[accountId].spend : null;
+
+                    return (
+                      <tr
+                        key={client.id}
+                        onClick={() => router.push(`/client/${client.id}`)}
+                        className={`cursor-pointer transition-colors duration-150 hover:bg-blue-50/50 ${
+                          isFirstInGroup && groupIdx > 0 ? 'border-t border-slate-200' : ''
+                        } ${!isFirstInGroup ? 'border-t border-slate-100' : ''}`}
+                      >
+                        <td className="py-3 px-6">
+                          {isFirstInGroup ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-slate-900">{client.client_name}</span>
+                              <span className="text-[10px] font-medium text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">RETAINER</span>
+                            </div>
+                          ) : null}
+                        </td>
+                        <td className="py-3 px-6">
+                          <span className={`inline-flex items-center gap-1 text-xs font-medium ${
+                            client.platform === 'meta' ? 'text-blue-600' : 'text-emerald-600'
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${client.platform === 'meta' ? 'bg-blue-500' : 'bg-emerald-500'}`} />
+                            {client.platform === 'meta' ? 'Meta' : 'Google'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-6 text-right text-sm tabular-nums text-slate-700">
+                          {rev > 0 ? `$${rev.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '--'}
+                        </td>
+                        <td className="py-3 px-6 text-right text-sm tabular-nums text-slate-700">
+                          {rev > 0 ? `$${projCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '--'}
+                        </td>
+                        <td className="py-3 px-6 text-sm text-slate-700">
+                          {isFirstInGroup ? (client.account_manager ?? '--') : null}
+                        </td>
+                        <td className="py-3 px-6 text-right text-sm tabular-nums text-slate-700">
+                          {client.monthly_budget != null ? `$${Number(client.monthly_budget).toLocaleString()}` : '--'}
+                        </td>
+                        <td className="py-3 px-6 text-right text-sm tabular-nums text-slate-700">
+                          {liveSpend != null ? `$${liveSpend.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '--'}
+                        </td>
+                      </tr>
+                    );
+                  })
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Conversion breakdown tooltip — rendered outside table overflow */}
       {tooltip && (

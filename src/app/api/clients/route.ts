@@ -21,6 +21,7 @@ const ALLOWED_UPDATE_FIELDS = [
   'revenue_override',
   'goal_type',
   'goal_target',
+  'client_category',
 ];
 
 // Fields that should be tracked in manual_overrides when changed by a user
