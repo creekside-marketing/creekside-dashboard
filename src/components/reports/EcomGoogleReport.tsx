@@ -16,7 +16,7 @@ import ReportHeader, { DATE_RANGES, DEFAULT_RANGE_INDEX, computePriorPeriod, cal
 import ReportChart from './ReportChart';
 import BreakdownTable from './BreakdownTable';
 import ReportNotes from './ReportNotes';
-import { SparklineKpiCard, FunnelChart, BudgetPacingGauge, InsightsBlock } from './shared';
+import { SparklineKpiCard, FunnelChart, InsightsBlock } from './shared';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -93,14 +93,6 @@ function generateInsights(t: EcomTotals, pt: EcomTotals | null, campaigns: EcomC
   if (bad.length > 0) out.push({ type: 'concern', text: `${bad.length} campaign(s) with ROAS < 1x: ${bad.slice(0, 3).map((c) => c.name).join(', ')}.` });
   out.push({ type: 'action', text: 'Review keyword expansion opportunities and Shopping feed optimization for top-performing product categories.' });
   return out;
-}
-
-function getPacingDays(label: string) {
-  const now = new Date();
-  if (label === 'This Month') return { elapsed: Math.max(now.getDate() - 1, 1), total: new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate() };
-  if (label === 'Last Month') { const d = new Date(now.getFullYear(), now.getMonth(), 0).getDate(); return { elapsed: d, total: d }; }
-  const days = label === '7d' ? 7 : label === '14d' ? 14 : 30;
-  return { elapsed: days, total: days };
 }
 
 const COOLDOWN_MS = 5 * 60 * 1000;
@@ -210,7 +202,6 @@ export default function EcomGoogleReport({ client, mode }: { client: ReportingCl
   useEffect(() => { fetchData(); return () => { if (cdRef.current) clearInterval(cdRef.current); }; }, [drIdx]);
 
   const onRangeChange = (i: number) => { if (i === drIdx) return; setDrIdx(i); setCooldown(0); if (cdRef.current) clearInterval(cdRef.current); };
-  const pacing = getPacingDays(range.label);
   const insights = generateInsights(totals, priorTotals, campaigns);
   return (
     <div className="space-y-6">
@@ -237,11 +228,6 @@ export default function EcomGoogleReport({ client, mode }: { client: ReportingCl
           <SparklineKpiCard label="Avg. CPC" value={fmtMoney(totals.cpc)} change={kpi?.cpc.pct} changeDirection={kpi?.cpc.direction} changeSentiment="negative-up" size="sm" />
           <SparklineKpiCard label="Impressions" value={fmt(totals.impressions)} change={kpi?.impressions.pct} changeDirection={kpi?.impressions.direction} changeSentiment="positive-up" size="sm" />
         </div>
-
-        {/* ── Budget Pacing ───────────────────────────────────────────── */}
-        {client.monthly_budget && client.monthly_budget > 0 && (
-          <BudgetPacingGauge spent={totals.cost} budget={client.monthly_budget} daysElapsed={pacing.elapsed} daysInPeriod={pacing.total} />
-        )}
 
         {/* ── Revenue vs Spend Chart ──────────────────────────────────── */}
         {dailyData.length > 0 && (<>

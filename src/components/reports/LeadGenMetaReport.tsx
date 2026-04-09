@@ -19,7 +19,7 @@ import ReportHeader, {
 import ReportChart from './ReportChart';
 import BreakdownTable from './BreakdownTable';
 import ReportNotes from './ReportNotes';
-import { SparklineKpiCard, FunnelChart, BudgetPacingGauge, InsightsBlock } from './shared';
+import { SparklineKpiCard, InsightsBlock } from './shared';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -97,21 +97,6 @@ function parseDailyRows(rows: any[]): DailyRow[] {
       cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
       cpl: leads > 0 ? spend / leads : 0, lctr: impressions > 0 ? linkClicks / impressions : 0 };
   }).sort((a, b) => a.date.localeCompare(b.date));
-}
-
-/** Compute days elapsed and total days for the selected date range. */
-function computePacingDays(rangeIndex: number): { daysElapsed: number; daysInPeriod: number } {
-  const today = new Date();
-  const label = DATE_RANGES[rangeIndex].label;
-  if (label === 'This Month') {
-    return { daysElapsed: Math.max(today.getDate() - 1, 1), daysInPeriod: new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate() };
-  }
-  if (label === 'Last Month') {
-    const d = new Date(today.getFullYear(), today.getMonth(), 0).getDate();
-    return { daysElapsed: d, daysInPeriod: d };
-  }
-  const days = label === '7d' ? 7 : label === '14d' ? 14 : 30;
-  return { daysElapsed: days, daysInPeriod: days };
 }
 
 function buildInsights(t: Omit<LeadGenRow, 'name'>, p: Omit<LeadGenRow, 'name'> | null): Insight[] {
@@ -233,8 +218,6 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
   const numCol = (v: unknown) => fmt(Number(v ?? 0));
   const nullMoney = (v: unknown) => { const n = Number(v ?? 0); return n > 0 ? fmtMoney(n) : '--'; };
   const insights = buildInsights(totals, priorTotals);
-  const pacing = computePacingDays(dateRangeIndex);
-  const showPacing = client.monthly_budget != null && client.monthly_budget > 0;
   const demoMap = (row: Record<string, unknown>) => {
     const actions = (row.actions ?? []) as MetaAction[];
     return { ...row, leads: getLeads(actions) };
@@ -293,11 +276,7 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
             changeDirection={kpiChanges?.reach.direction} changeSentiment="positive-up" size="sm" />
         </div>
 
-        {/* 4. Budget Pacing */}
-        {showPacing && <BudgetPacingGauge spent={totals.spend} budget={client.monthly_budget!}
-          daysElapsed={pacing.daysElapsed} daysInPeriod={pacing.daysInPeriod} />}
-
-        {/* 5-6. Charts */}
+        {/* 4-5. Charts */}
         {dailyData.length > 0 && (<>
           <ReportChart title="Lead Volume & Cost Trend" data={dailyData} xKey="date"
             lines={[
@@ -311,14 +290,7 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
             ]} formatY={(v) => `$${v.toLocaleString()}`} formatYRight={(v) => v.toFixed(1)} />
         </>)}
 
-        {/* 7. Conversion Funnel */}
-        <FunnelChart title="Conversion Funnel" stages={[
-          { label: 'Impressions', value: totals.impressions },
-          { label: 'Link Clicks', value: totals.linkClicks },
-          { label: 'Leads', value: totals.leads },
-        ]} />
-
-        {/* 8. Campaign Performance */}
+        {/* 6. Campaign Performance */}
         <BreakdownTable title="Campaign Performance" data={campaigns} maxRows={15} columns={[
           { key: 'name', label: 'Campaign' },
           { key: 'impressions', label: 'Impr.', align: 'right', format: numCol },

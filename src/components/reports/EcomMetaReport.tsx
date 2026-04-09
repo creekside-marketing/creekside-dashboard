@@ -2,7 +2,7 @@
 
 /**
  * EcomMetaReport — Upgraded ecommerce Meta Ads report with sparklines, funnel,
- * budget pacing, and auto-generated insights.
+ * ad creative thumbnails, and auto-generated insights.
  *
  * CANNOT: Write data (read-only report view).
  * CANNOT: Modify budgets or campaigns.
@@ -26,7 +26,6 @@ import ReportNotes from './ReportNotes';
 import {
   SparklineKpiCard,
   FunnelChart,
-  BudgetPacingGauge,
 } from './shared';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -181,26 +180,6 @@ function parseDailyRows(rows: any[]): DailyRow[] {
     .sort((a, b) => String(a.date).localeCompare(String(b.date)));
 }
 
-/** Compute days elapsed and total days for the selected date range. */
-function computePacingDays(rangeIndex: number): { daysElapsed: number; daysInPeriod: number } {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const label = DATE_RANGES[rangeIndex].label;
-
-  if (label === 'This Month') {
-    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-    const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-    const elapsed = Math.max(Math.floor((today.getTime() - monthStart.getTime()) / 86400000), 1);
-    return { daysElapsed: elapsed, daysInPeriod: monthEnd.getDate() };
-  }
-  if (label === 'Last Month') {
-    const monthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
-    return { daysElapsed: monthEnd.getDate(), daysInPeriod: monthEnd.getDate() };
-  }
-  const days = label === '7d' ? 7 : label === '14d' ? 14 : 30;
-  return { daysElapsed: days, daysInPeriod: days };
-}
-
 const COOLDOWN_MS = 5 * 60 * 1000;
 
 // ── Component ────────────────────────────────────────────────────────────
@@ -217,6 +196,7 @@ export default function EcomMetaReport({
   const [priorTotals, setPriorTotals] = useState<EcomTotals | null>(null);
   const [dailyData, setDailyData] = useState<DailyRow[]>([]);
   const [adsData, setAdsData] = useState<Record<string, unknown>[]>([]);
+  const [adThumbnails, setAdThumbnails] = useState<Record<string, string>>({});
   const [kpiChanges, setKpiChanges] = useState<ChangeMap | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -332,6 +312,25 @@ export default function EcomMetaReport({
 
       setAdsData(await parseBreakdown(adRes));
 
+      // Fetch ad creative thumbnails (nice-to-have, non-blocking)
+      let creativesMap: Record<string, string> = {};
+      try {
+        const creativesRes = await fetch(`/api/meta/creatives?account_id=${aid}`);
+        if (creativesRes.ok) {
+          let cJson = await creativesRes.json();
+          cJson = unwrapPipeboardResponse(cJson);
+          const ads = cJson.data ?? cJson ?? [];
+          if (Array.isArray(ads)) {
+            for (const ad of ads) {
+              const id = ad.id ?? ad.ad_id;
+              const thumb = ad.creative?.thumbnail_url ?? ad.creative?.image_url ?? null;
+              if (id && thumb) creativesMap[String(id)] = thumb;
+            }
+          }
+        }
+      } catch { /* optional — thumbnails are a nice-to-have */ }
+      setAdThumbnails(creativesMap);
+
       setLastRefreshed(new Date());
       startCooldown();
     } catch (err) {
@@ -363,9 +362,6 @@ export default function EcomMetaReport({
 
   const roas = totals.roas;
   const sparkRoas = dailyData.map((d) => d.roas);
-
-  // Budget pacing
-  const pacing = computePacingDays(dateRangeIndex);
 
   // Funnel stages
   const funnelStages = [
@@ -499,17 +495,7 @@ export default function EcomMetaReport({
             />
           </div>
 
-          {/* 4. Budget Pacing */}
-          {client.monthly_budget != null && client.monthly_budget > 0 && (
-            <BudgetPacingGauge
-              spent={totals.spend}
-              budget={client.monthly_budget}
-              daysElapsed={pacing.daysElapsed}
-              daysInPeriod={pacing.daysInPeriod}
-            />
-          )}
-
-          {/* 5. Spend & Purchases Trend */}
+          {/* 4. Spend & Purchases Trend */}
           {dailyData.length > 0 && (
             <ReportChart
               title="Spend & Purchases Trend"
@@ -548,28 +534,72 @@ export default function EcomMetaReport({
             maxRows={15}
           />
 
-          {/* 8. Ads Overview */}
-          {adsData.length > 0 && (
-            <BreakdownTable
-              title="Ads Overview"
-              columns={[
-                { key: 'ad_name', label: 'Ad' },
-                { key: 'impressions', label: 'Impr.', align: 'right', format: numCol },
-                { key: 'inline_link_clicks', label: 'Clicks', align: 'right', format: numCol },
-                { key: 'spend', label: 'Spent', align: 'right', format: moneyCol },
-                { key: 'purchases', label: 'Purchases', align: 'right', format: numCol },
-                { key: 'cpp', label: 'CPP', align: 'right', format: nullMoney },
-              ]}
-              data={adsData.map((row) => {
-                const r = row as Record<string, unknown>;
-                const actions = (r.actions ?? []) as Array<{ action_type: string; value: string }>;
-                const purchases = getActionValue(actions, 'offsite_conversion.fb_pixel_purchase');
-                const spend = Number(r.spend ?? 0);
-                return { ...row, ad_name: r.ad_name ?? r.name ?? 'Unknown Ad', purchases, cpp: purchases > 0 ? spend / purchases : 0 };
-              }).sort((a, b) => Number(b.purchases ?? 0) - Number(a.purchases ?? 0))}
-              maxRows={15}
-            />
-          )}
+          {/* 8. Ads Overview with Thumbnails */}
+          {adsData.length > 0 && (() => {
+            const processedAds = adsData.map((row) => {
+              const r = row as Record<string, unknown>;
+              const actions = (r.actions ?? []) as Array<{ action_type: string; value: string }>;
+              const purchases = getActionValue(actions, 'offsite_conversion.fb_pixel_purchase');
+              const spend = Number(r.spend ?? 0);
+              return {
+                adId: String(r.ad_id ?? r.id ?? ''),
+                adName: String(r.ad_name ?? r.name ?? 'Unknown Ad'),
+                impressions: Number(r.impressions ?? 0),
+                linkClicks: Number(r.inline_link_clicks ?? 0),
+                spend,
+                purchases,
+                cpp: purchases > 0 ? spend / purchases : 0,
+              };
+            }).sort((a, b) => b.purchases - a.purchases).slice(0, 15);
+
+            return (
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="px-6 py-3 border-b border-slate-200 bg-slate-50/50">
+                  <h3 className="text-sm font-semibold text-slate-700">Ads Overview</h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-slate-200 bg-slate-50/80">
+                        <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-left">Ad</th>
+                        <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-right">Impr.</th>
+                        <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-right">Clicks</th>
+                        <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-right">Spent</th>
+                        <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-right">Purchases</th>
+                        <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-right">CPP</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {processedAds.map((ad, idx) => {
+                        const thumbUrl = adThumbnails[ad.adId];
+                        return (
+                          <tr key={idx} className="border-b border-slate-100 hover:bg-blue-50/50 transition-colors">
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-3">
+                                {thumbUrl ? (
+                                  <img src={thumbUrl} alt="" className="w-10 h-10 rounded-md object-cover border border-slate-200 shrink-0" />
+                                ) : (
+                                  <div className="w-10 h-10 rounded-md bg-slate-100 border border-slate-200 shrink-0 flex items-center justify-center">
+                                    <span className="text-slate-300 text-xs">No img</span>
+                                  </div>
+                                )}
+                                <span className="text-sm font-medium text-slate-900 truncate max-w-[200px]">{ad.adName}</span>
+                              </div>
+                            </td>
+                            <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums">{fmt(ad.impressions)}</td>
+                            <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums">{fmt(ad.linkClicks)}</td>
+                            <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums">{fmtMoney(ad.spend)}</td>
+                            <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums">{fmt(ad.purchases)}</td>
+                            <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums">{ad.purchases > 0 ? fmtMoney(ad.cpp) : '--'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
 
         </>
       )}

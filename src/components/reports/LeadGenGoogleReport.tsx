@@ -5,8 +5,6 @@
  *
  * Replaces the original LeadGenReport with richer visualizations:
  * - SparklineKpiCards with inline trend lines
- * - BudgetPacingGauge for spend pacing
- * - FunnelChart (Impressions -> Clicks -> Conversions)
  * - InsightsBlock with auto-generated data-driven insights
  * - DemographicChart for age/gender breakdowns
  *
@@ -22,8 +20,6 @@ import BreakdownTable from './BreakdownTable';
 import ReportNotes from './ReportNotes';
 import {
   SparklineKpiCard,
-  FunnelChart,
-  BudgetPacingGauge,
   InsightsBlock,
   DemographicChart,
 } from './shared';
@@ -47,33 +43,6 @@ type InsightEntry = { type: 'win' | 'concern' | 'action'; text: string };
 const moneyCol = (v: unknown) => fmtMoney(Number(v ?? 0));
 const pctCol = (v: unknown) => fmtPct(Number(v ?? 0));
 const numCol = (v: unknown) => fmt(Number(v ?? 0));
-
-function computePacingDays(rangeIndex: number): { daysElapsed: number; daysInPeriod: number } {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const label = DATE_RANGES[rangeIndex].label;
-
-  switch (label) {
-    case '7d':
-      return { daysElapsed: 7, daysInPeriod: 7 };
-    case '14d':
-      return { daysElapsed: 14, daysInPeriod: 14 };
-    case '30d':
-      return { daysElapsed: 30, daysInPeriod: 30 };
-    case 'This Month': {
-      const first = new Date(today.getFullYear(), today.getMonth(), 1);
-      const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-      const elapsed = Math.max(Math.floor((today.getTime() - first.getTime()) / 86400000), 1);
-      return { daysElapsed: elapsed, daysInPeriod: lastDay };
-    }
-    case 'Last Month': {
-      const lastDay = new Date(today.getFullYear(), today.getMonth(), 0).getDate();
-      return { daysElapsed: lastDay, daysInPeriod: lastDay };
-    }
-    default:
-      return { daysElapsed: 30, daysInPeriod: 30 };
-  }
-}
 
 function generateInsights(
   totals: Totals,
@@ -167,7 +136,22 @@ export default function LeadGenGoogleReport({
 
   const costPerLead = totals.conversions > 0 ? totals.cost / totals.conversions : 0;
   const convRate = totals.clicks > 0 ? totals.conversions / totals.clicks : 0;
-  const { daysElapsed, daysInPeriod } = computePacingDays(dateRangeIndex);
+
+  // Compute pacing days for insights generation
+  const daysElapsed = (() => {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const label = DATE_RANGES[dateRangeIndex].label;
+    if (label === 'This Month') return Math.max(Math.floor((today.getTime() - new Date(today.getFullYear(), today.getMonth(), 1).getTime()) / 86400000), 1);
+    if (label === 'Last Month') return new Date(today.getFullYear(), today.getMonth(), 0).getDate();
+    return label === '7d' ? 7 : label === '14d' ? 14 : 30;
+  })();
+  const daysInPeriod = (() => {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const label = DATE_RANGES[dateRangeIndex].label;
+    if (label === 'This Month') return new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    if (label === 'Last Month') return new Date(today.getFullYear(), today.getMonth(), 0).getDate();
+    return label === '7d' ? 7 : label === '14d' ? 14 : 30;
+  })();
 
   const sparkConversions = dailyData.map((d) => d.conversions);
   const sparkCpl = dailyData.map((d) => d.conversions > 0 ? d.cost / d.conversions : 0);
@@ -268,17 +252,7 @@ export default function LeadGenGoogleReport({
             />
           </div>
 
-          {/* 3. Budget Pacing */}
-          {client.monthly_budget != null && client.monthly_budget > 0 && (
-            <BudgetPacingGauge
-              spent={totals.cost}
-              budget={client.monthly_budget}
-              daysElapsed={daysElapsed}
-              daysInPeriod={daysInPeriod}
-            />
-          )}
-
-          {/* 4. Lead Volume & Cost Trend */}
+          {/* 3. Lead Volume & Cost Trend */}
           {dailyData.length > 0 && (
             <>
               <ReportChart
@@ -311,19 +285,7 @@ export default function LeadGenGoogleReport({
             </>
           )}
 
-          {/* 6. Conversion Funnel */}
-          {totals.impressions > 0 && (
-            <FunnelChart
-              title="Conversion Funnel"
-              stages={[
-                { label: 'Impressions', value: totals.impressions },
-                { label: 'Clicks', value: totals.clicks },
-                { label: 'Conversions', value: totals.conversions },
-              ]}
-            />
-          )}
-
-          {/* 7. Campaign Performance */}
+          {/* 6. Campaign Performance */}
           <div>
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Campaigns</h2>
             <CampaignsTable campaigns={campaigns} platform="google" />
