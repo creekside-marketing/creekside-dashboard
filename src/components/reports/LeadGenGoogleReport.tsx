@@ -241,25 +241,7 @@ export default function LeadGenGoogleReport({
             />
           )}
 
-          {/* 9. Top Search Terms */}
-          {searchTerms.length > 0 && (
-            <BreakdownTable
-              title="Top Search Terms"
-              columns={[
-                { key: 'search_term', label: 'Search Term' },
-                { key: 'impressions', label: 'Impressions', align: 'right', format: numCol },
-                { key: 'clicks', label: 'Clicks', align: 'right', format: numCol },
-                { key: 'ctr', label: 'CTR', align: 'right', format: pctCol },
-                { key: 'average_cpc', label: 'Avg. CPC', align: 'right', format: moneyCol },
-                { key: 'cost', label: 'Cost', align: 'right', format: moneyCol },
-                { key: 'conversions', label: 'Conv.', align: 'right', format: numCol },
-                { key: 'cost_per_conversion', label: 'Cost / Conv.', align: 'right', format: moneyCol },
-              ]}
-              data={searchTerms}
-            />
-          )}
-
-          {/* 10. Demographics — side by side */}
+          {/* Demographics — side by side */}
           {(ageData.length > 0 || genderData.length > 0) && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {ageData.length > 0 && genderData.length > 0 ? (
