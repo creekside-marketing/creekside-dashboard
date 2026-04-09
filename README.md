@@ -25,7 +25,7 @@ Internal operations dashboard for Creekside Marketing. Password-gated. Tracks ac
 | `/archive` | `archive/page.tsx` | Churned clients |
 | `/roas-calculator` | `roas-calculator/page.tsx` | ROAS calculator tool |
 | `/login` | `login/page.tsx` | Auth page (outside dashboard layout) |
-| `/report/[token]` | `report/[token]/page.tsx` | **Client-Facing Reports** — public, no auth. Lead Gen or Ecom format based on `client_type`. |
+| `/report/[token]` | `report/[token]/page.tsx` | **Client-Facing Reports** — public, no auth. 4-way routing by `client_type` × `platform`. Tabbed view for dual-platform clients. |
 
 ### Auth
 
@@ -118,6 +118,31 @@ Renders on `/client/[id]`. Fetches campaign-level data from Meta (PipeBoard) or 
 
 Sub-component of ClientReport. Renders campaign rows with status dots, metrics. **Note:** Campaign `status` from Google Ads API is numeric (enum), coerced via `String()` before `.toLowerCase()`.
 
+### Client-Facing Reports (`/report/[token]`)
+
+Public, no-auth report pages served via UUID token. Server component fetches client + siblings from `reporting_clients`, then renders `TabbedReport`.
+
+**4 report types:**
+
+| Component | client_type | platform | Key Metrics |
+|-----------|------------|----------|-------------|
+| `LeadGenGoogleReport` | lead_gen | google | Leads, CPL, Conv Rate, CPC. Charts: lead volume + CPL trend, spend + conversions. Tables: campaigns, keywords, search terms, geo, age/gender. |
+| `LeadGenMetaReport` | lead_gen | meta | Leads, CPL, CPM, Frequency. Charts: lead volume + CPL trend, spend + frequency. Tables: campaigns, ads (sorted by leads). |
+| `EcomGoogleReport` | ecom | google | Revenue, ROAS, CPA, AOV. Charts: revenue vs spend, ROAS trend. Funnel: impressions → clicks → purchases. Tables: campaigns, keywords, age/gender, geo. |
+| `EcomMetaReport` | ecom | meta | Purchases, CPP, ROAS, CPM. Charts: spend + purchases trend. Funnel: link clicks → ATC → purchases. Tables: campaigns, ads with creative thumbnails (sorted by purchases). |
+
+**Shared components** (`src/components/reports/shared/`):
+- `SparklineKpiCard` — KPI card with inline 30-day trend sparkline + optional target reference line
+- `FunnelChart` — horizontal funnel with drop-off % between stages (ecom reports only)
+- `DemographicChart` — grouped bar chart for age/gender (Google reports only)
+- `report-colors.ts` — consistent color system: revenue=#10B981, spend=#3B82F6, ROAS=#8B5CF6
+
+**Tabbed view:** Clients with ad accounts on both Google and Meta show platform tabs (Google | Meta). Tab bar matches date range pill selector styling. Switching tabs remounts the report component.
+
+**Daily chart data (Meta):** Uses PipeBoard `time_breakdown: "day"` parameter with explicit `since`/`until` dates. Response returns `segmented_metrics` array with nested `metrics` objects per day.
+
+**Ad creative thumbnails (Ecom Meta):** Fetches from `/api/meta/creatives` which calls PipeBoard `get_ads` with creative fields. Thumbnails shown as 10×10 rounded images in the Ads Overview table. Falls back to "No img" placeholder.
+
 ### `ClientTypeToggle.tsx`
 
 Toggle buttons (Lead Gen / Ecom) on client detail page. Saves to `reporting_clients.client_type`. Used by `/report/[token]` to determine report format.
@@ -139,8 +164,9 @@ Inline editor for Target column. Dropdown for goal type (Conv, CPL, CPA, ROAS, S
 | `/api/clients/churn-risk` | GET | Churn risk scores (currently unused in UI) |
 | `/api/clients/revenue` | GET | Square revenue data (currently unused in UI) |
 | `/api/meta/bulk-insights` | GET | **Single call** for all Meta account insights via PipeBoard `bulk_get_insights` |
-| `/api/meta/insights` | GET | Individual Meta account insights (used by ClientReport, not main table) |
-| `/api/google/insights` | GET | Google Ads data (account, campaign, keyword, search_term, geo, age, gender levels) |
+| `/api/meta/insights` | GET | Individual Meta account insights. Supports `time_breakdown=day` for daily data, `breakdown` for demographics. Used by reports + ClientReport. |
+| `/api/meta/creatives` | GET | Ad creative thumbnails via PipeBoard `get_ads`. Returns creative thumbnail_url/image_url per ad. Used by Ecom Meta report. |
+| `/api/google/insights` | GET | Google Ads data (account, campaign, keyword, search_term, geo, age, gender levels). Includes `conversion_value` for ecom ROAS. Age/gender use numeric+string enum mappings. |
 | `/api/scorecard` | GET | Agency KPIs, MRR (uses fee_config per client) |
 | `/api/goals` | GET/POST/PATCH/DELETE | Performance goals per client per month |
 | `/api/team` | GET | Team members |
@@ -211,6 +237,9 @@ Key columns: `primary_contact_name`, `primary_contact_email`, `gdrive_folder_id`
 7. **Use `.maybeSingle()`** not `.single()` for Supabase queries that might return 0 rows.
 8. **Google Ads `status` is numeric.** Always coerce with `String()` before calling `.toLowerCase()`.
 9. **`output: standalone`** is set in next.config but Railway runs `next start` (with a warning). Do NOT change the start command to `node .next/standalone/server.js` — it crashes.
+10. **PipeBoard uses `time_breakdown`, not `time_increment`.** For daily data, pass `time_breakdown: "day"` — response returns `segmented_metrics` array with nested `.metrics` objects. See `agent_knowledge` entry "PipeBoard Meta Ads MCP — API Reference" for full API docs.
+11. **Report routing uses `client_type` × `platform`.** Clients need both fields set in `reporting_clients`. Fallback defaults Google→lead_gen and Meta→ecom, which can misroute ecom Google or lead_gen Meta clients with missing `client_type`.
+12. **Dual-platform report tabs match by `client_name`.** The sibling lookup uses exact string equality — casing or spacing mismatches between records will break the tabbed view.
 
 ---
 
