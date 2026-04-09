@@ -16,7 +16,7 @@ import CampaignsTable from '@/components/CampaignsTable';
 import ReportHeader, { DATE_RANGES, fmt, fmtMoney, fmtPct } from './ReportHeader';
 import ReportChart from './ReportChart';
 import BreakdownTable from './BreakdownTable';
-import ReportNotes from './ReportNotes';
+import ReportNotesTimeline from './ReportNotesTimeline';
 import {
   SparklineKpiCard,
   DemographicChart,
@@ -335,11 +335,7 @@ export default function LeadGenGoogleReport({
       )}
 
       {/* 13. Notes */}
-      <ReportNotes
-        clientId={client.id}
-        initialNotes={client.client_report_notes ?? ''}
-        mode={mode}
-      />
+      <ReportNotesTimeline clientId={client.id} mode={mode} />
     </div>
   );
 }

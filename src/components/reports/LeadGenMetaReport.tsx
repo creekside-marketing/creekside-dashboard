@@ -18,7 +18,7 @@ import ReportHeader, {
 } from './ReportHeader';
 import ReportChart from './ReportChart';
 import BreakdownTable from './BreakdownTable';
-import ReportNotes from './ReportNotes';
+import ReportNotesTimeline from './ReportNotesTimeline';
 import { SparklineKpiCard } from './shared';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -391,7 +391,7 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
       </>)}
 
       {/* 12. Notes */}
-      <ReportNotes clientId={client.id} initialNotes={client.client_report_notes ?? ''} mode={mode} />
+      <ReportNotesTimeline clientId={client.id} mode={mode} />
     </div>
   );
 }

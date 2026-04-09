@@ -22,7 +22,7 @@ import ReportHeader, {
 } from './ReportHeader';
 import ReportChart from './ReportChart';
 import BreakdownTable from './BreakdownTable';
-import ReportNotes from './ReportNotes';
+import ReportNotesTimeline from './ReportNotesTimeline';
 import {
   SparklineKpiCard,
 } from './shared';
@@ -617,11 +617,7 @@ export default function EcomMetaReport({
       )}
 
       {/* 11. Notes */}
-      <ReportNotes
-        clientId={client.id}
-        initialNotes={client.client_report_notes ?? ''}
-        mode={mode}
-      />
+      <ReportNotesTimeline clientId={client.id} mode={mode} />
     </div>
   );
 }

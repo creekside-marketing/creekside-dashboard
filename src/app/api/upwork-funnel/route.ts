@@ -11,7 +11,7 @@ const UPWORK_JOB_COLUMNS = [
 ].join(', ');
 
 const CLICKUP_LEAD_COLUMNS = [
-  'id', 'task_name', 'status', 'assignees', 'due_date',
+  'clickup_task_id', 'task_name', 'status', 'assignees', 'due_date',
   'date_created', 'date_closed', 'ai_summary',
 ].join(', ');
 

@@ -473,7 +473,7 @@ export default function UpworkFunnelPage() {
             <h3 className="text-sm font-semibold text-slate-900 mb-4">Recent Leads</h3>
             <div className="space-y-2">
               {clickupLeads.slice(0, 10).map((lead) => (
-                <div key={lead.id} className="flex items-center justify-between gap-4 py-2 border-b border-slate-100 last:border-0">
+                <div key={lead.clickup_task_id} className="flex items-center justify-between gap-4 py-2 border-b border-slate-100 last:border-0">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-slate-900 truncate">{lead.task_name}</p>
                     {lead.ai_summary && <p className="text-xs text-slate-400 truncate mt-0.5">{lead.ai_summary}</p>}

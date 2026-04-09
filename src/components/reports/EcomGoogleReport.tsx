@@ -15,7 +15,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import ReportHeader, { DATE_RANGES, DEFAULT_RANGE_INDEX, computePriorPeriod, calcChange, fmt, fmtMoney, fmtPct } from './ReportHeader';
 import ReportChart from './ReportChart';
 import BreakdownTable from './BreakdownTable';
-import ReportNotes from './ReportNotes';
+import ReportNotesTimeline from './ReportNotesTimeline';
 import { SparklineKpiCard } from './shared';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -265,7 +265,7 @@ export default function EcomGoogleReport({ client, mode }: { client: ReportingCl
       </>)}
 
       {/* ── Notes ───────────────────────────────────────────────────────── */}
-      <ReportNotes clientId={client.id} initialNotes={client.client_report_notes ?? ''} mode={mode} />
+      <ReportNotesTimeline clientId={client.id} mode={mode} />
     </div>
   );
 }

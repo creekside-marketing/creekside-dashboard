@@ -13,15 +13,15 @@ export interface UpworkJob {
   connects_spent: number | null;
   competing_proposals: number | null;
   hours_after_post: number | null;
-  viewed: boolean;
-  messaged: boolean;
-  sales_call: boolean;
-  won: boolean;
+  viewed: boolean | null;
+  messaged: boolean | null;
+  sales_call: boolean | null;
+  won: boolean | null;
   client_name: string | null;
 }
 
 export interface ClickUpLead {
-  id: string;
+  clickup_task_id: string;
   task_name: string;
   status: string | null;
   assignees: string | null;

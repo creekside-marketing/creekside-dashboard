@@ -14,7 +14,7 @@ import ReportHeader, {
 } from './ReportHeader';
 import ReportChart from './ReportChart';
 import BreakdownTable from './BreakdownTable';
-import ReportNotes from './ReportNotes';
+import ReportNotesTimeline from './ReportNotesTimeline';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -534,11 +534,7 @@ export default function EcomReport({
       )}
 
       {/* ── Notes ─────────────────────────────────────────────────────── */}
-      <ReportNotes
-        clientId={client.id}
-        initialNotes={client.client_report_notes ?? ''}
-        mode={mode}
-      />
+      <ReportNotesTimeline clientId={client.id} mode={mode} />
     </div>
   );
 }
