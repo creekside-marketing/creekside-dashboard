@@ -926,7 +926,13 @@ export default function ClientTable() {
         continue;
       }
 
-      // 4. No fee_config and no budget — show nothing
+      // 4. No fee_config — fall back to monthly_revenue from DB if it exists
+      if (c.monthly_revenue != null && Number(c.monthly_revenue) > 0) {
+        result[c.id] = { value: Number(c.monthly_revenue), source: 'override' };
+        continue;
+      }
+
+      // 5. Nothing available
       result[c.id] = { value: null, source: 'none' };
     }
 
@@ -1231,25 +1237,44 @@ export default function ClientTable() {
                           </div>
                         </td>
                         {/* Est. Revenue — per-row, calculated from fee_config + live spend */}
-                        <td className="py-4 px-6 text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-4 px-6 text-right text-sm font-medium text-slate-900" onClick={(e) => e.stopPropagation()}>
                           {(() => {
                             const rev = calculatedRevenue[client.id];
-                            if (!rev) return <span className="text-slate-300">--</span>;
+                            if (!rev || rev.value == null) {
+                              return (
+                                <InlineCurrencyInput
+                                  clientId={client.id}
+                                  field="monthly_revenue"
+                                  value={client.monthly_revenue}
+                                  onSaved={handleFieldSaved}
+                                  extraPatchFields={{ revenue_override: true }}
+                                  placeholder="--"
+                                  className="text-slate-900"
+                                />
+                              );
+                            }
 
                             const feeTooltip = client.fee_config ? describeFeeConfig(client.fee_config) : undefined;
+                            const displayValue = rev.source === 'override' || rev.source === 'none'
+                              ? client.monthly_revenue
+                              : null;
+                            const displayPlaceholder = rev.source === 'calculated'
+                              ? `$${Math.round(rev.value).toLocaleString()}`
+                              : '--';
+                            const showReset = rev.source === 'override' && client.fee_config;
 
-                            // Override: show manual value with reset button
-                            if (rev.source === 'override') {
-                              return (
-                                <div className="inline-flex items-center gap-1" title={feeTooltip}>
-                                  <InlineCurrencyInput
-                                    clientId={client.id}
-                                    field="monthly_revenue"
-                                    value={client.monthly_revenue}
-                                    onSaved={handleFieldSaved}
-                                    extraPatchFields={{ revenue_override: true }}
-                                    className="text-slate-900"
-                                  />
+                            return (
+                              <span className="inline-flex items-center gap-1" title={feeTooltip}>
+                                <InlineCurrencyInput
+                                  clientId={client.id}
+                                  field="monthly_revenue"
+                                  value={displayValue}
+                                  onSaved={handleFieldSaved}
+                                  extraPatchFields={{ revenue_override: true }}
+                                  placeholder={displayPlaceholder}
+                                  className="text-slate-900"
+                                />
+                                {showReset && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleResetRevenue(client.id); }}
                                     className="text-slate-300 hover:text-red-500 transition-colors flex-shrink-0"
@@ -1259,38 +1284,8 @@ export default function ClientTable() {
                                       <path d="M2.5 1a.5.5 0 0 1 .5.5V4h2.5a.5.5 0 0 1 0 1H2.5a.5.5 0 0 1-.5-.5v-3a.5.5 0 0 1 .5-.5zM4.54 3.827a4.5 4.5 0 1 1-.724 6.28.5.5 0 1 1 .748-.662A3.5 3.5 0 1 0 4.5 4.5H4.54l-.01-.673z" />
                                     </svg>
                                   </button>
-                                </div>
-                              );
-                            }
-
-                            // Calculated from fee_config
-                            if (rev.source === 'calculated' && rev.value != null) {
-                              return (
-                                <div title={feeTooltip}>
-                                  <InlineCurrencyInput
-                                    clientId={client.id}
-                                    field="monthly_revenue"
-                                    value={null}
-                                    onSaved={handleFieldSaved}
-                                    extraPatchFields={{ revenue_override: true }}
-                                    placeholder={`$${Math.round(rev.value).toLocaleString()}`}
-                                    className="text-slate-900"
-                                  />
-                                </div>
-                              );
-                            }
-
-                            // No fee_config — show DB value or editable placeholder
-                            return (
-                              <InlineCurrencyInput
-                                clientId={client.id}
-                                field="monthly_revenue"
-                                value={client.monthly_revenue}
-                                onSaved={handleFieldSaved}
-                                extraPatchFields={{ revenue_override: true }}
-                                placeholder="--"
-                                className="text-slate-900"
-                              />
+                                )}
+                              </span>
                             );
                           })()}
                         </td>
