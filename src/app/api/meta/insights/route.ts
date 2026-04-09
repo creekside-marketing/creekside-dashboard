@@ -31,12 +31,17 @@ export async function GET(request: NextRequest) {
     };
 
     const breakdownConfig = breakdownLevels[level];
+    const time_increment = searchParams.get('time_increment');
 
     // Build PipeBoard args — explicit date range overrides preset time_range
     const pipeboardArgs: Record<string, unknown> = {
       object_id: account_id,
       level: breakdownConfig?.pipeboardLevel ?? level,
     };
+
+    if (time_increment) {
+      pipeboardArgs.time_increment = Number(time_increment);
+    }
 
     if (breakdownConfig) {
       pipeboardArgs.breakdowns = breakdownConfig.breakdowns;

@@ -27,7 +27,6 @@ import {
   SparklineKpiCard,
   FunnelChart,
   BudgetPacingGauge,
-  InsightsBlock,
 } from './shared';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -202,44 +201,6 @@ function computePacingDays(rangeIndex: number): { daysElapsed: number; daysInPer
   return { daysElapsed: days, daysInPeriod: days };
 }
 
-/** Build auto-generated insights from current/prior totals. */
-function buildInsights(
-  t: EcomTotals,
-  prior: EcomTotals | null,
-  campaigns: EcomCampaign[],
-): Array<{ type: 'win' | 'concern' | 'action'; text: string }> {
-  const insights: Array<{ type: 'win' | 'concern' | 'action'; text: string }> = [];
-
-  if (prior && prior.cpp > 0 && t.cpp < prior.cpp) {
-    const drop = (((prior.cpp - t.cpp) / prior.cpp) * 100).toFixed(1);
-    insights.push({ type: 'win', text: `Cost per purchase decreased ${drop}% vs. prior period (${fmtMoney(t.cpp)} vs. ${fmtMoney(prior.cpp)}).` });
-  }
-  if (prior && prior.roas > 0 && t.roas > prior.roas) {
-    const gain = (((t.roas - prior.roas) / prior.roas) * 100).toFixed(1);
-    insights.push({ type: 'win', text: `ROAS improved ${gain}% vs. prior period (${t.roas.toFixed(2)}x vs. ${prior.roas.toFixed(2)}x).` });
-  }
-  if (prior && prior.purchases > 0 && t.purchases > prior.purchases) {
-    const gain = (((t.purchases - prior.purchases) / prior.purchases) * 100).toFixed(1);
-    insights.push({ type: 'win', text: `Purchases increased ${gain}% vs. prior period (${fmt(t.purchases)} vs. ${fmt(prior.purchases)}).` });
-  }
-  if (prior && prior.cpm > 0) {
-    const cpmChange = ((t.cpm - prior.cpm) / prior.cpm) * 100;
-    if (cpmChange > 20) {
-      insights.push({ type: 'concern', text: `CPM rose ${cpmChange.toFixed(1)}% vs. prior period — possible audience saturation or increased competition.` });
-    }
-  }
-
-  const zeroPurchaseCampaigns = campaigns.filter((c) => c.spend > 50 && c.purchases === 0);
-  if (zeroPurchaseCampaigns.length > 0) {
-    const names = zeroPurchaseCampaigns.slice(0, 3).map((c) => c.name).join(', ');
-    insights.push({ type: 'concern', text: `${zeroPurchaseCampaigns.length} campaign(s) with spend but zero purchases: ${names}.` });
-  }
-
-  insights.push({ type: 'action', text: 'Consider testing new creative variations or expanding audience targeting to maintain efficiency at scale.' });
-
-  return insights;
-}
-
 const COOLDOWN_MS = 5 * 60 * 1000;
 
 // ── Component ────────────────────────────────────────────────────────────
@@ -256,8 +217,6 @@ export default function EcomMetaReport({
   const [priorTotals, setPriorTotals] = useState<EcomTotals | null>(null);
   const [dailyData, setDailyData] = useState<DailyRow[]>([]);
   const [adsData, setAdsData] = useState<Record<string, unknown>[]>([]);
-  const [ageData, setAgeData] = useState<Record<string, unknown>[]>([]);
-  const [genderData, setGenderData] = useState<Record<string, unknown>[]>([]);
   const [kpiChanges, setKpiChanges] = useState<ChangeMap | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -297,21 +256,17 @@ export default function EcomMetaReport({
       const tr = range.metaParam;
 
       const campaignUrl = `/api/meta/insights?account_id=${aid}&level=campaign&time_range=${tr}`;
-      const accountUrl = `/api/meta/insights?account_id=${aid}&level=account&time_range=${tr}`;
+      const accountUrl = `/api/meta/insights?account_id=${aid}&level=account&time_range=${tr}&time_increment=1`;
       const adUrl = `/api/meta/insights?account_id=${aid}&level=ad&time_range=${tr}`;
-      const ageUrl = `/api/meta/insights?account_id=${aid}&level=age&time_range=${tr}`;
-      const genderUrl = `/api/meta/insights?account_id=${aid}&level=gender&time_range=${tr}`;
 
       const periods = computePriorPeriod(dateRangeIndex);
       const priorCampaignUrl = `/api/meta/insights?account_id=${aid}&level=campaign&since=${periods.priorSince}&until=${periods.priorUntil}`;
 
-      const [campaignRes, accountRes, priorRes, adRes, ageRes, genderRes] = await Promise.all([
+      const [campaignRes, accountRes, priorRes, adRes] = await Promise.all([
         fetch(campaignUrl),
         fetch(accountUrl),
         fetch(priorCampaignUrl),
         fetch(adUrl).catch(() => null),
-        fetch(ageUrl).catch(() => null),
-        fetch(genderUrl).catch(() => null),
       ]);
 
       if (!campaignRes.ok) {
@@ -376,8 +331,6 @@ export default function EcomMetaReport({
       };
 
       setAdsData(await parseBreakdown(adRes));
-      setAgeData(await parseBreakdown(ageRes));
-      setGenderData(await parseBreakdown(genderRes));
 
       setLastRefreshed(new Date());
       startCooldown();
@@ -416,15 +369,10 @@ export default function EcomMetaReport({
 
   // Funnel stages
   const funnelStages = [
-    { label: 'Impressions', value: totals.impressions },
     { label: 'Link Clicks', value: totals.linkClicks },
     { label: 'Add to Cart', value: totals.atc },
-    { label: 'Checkouts', value: totals.checkouts },
     { label: 'Purchases', value: totals.purchases },
   ];
-
-  // Insights
-  const insights = buildInsights(totals, priorTotals, campaigns);
 
   // Column formatters
   const moneyCol = (v: unknown) => fmtMoney(Number(v ?? 0));
@@ -618,51 +566,11 @@ export default function EcomMetaReport({
                 const purchases = getActionValue(actions, 'offsite_conversion.fb_pixel_purchase');
                 const spend = Number(r.spend ?? 0);
                 return { ...row, ad_name: r.ad_name ?? r.name ?? 'Unknown Ad', purchases, cpp: purchases > 0 ? spend / purchases : 0 };
-              })}
+              }).sort((a, b) => Number(b.purchases ?? 0) - Number(a.purchases ?? 0))}
               maxRows={15}
             />
           )}
 
-          {/* 9. Demographics */}
-          {(ageData.length > 0 || genderData.length > 0) && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {ageData.length > 0 && (
-                <BreakdownTable
-                  title="Age Breakdown"
-                  columns={[
-                    { key: 'age', label: 'Age' },
-                    { key: 'impressions', label: 'Impr.', align: 'right', format: numCol },
-                    { key: 'inline_link_clicks', label: 'Clicks', align: 'right', format: numCol },
-                    { key: 'spend', label: 'Spent', align: 'right', format: moneyCol },
-                    { key: 'purchases', label: 'Purchases', align: 'right', format: numCol },
-                  ]}
-                  data={ageData.map((row) => {
-                    const actions = ((row as Record<string, unknown>).actions ?? []) as Array<{ action_type: string; value: string }>;
-                    return { ...row, purchases: getActionValue(actions, 'offsite_conversion.fb_pixel_purchase') };
-                  })}
-                />
-              )}
-              {genderData.length > 0 && (
-                <BreakdownTable
-                  title="Gender Breakdown"
-                  columns={[
-                    { key: 'gender', label: 'Gender' },
-                    { key: 'impressions', label: 'Impr.', align: 'right', format: numCol },
-                    { key: 'inline_link_clicks', label: 'Clicks', align: 'right', format: numCol },
-                    { key: 'spend', label: 'Spent', align: 'right', format: moneyCol },
-                    { key: 'purchases', label: 'Purchases', align: 'right', format: numCol },
-                  ]}
-                  data={genderData.map((row) => {
-                    const actions = ((row as Record<string, unknown>).actions ?? []) as Array<{ action_type: string; value: string }>;
-                    return { ...row, purchases: getActionValue(actions, 'offsite_conversion.fb_pixel_purchase') };
-                  })}
-                />
-              )}
-            </div>
-          )}
-
-          {/* 10. Insights */}
-          <InsightsBlock insights={insights} />
         </>
       )}
 

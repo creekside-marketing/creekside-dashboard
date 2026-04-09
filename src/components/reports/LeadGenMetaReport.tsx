@@ -174,7 +174,7 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
       const periods = computePriorPeriod(dateRangeIndex);
       const [campaignRes, accountRes, priorRes, adRes, ageRes, genderRes] = await Promise.all([
         fetch(`${base}&level=campaign&time_range=${tr}`),
-        fetch(`${base}&level=account&time_range=${tr}`),
+        fetch(`${base}&level=account&time_range=${tr}&time_increment=1`),
         fetch(`${base}&level=campaign&since=${periods.priorSince}&until=${periods.priorUntil}`),
         fetch(`${base}&level=ad&time_range=${tr}`).catch(() => null),
         fetch(`${base}&level=age&time_range=${tr}`).catch(() => null),
