@@ -320,10 +320,16 @@ export async function GET(request: NextRequest) {
       ORDER BY metrics.cost_micros DESC
     `);
 
+    // Google Ads campaign status: numeric enum or string
+    const statusLabels: Record<string, string> = {
+      '2': 'ENABLED', '3': 'PAUSED', '4': 'REMOVED',
+      ENABLED: 'ENABLED', PAUSED: 'PAUSED', REMOVED: 'REMOVED',
+    };
+
     const data = results.map((row: any) => ({
       campaign_id: row.campaign.id,
       campaign_name: row.campaign.name,
-      status: row.campaign.status,
+      status: statusLabels[String(row.campaign.status)] ?? String(row.campaign.status),
       channel_type: row.campaign.advertising_channel_type,
       impressions: row.metrics.impressions,
       clicks: row.metrics.clicks,
