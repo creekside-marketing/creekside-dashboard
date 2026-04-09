@@ -205,15 +205,20 @@ export async function GET(request: NextRequest) {
       `);
 
       const ageLabels: Record<string, string> = {
+        // String enum names
         AGE_RANGE_18_24: '18-24', AGE_RANGE_25_34: '25-34', AGE_RANGE_35_44: '35-44',
         AGE_RANGE_45_54: '45-54', AGE_RANGE_55_64: '55-64', AGE_RANGE_65_UP: '65+',
         AGE_RANGE_UNDETERMINED: 'Undetermined',
+        // Numeric enum values (google-ads-api can return either)
+        '503001': '18-24', '503002': '25-34', '503003': '35-44',
+        '503004': '45-54', '503005': '55-64', '503006': '65+',
+        '503999': 'Undetermined',
       };
 
       // Aggregate by age range
       const agg: Record<string, { impressions: number; clicks: number; cost: number; conversions: number }> = {};
       for (const row of results as any[]) {
-        const raw = (row.ad_group_criterion as any)?.age_range?.type as string ?? 'UNKNOWN';
+        const raw = String((row.ad_group_criterion as any)?.age_range?.type ?? 'UNKNOWN');
         const label = ageLabels[raw] ?? raw;
         if (!agg[label]) agg[label] = { impressions: 0, clicks: 0, cost: 0, conversions: 0 };
         agg[label].impressions += Number(row.metrics.impressions ?? 0);
@@ -257,12 +262,15 @@ export async function GET(request: NextRequest) {
       `);
 
       const genderLabels: Record<string, string> = {
+        // String enum names
         MALE: 'Male', FEMALE: 'Female', UNDETERMINED: 'Undetermined',
+        // Numeric enum values (google-ads-api can return either)
+        '10': 'Male', '11': 'Female', '20': 'Undetermined',
       };
 
       const agg: Record<string, { impressions: number; clicks: number; cost: number; conversions: number }> = {};
       for (const row of results as any[]) {
-        const raw = (row.ad_group_criterion as any)?.gender?.type as string ?? 'UNKNOWN';
+        const raw = String((row.ad_group_criterion as any)?.gender?.type ?? 'UNKNOWN');
         const label = genderLabels[raw] ?? raw;
         if (!agg[label]) agg[label] = { impressions: 0, clicks: 0, cost: 0, conversions: 0 };
         agg[label].impressions += Number(row.metrics.impressions ?? 0);
