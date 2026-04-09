@@ -63,13 +63,14 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
     primary_contact_email: string | null;
     website: string | null;
     gchat_url: string | null;
+    start_date: string | null;
   } | null = null;
 
   try {
     if (client.client_id) {
       const { data } = await supabase
         .from('clients')
-        .select('gdrive_folder_id, clickup_folder_id, contract_url, primary_contact_name, primary_contact_email, website, gchat_url')
+        .select('gdrive_folder_id, clickup_folder_id, contract_url, primary_contact_name, primary_contact_email, website, gchat_url, start_date')
         .eq('id', client.client_id)
         .maybeSingle();
       clientMeta = data;
@@ -77,7 +78,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
       const baseName = client.client_name.replace(/ —.*$/, '');
       const { data } = await supabase
         .from('clients')
-        .select('gdrive_folder_id, clickup_folder_id, contract_url, primary_contact_name, primary_contact_email, website, gchat_url')
+        .select('gdrive_folder_id, clickup_folder_id, contract_url, primary_contact_name, primary_contact_email, website, gchat_url, start_date')
         .eq('name', baseName)
         .limit(1)
         .maybeSingle();
@@ -119,15 +120,21 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         </div>
       </div>
 
-      {/* Client Type + Contact Info */}
-      <div className="flex items-center gap-4 text-sm text-slate-500">
+      {/* Client Type + Contact Info + Start Date */}
+      <div className="flex items-center gap-4 text-sm text-[var(--text-secondary)] flex-wrap">
         <ClientTypeToggle clientId={client.id} initialType={client.client_type} />
+        {clientMeta?.start_date && (
+          <>
+            <span className="text-slate-600">|</span>
+            <span>Started: <strong className="text-[var(--text-primary)]">{new Date(clientMeta.start_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</strong></span>
+          </>
+        )}
         {clientMeta?.primary_contact_name && (
           <>
-            <span className="text-slate-200">|</span>
-            <span>Contact: <strong className="text-slate-700">{clientMeta.primary_contact_name}</strong></span>
+            <span className="text-slate-600">|</span>
+            <span>Contact: <strong className="text-[var(--text-primary)]">{clientMeta.primary_contact_name}</strong></span>
             {clientMeta.primary_contact_email && (
-              <a href={`mailto:${clientMeta.primary_contact_email}`} className="text-[var(--creekside-blue)] hover:underline">
+              <a href={`mailto:${clientMeta.primary_contact_email}`} className="text-[var(--accent)] hover:underline">
                 {clientMeta.primary_contact_email}
               </a>
             )}
