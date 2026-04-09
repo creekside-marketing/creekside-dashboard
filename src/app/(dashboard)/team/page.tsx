@@ -86,7 +86,7 @@ function getRowRevenue(
 function _StatusDot({ status }: { status: string }) {
   const lower = status?.toLowerCase() ?? '';
   const dotColor = lower === 'active' ? 'bg-emerald-500' : 'bg-slate-300';
-  const textColor = lower === 'active' ? 'text-emerald-700' : 'text-slate-500';
+  const textColor = lower === 'active' ? 'text-emerald-700' : 'text-[var(--text-secondary)]';
   return (
     <span className={`inline-flex items-center gap-2 text-sm font-medium capitalize ${textColor}`}>
       <span className={`w-2 h-2 rounded-full ${dotColor}`} />
@@ -169,7 +169,7 @@ function InlineRateEditor({
   return (
     <button
       onClick={() => setEditing(true)}
-      className="text-sm text-slate-700 hover:text-[var(--creekside-blue)] cursor-pointer transition-colors"
+      className="text-sm text-[var(--text-primary)] hover:text-[var(--creekside-blue)] cursor-pointer transition-colors"
       title="Click to edit"
     >
       {member.hourly_rate != null ? `$${member.hourly_rate.toFixed(2)}` : '--'}
@@ -231,7 +231,7 @@ function NotesCell({
   return (
     <button
       onClick={() => setEditing(true)}
-      className="text-sm text-slate-500 hover:text-[var(--creekside-blue)] cursor-pointer transition-colors text-left max-w-[200px] truncate"
+      className="text-sm text-[var(--text-secondary)] hover:text-[var(--creekside-blue)] cursor-pointer transition-colors text-left max-w-[200px] truncate"
       title={member.notes || 'Click to add notes'}
     >
       {member.notes || '--'}
@@ -295,7 +295,7 @@ function InlineHoursEditor({
   return (
     <button
       onClick={() => setEditing(true)}
-      className="text-sm text-slate-700 hover:text-[var(--creekside-blue)] cursor-pointer transition-colors"
+      className="text-sm text-[var(--text-primary)] hover:text-[var(--creekside-blue)] cursor-pointer transition-colors"
       title="Click to edit"
     >
       {member.estimated_hours_per_month != null ? member.estimated_hours_per_month : '--'}
@@ -461,7 +461,7 @@ export default function TeamPage() {
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
-            className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)] focus:border-transparent"
+            className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)] focus:border-transparent"
           >
             <option value="all">All</option>
             <option value="contractor">Contractor</option>
@@ -474,20 +474,20 @@ export default function TeamPage() {
       {/* Utilization Summary */}
       {!loading && (
         <div className="grid grid-cols-3 gap-4">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Team Cost / Mo</p>
-            <p className="text-xl font-bold text-slate-900 mt-1">
+          <div className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border)] shadow-sm p-4">
+            <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Total Team Cost / Mo</p>
+            <p className="text-xl font-bold text-[var(--text-primary)] mt-1">
               ${summaryStats.totalCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
             </p>
           </div>
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Revenue / Mo</p>
-            <p className="text-xl font-bold text-slate-900 mt-1">
+          <div className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border)] shadow-sm p-4">
+            <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Total Revenue / Mo</p>
+            <p className="text-xl font-bold text-[var(--text-primary)] mt-1">
               ${summaryStats.totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
             </p>
           </div>
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Labor Ratio</p>
+          <div className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border)] shadow-sm p-4">
+            <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Labor Ratio</p>
             <p className={`text-xl font-bold mt-1 ${summaryStats.ratioColor}`}>
               {summaryStats.laborRatio.toFixed(1)}%
             </p>
@@ -496,7 +496,7 @@ export default function TeamPage() {
       )}
 
       {/* Table */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border)] shadow-sm overflow-hidden">
         {loading ? (
           <div className="p-12 text-center text-slate-400 text-sm">Loading team members...</div>
         ) : filtered.length === 0 ? (
@@ -505,30 +505,30 @@ export default function TeamPage() {
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-slate-100 bg-slate-50">
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Name</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Role</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Type</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Rate</th>
-                  <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Est. Hours/Mo</th>
-                  <th className="text-center py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Utilization</th>
-                  <th className="text-center py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Clients</th>
-                  <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Est. Monthly Cost</th>
-                  <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Revenue Contribution</th>
-                  <th className="text-center py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Pre-work Sheet</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Notes</th>
+                <tr className="border-b border-[var(--border)] bg-[var(--bg-tertiary)]">
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Name</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Role</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Type</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Rate</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Est. Hours/Mo</th>
+                  <th className="text-center py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Utilization</th>
+                  <th className="text-center py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Clients</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Est. Monthly Cost</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Revenue Contribution</th>
+                  <th className="text-center py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Pre-work Sheet</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Notes</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((member) => {
                   const shortName = toShortName(member.name);
                   return (
-                  <tr key={member.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                  <tr key={member.id} className="border-b border-[var(--border)] hover:bg-[var(--bg-tertiary)]/50 transition-colors">
                     <td className="py-3 px-4">
-                      <span className="text-sm font-medium text-slate-900">{member.name}</span>
+                      <span className="text-sm font-medium text-[var(--text-primary)]">{member.name}</span>
                     </td>
                     <td className="py-3 px-4">
-                      <span className="text-sm text-slate-600">{member.role}</span>
+                      <span className="text-sm text-[var(--text-secondary)]">{member.role}</span>
                     </td>
                     <td className="py-3 px-4">
                       <TypeBadge type={member.employment_type} />
@@ -550,13 +550,13 @@ export default function TeamPage() {
                         );
                       })()}
                     </td>
-                    <td className="py-3 px-4 text-center text-sm text-slate-700">
+                    <td className="py-3 px-4 text-center text-sm text-[var(--text-primary)]">
                       {(() => {
                         const count = memberClientCounts[shortName] ?? 0;
                         return count > 0 ? count : <span className="text-slate-300">--</span>;
                       })()}
                     </td>
-                    <td className="py-3 px-4 text-right text-sm text-slate-600">
+                    <td className="py-3 px-4 text-right text-sm text-[var(--text-secondary)]">
                       {(() => {
                         if (member.hourly_rate != null && member.estimated_hours_per_month != null) {
                           const cost = member.hourly_rate * member.estimated_hours_per_month;

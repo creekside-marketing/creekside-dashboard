@@ -2,7 +2,7 @@
  * GET /api/clients/last-contact
  *
  * Returns the most recent communication date per client across
- * gmail_messages, fathom_entries, and gchat_summaries.
+ * gmail_summaries, fathom_entries (meeting_date), and gchat_summaries (date).
  *
  * Response shape:
  *   { [client_id]: { last_contact_date: string, days_ago: number, source: string } }
