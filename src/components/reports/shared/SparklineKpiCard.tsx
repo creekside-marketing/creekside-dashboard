@@ -84,65 +84,60 @@ export default function SparklineKpiCard({
   return (
     <div
       className={`bg-white rounded-xl border border-slate-200 shadow-sm ${
-        isLarge ? 'p-6' : 'p-4'
+        isLarge ? 'p-6 pb-3' : 'p-4 pb-2'
       }`}
     >
-      <div className="flex items-start justify-between gap-3">
-        {/* Left: text content */}
-        <div className="min-w-0 flex-1">
-          <p
-            className={`font-semibold text-slate-500 uppercase tracking-wider ${
-              isLarge ? 'text-xs' : 'text-[11px]'
-            }`}
-          >
-            {label}
-          </p>
-          <p
-            className={`font-bold text-slate-900 mt-1 tabular-nums ${
-              isLarge ? 'text-3xl' : 'text-xl'
-            }`}
-          >
-            {value}
-          </p>
-          {change && (
-            <p
-              className={`mt-1 font-medium ${changeColorClass} ${
-                isLarge ? 'text-sm' : 'text-xs'
-              }`}
-            >
-              {arrow}
-              {arrow ? ' ' : ''}
-              {change}
-            </p>
-          )}
-        </div>
+      <p
+        className={`font-semibold text-slate-500 uppercase tracking-wider ${
+          isLarge ? 'text-xs' : 'text-[11px]'
+        }`}
+      >
+        {label}
+      </p>
+      <p
+        className={`font-bold text-slate-900 mt-1 tabular-nums ${
+          isLarge ? 'text-3xl' : 'text-xl'
+        }`}
+      >
+        {value}
+      </p>
+      {change && (
+        <p
+          className={`mt-1 font-medium ${changeColorClass} ${
+            isLarge ? 'text-sm' : 'text-xs'
+          }`}
+        >
+          {arrow}
+          {arrow ? ' ' : ''}
+          {change}
+        </p>
+      )}
 
-        {/* Right: sparkline */}
-        {chartData && (
-          <div className="shrink-0" style={{ width: 120, height: 32 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
-                <Line
-                  type="monotone"
-                  dataKey="value"
-                  stroke={sparklineColor}
-                  strokeWidth={1.5}
-                  dot={false}
-                  isAnimationActive={false}
+      {/* Sparkline at bottom — full width */}
+      {chartData && (
+        <div className={`${isLarge ? 'mt-3' : 'mt-2'} -mx-1`} style={{ height: 32 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={chartData} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+              <Line
+                type="monotone"
+                dataKey="value"
+                stroke={sparklineColor}
+                strokeWidth={1.5}
+                dot={false}
+                isAnimationActive={false}
+              />
+              {target !== undefined && (
+                <ReferenceLine
+                  y={target}
+                  stroke={REPORT_COLORS.prior}
+                  strokeDasharray="3 3"
+                  strokeWidth={1}
                 />
-                {target !== undefined && (
-                  <ReferenceLine
-                    y={target}
-                    stroke={REPORT_COLORS.prior}
-                    strokeDasharray="3 3"
-                    strokeWidth={1}
-                  />
-                )}
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </div>
+              )}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </div>
   );
 }
