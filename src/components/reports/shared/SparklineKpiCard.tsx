@@ -96,7 +96,9 @@ export default function SparklineKpiCard({
       </p>
       <p
         className={`font-bold text-slate-900 mt-1 tabular-nums ${
-          isLarge ? 'text-3xl' : 'text-xl'
+          isLarge
+            ? value.length > 12 ? 'text-xl' : value.length > 9 ? 'text-2xl' : 'text-3xl'
+            : value.length > 10 ? 'text-base' : 'text-xl'
         }`}
       >
         {value}

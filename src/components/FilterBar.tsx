@@ -6,9 +6,11 @@ interface FilterBarProps {
   selectedPlatform: string;
   selectedManager: string;
   selectedPriority: string;
+  selectedContact: string;
   onPlatformChange: (value: string) => void;
   onManagerChange: (value: string) => void;
   onPriorityChange: (value: string) => void;
+  onContactChange: (value: string) => void;
 }
 
 export default function FilterBar({
@@ -20,9 +22,17 @@ export default function FilterBar({
   onPlatformChange,
   onManagerChange,
   onPriorityChange,
+  selectedContact,
+  onContactChange,
 }: FilterBarProps) {
   const platformOptions = ['All', ...platforms];
   const priorityOptions = ['All', 'High', 'Medium', 'Low'];
+  const contactOptions: { label: string; value: string; dot?: string }[] = [
+    { label: 'All', value: '' },
+    { label: '0–14d', value: 'green', dot: 'bg-emerald-500' },
+    { label: '14–30d', value: 'yellow', dot: 'bg-yellow-500' },
+    { label: '30d+', value: 'red', dot: 'bg-red-500' },
+  ];
 
   const pillBase = 'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer';
   const pillActive = 'bg-[var(--creekside-navy)] text-white shadow-sm';
@@ -86,6 +96,25 @@ export default function FilterBar({
             <option key={m} value={m}>{m}</option>
           ))}
         </select>
+      </div>
+
+      {/* Last Contact */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider mr-1">Contact</span>
+        <div className="flex items-center bg-slate-50 rounded-lg p-1">
+          {contactOptions.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => onContactChange(opt.value)}
+              className={`${pillBase} flex items-center gap-1.5 ${
+                selectedContact === opt.value ? pillActive : pillInactive
+              }`}
+            >
+              {opt.dot && <span className={`inline-block w-2 h-2 rounded-full ${selectedContact === opt.value ? 'bg-white/80' : opt.dot}`} />}
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

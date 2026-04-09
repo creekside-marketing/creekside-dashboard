@@ -326,7 +326,7 @@ function LastContactBadge({ daysAgo, source }: { daysAgo: number; source: string
   let colorClasses: string;
   if (daysAgo >= 30) {
     colorClasses = 'bg-red-100 text-red-800 ring-1 ring-inset ring-red-600/20';
-  } else if (daysAgo >= 21) {
+  } else if (daysAgo >= 14) {
     colorClasses = 'bg-yellow-50 text-yellow-800 ring-1 ring-inset ring-yellow-500/20';
   } else {
     colorClasses = 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20';
@@ -786,6 +786,7 @@ export default function ClientTable() {
   const [selectedPlatform, setSelectedPlatform] = useState('');
   const [selectedManager, setSelectedManager] = useState('');
   const [selectedPriority, setSelectedPriority] = useState('');
+  const [selectedContact, setSelectedContact] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('client_name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
@@ -1061,11 +1062,18 @@ export default function ClientTable() {
       if (selectedPlatform && c.platform?.toLowerCase() !== selectedPlatform.toLowerCase()) return false;
       if (selectedManager && c.account_manager !== selectedManager) return false;
       if (selectedPriority && c.priority?.toLowerCase() !== selectedPriority.toLowerCase()) return false;
+      if (selectedContact) {
+        const contact = c.client_id ? lastContact[c.client_id as string] : null;
+        const days = contact?.days_ago ?? Infinity;
+        if (selectedContact === 'green' && days >= 14) return false;
+        if (selectedContact === 'yellow' && (days < 14 || days >= 30)) return false;
+        if (selectedContact === 'red' && days < 30) return false;
+      }
       // Hide churned clients — they show in the Archive tab
       if (c.status?.toLowerCase() === 'churned') return false;
       return true;
     });
-  }, [clients, selectedPlatform, selectedManager, selectedPriority]);
+  }, [clients, selectedPlatform, selectedManager, selectedPriority, selectedContact, lastContact]);
 
   // ── Per-row revenue calculation using fee_config + live spend ────────
   // Returns { value: number | null, source: 'override' | 'calculated' | 'none' } keyed by row id
@@ -1342,9 +1350,11 @@ export default function ClientTable() {
         selectedPlatform={selectedPlatform}
         selectedManager={selectedManager}
         selectedPriority={selectedPriority}
+        selectedContact={selectedContact}
         onPlatformChange={setSelectedPlatform}
         onManagerChange={setSelectedManager}
         onPriorityChange={setSelectedPriority}
+        onContactChange={setSelectedContact}
       />
 
       {/* Table */}

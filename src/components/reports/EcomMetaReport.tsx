@@ -416,25 +416,16 @@ export default function EcomMetaReport({
 
       {!loading && !error && (
         <>
-          {/* 2. Executive Summary KPIs */}
+          {/* Executive Summary KPIs — matches Ecom Google layout */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
             <SparklineKpiCard
-              label="Purchases"
-              value={fmt(totals.purchases)}
+              label="Revenue"
+              value={fmtMoney(totals.purchaseRevenue)}
               change={kpiChanges?.purchases.pct}
               changeDirection={kpiChanges?.purchases.direction}
               changeSentiment="positive-up"
               size="lg"
-              sparklineData={sparkPurchases}
-            />
-            <SparklineKpiCard
-              label="Cost Per Purchase"
-              value={totals.purchases > 0 ? fmtMoney(totals.cpp) : '--'}
-              change={kpiChanges?.cpp.pct}
-              changeDirection={kpiChanges?.cpp.direction}
-              changeSentiment="negative-up"
-              size="lg"
-              sparklineData={sparkCpp}
+              sparklineData={dailyData.map((d) => d.purchaseRevenue)}
             />
             <SparklineKpiCard
               label="ROAS"
@@ -455,51 +446,50 @@ export default function EcomMetaReport({
               sparklineData={sparkSpend}
             />
             <SparklineKpiCard
-              label="CPM"
-              value={totals.impressions > 0 ? fmtMoney(totals.cpm) : '--'}
-              change={kpiChanges?.cpm?.pct}
-              changeDirection={kpiChanges?.cpm?.direction}
+              label="Cost / Purchase"
+              value={totals.purchases > 0 ? fmtMoney(totals.cpp) : '--'}
+              change={kpiChanges?.cpp.pct}
+              changeDirection={kpiChanges?.cpp.direction}
               changeSentiment="negative-up"
               size="lg"
-              sparklineData={sparkCpm}
+              sparklineData={sparkCpp}
+            />
+            <SparklineKpiCard
+              label="AOV"
+              value={totals.purchases > 0 ? fmtMoney(totals.purchaseRevenue / totals.purchases) : '--'}
+              changeSentiment="positive-up"
+              size="lg"
+              sparklineData={dailyData.map((d) => d.purchases > 0 ? d.purchaseRevenue / d.purchases : 0)}
             />
           </div>
 
-          {/* 3. Secondary KPIs */}
+          {/* Secondary KPIs */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <SparklineKpiCard
-              label="Add to Carts"
-              value={fmt(totals.atc)}
-              change={kpiChanges?.atc?.pct}
-              changeDirection={kpiChanges?.atc?.direction}
+              label="Purchases"
+              value={fmt(totals.purchases)}
+              change={kpiChanges?.purchases.pct}
+              changeDirection={kpiChanges?.purchases.direction}
               changeSentiment="positive-up"
-              sparklineData={dailyData.map((d) => d.atc)}
             />
             <SparklineKpiCard
-              label="Checkouts Initiated"
-              value={fmt(totals.checkouts)}
-              change={kpiChanges?.checkouts?.pct}
-              changeDirection={kpiChanges?.checkouts?.direction}
-              changeSentiment="positive-up"
-              sparklineData={dailyData.map((d) => d.checkouts)}
-            />
-            <SparklineKpiCard
-              label="Link Clicks"
-              value={fmt(totals.linkClicks)}
-              change={kpiChanges?.linkClicks?.pct}
-              changeDirection={kpiChanges?.linkClicks?.direction}
-              changeSentiment="positive-up"
-              sparklineData={dailyData.map((d) => d.linkClicks)}
-            />
-            <SparklineKpiCard
-              label="LC-CTR"
+              label="CTR"
               value={fmtPct(totals.lctr)}
               change={kpiChanges?.lctr?.pct}
               changeDirection={kpiChanges?.lctr?.direction}
               changeSentiment="positive-up"
-              sparklineData={dailyData.map((d) =>
-                d.impressions > 0 ? d.linkClicks / d.impressions : 0,
-              )}
+            />
+            <SparklineKpiCard
+              label="Avg CPC"
+              value={totals.linkClicks > 0 ? fmtMoney(totals.spend / totals.linkClicks) : '--'}
+              changeSentiment="negative-up"
+            />
+            <SparklineKpiCard
+              label="Impressions"
+              value={fmt(totals.impressions)}
+              change={kpiChanges?.linkClicks?.pct}
+              changeDirection={kpiChanges?.linkClicks?.direction}
+              changeSentiment="positive-up"
             />
           </div>
 
@@ -510,8 +500,8 @@ export default function EcomMetaReport({
               data={dailyData}
               xKey="date"
               lines={[
-                { dataKey: 'spend', label: 'Spend', color: '#3B82F6', type: 'bar', yAxisId: 'left' },
-                { dataKey: 'purchases', label: 'Purchases', color: '#10B981', yAxisId: 'right' },
+                { dataKey: 'spend', label: 'Spend', color: '#93C5FD', type: 'bar', yAxisId: 'left' },
+                { dataKey: 'purchases', label: 'Purchases', color: '#F59E0B', yAxisId: 'right' },
               ]}
               formatY={(v) => `$${v.toLocaleString()}`}
               formatYRight={(v) => v.toFixed(0)}

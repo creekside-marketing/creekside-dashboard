@@ -208,7 +208,7 @@ export default function EcomGoogleReport({ client, mode }: { client: ReportingCl
 
         {/* ── Revenue vs Spend Chart ──────────────────────────────────── */}
         {dailyData.length > 0 && (<>
-          <ReportChart title="Revenue vs Spend" data={dailyData} xKey="date" lines={[{ dataKey: 'cost', label: 'Spend', color: '#3B82F6', type: 'bar', yAxisId: 'left' }, { dataKey: 'conversionValue', label: 'Revenue', color: '#10B981', yAxisId: 'right' }]} formatY={(v) => `$${v.toLocaleString()}`} formatYRight={(v) => `$${v.toLocaleString()}`} />
+          <ReportChart title="Revenue vs Spend" data={dailyData} xKey="date" lines={[{ dataKey: 'cost', label: 'Spend', color: '#93C5FD', type: 'bar', yAxisId: 'left' }, { dataKey: 'conversionValue', label: 'Revenue', color: '#F59E0B', yAxisId: 'right' }]} formatY={(v) => `$${v.toLocaleString()}`} formatYRight={(v) => `$${v.toLocaleString()}`} />
           <ReportChart title="ROAS Trend (target: 4.0x)" data={dailyData} xKey="date" lines={[{ dataKey: 'roas', label: 'ROAS', color: '#8B5CF6' }]} formatY={(v) => `${v.toFixed(1)}x`} height={250} />
         </>)}
 

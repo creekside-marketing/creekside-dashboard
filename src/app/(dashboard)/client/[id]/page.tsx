@@ -96,6 +96,17 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
     : null;
   const reportUrl = client.report_token ? `/report/${client.report_token}` : null;
 
+  // Fetch sibling rows (same client_name, different platforms) for multi-platform view
+  const { data: siblings } = await supabase
+    .from('reporting_clients')
+    .select('*')
+    .eq('client_name', client.client_name)
+    .not('ad_account_id', 'is', null)
+    .neq('id', client.id);
+
+  // Build list: clicked row first, then siblings with ad accounts
+  const allPlatformRows = [client, ...(siblings ?? [])];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -142,7 +153,16 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         )}
       </div>
 
-      <ClientReport client={client} />
+      {allPlatformRows.map((row) => (
+        <div key={row.id}>
+          {allPlatformRows.length > 1 && (
+            <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">
+              {row.platform === 'meta' ? 'Meta Ads' : row.platform === 'google' ? 'Google Ads' : row.platform}
+            </h3>
+          )}
+          <ClientReport client={row} />
+        </div>
+      ))}
       <PerformanceGoals clientName={client.client_name} />
     </div>
   );
