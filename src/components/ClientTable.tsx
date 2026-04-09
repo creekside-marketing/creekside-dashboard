@@ -787,78 +787,70 @@ export default function ClientTable() {
       else if (platform === 'google') googleAccounts.add(accountId);
     }
 
-    // Build fetch promises
-    const fetches: Array<{ accountId: string; platform: 'meta' | 'google'; promise: Promise<Response> }> = [];
-
-    for (const accountId of metaAccounts) {
-      fetches.push({
-        accountId,
-        platform: 'meta',
-        promise: fetch(`/api/meta/insights?account_id=${encodeURIComponent(accountId)}&level=account&time_range=last_30d`),
-      });
-    }
-
-    for (const customerId of googleAccounts) {
-      fetches.push({
-        accountId: customerId,
-        platform: 'google',
-        promise: fetch(`/api/google/insights?customer_id=${encodeURIComponent(customerId)}&level=account&date_range=LAST_30_DAYS`),
-      });
-    }
-
-    // Execute all in parallel
-    const results = await Promise.allSettled(fetches.map(f => f.promise));
-
     const newLiveData: Record<string, LiveAccountData> = {};
 
-    for (let i = 0; i < fetches.length; i++) {
-      const { accountId, platform } = fetches[i];
-      const result = results[i];
-
-      if (result.status === 'rejected') {
-        newLiveData[accountId] = { spend: 0, conversions: 0, costPerConversion: 0, conversionBreakdown: [], error: 'Network error' };
-        continue;
-      }
-
-      const response = result.value;
-      if (!response.ok) {
-        let errMsg = `HTTP ${response.status}`;
-        try {
-          const errBody = await response.json();
-          errMsg = errBody.error || errMsg;
-        } catch { /* ignore parse errors */ }
-        newLiveData[accountId] = { spend: 0, conversions: 0, costPerConversion: 0, conversionBreakdown: [], error: errMsg };
-        continue;
-      }
-
+    // Single bulk call for all Meta accounts
+    if (metaAccounts.size > 0) {
       try {
-        const json = await response.json();
-        let spend: number;
-        let conversions: number;
-        let conversionBreakdown: ConversionEntry[];
-
-        if (platform === 'meta') {
-          const parsed = parseMetaInsights(json);
-          spend = parsed.spend;
-          conversions = parsed.conversions;
-          conversionBreakdown = parsed.conversionBreakdown;
+        const metaIds = [...metaAccounts].join(',');
+        const bulkRes = await fetch(`/api/meta/bulk-insights?account_ids=${encodeURIComponent(metaIds)}&time_range=last_30d`);
+        if (bulkRes.ok) {
+          const bulkJson = await bulkRes.json();
+          // PipeBoard bulk response: { results: [{ account_id, insights: { data: [...] } }] }
+          const unwrapped = unwrapPipeboardResponse(bulkJson);
+          const results = (unwrapped as { results?: Array<Record<string, unknown>> }).results ?? [];
+          for (const acct of results) {
+            const acctId = (acct.account_id as string) ?? '';
+            const insights = acct.insights as Record<string, unknown> | undefined;
+            if (insights) {
+              const parsed = parseMetaInsights(insights);
+              const keyId = metaAccounts.has(acctId) ? acctId : metaAccounts.has(`act_${acctId}`) ? `act_${acctId}` : acctId;
+              newLiveData[keyId] = {
+                spend: parsed.spend,
+                conversions: parsed.conversions,
+                costPerConversion: parsed.conversions > 0 ? parsed.spend / parsed.conversions : 0,
+                conversionBreakdown: parsed.conversionBreakdown,
+              };
+            }
+          }
         } else {
-          const parsed = parseGoogleInsights(json);
-          spend = parsed.spend;
-          conversions = parsed.conversions;
-          conversionBreakdown = parsed.conversionBreakdown;
+          // Bulk failed — mark all Meta accounts as errored
+          const errMsg = `Bulk fetch failed: HTTP ${bulkRes.status}`;
+          for (const id of metaAccounts) {
+            newLiveData[id] = { spend: 0, conversions: 0, costPerConversion: 0, conversionBreakdown: [], error: errMsg };
+          }
         }
-
-        newLiveData[accountId] = {
-          spend,
-          conversions,
-          costPerConversion: conversions > 0 ? spend / conversions : 0,
-          conversionBreakdown,
-        };
       } catch {
-        newLiveData[accountId] = { spend: 0, conversions: 0, costPerConversion: 0, conversionBreakdown: [], error: 'Parse error' };
+        for (const id of metaAccounts) {
+          newLiveData[id] = { spend: 0, conversions: 0, costPerConversion: 0, conversionBreakdown: [], error: 'Network error' };
+        }
       }
     }
+
+    // Google calls in parallel (separate API, no shared rate limit with Meta)
+    const googleFetches = [...googleAccounts].map(async (customerId) => {
+      try {
+        const res = await fetch(`/api/google/insights?customer_id=${encodeURIComponent(customerId)}&level=account&date_range=LAST_30_DAYS`);
+        if (!res.ok) {
+          let errMsg = `HTTP ${res.status}`;
+          try { const body = await res.json(); errMsg = body.error || errMsg; } catch { /* ignore */ }
+          return [customerId, { spend: 0, conversions: 0, costPerConversion: 0, conversionBreakdown: [] as ConversionEntry[], error: errMsg }] as [string, LiveAccountData];
+        }
+        const json = await res.json();
+        const parsed = parseGoogleInsights(json);
+        return [customerId, {
+          spend: parsed.spend,
+          conversions: parsed.conversions,
+          costPerConversion: parsed.conversions > 0 ? parsed.spend / parsed.conversions : 0,
+          conversionBreakdown: parsed.conversionBreakdown,
+        }] as [string, LiveAccountData];
+      } catch {
+        return [customerId, { spend: 0, conversions: 0, costPerConversion: 0, conversionBreakdown: [] as ConversionEntry[], error: 'Network error' }] as [string, LiveAccountData];
+      }
+    });
+
+    const googleResults = await Promise.all(googleFetches);
+    for (const [id, data] of googleResults) { newLiveData[id] = data; }
 
     setLiveData(newLiveData);
     setRefreshing(false);
