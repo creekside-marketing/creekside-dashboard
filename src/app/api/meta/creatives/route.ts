@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
         }
       }
     } catch (err) {
-      console.log('[creatives] bulk_get_ad_creatives failed:', err instanceof Error ? err.message : String(err));
+      console.error('[creatives] bulk_get_ad_creatives failed:', err instanceof Error ? err.message : String(err));
     }
 
     return NextResponse.json({ data: thumbnails });
