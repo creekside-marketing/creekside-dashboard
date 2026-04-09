@@ -769,6 +769,7 @@ export default function ClientTable() {
     fetchClients();
   }, []);
 
+
   // ── Refresh live data ───────────────────────────────────────────────
 
   const refreshData = useCallback(async () => {
@@ -861,6 +862,15 @@ export default function ClientTable() {
     setLastRefreshed(new Date());
     setCooldownRemaining(COOLDOWN_SECONDS);
   }, [clients, refreshing, cooldownRemaining]);
+
+  // Auto-fetch live data once clients are loaded
+  const autoFetched = useRef(false);
+  useEffect(() => {
+    if (clients.length > 0 && !autoFetched.current && !refreshing && cooldownRemaining <= 0) {
+      autoFetched.current = true;
+      refreshData();
+    }
+  }, [clients, refreshing, cooldownRemaining, refreshData]);
 
   // ── Derived data ────────────────────────────────────────────────────
 
