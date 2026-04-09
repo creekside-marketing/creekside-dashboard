@@ -10,6 +10,7 @@ const tabs = [
   { label: 'Archive', href: '/archive' },
   { label: 'Billing', href: '/billing' },
   { label: 'Scorecard', href: '/scorecard' },
+  { label: 'Upwork', href: '/upwork' },
 ];
 
 export default function NavTabs() {
