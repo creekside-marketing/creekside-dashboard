@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import { calculatePlatformRevenue } from '@/lib/fee-engine';
+import type { FeeConfig } from '@/lib/fee-engine';
 
 interface TeamMember {
   id: string;
@@ -20,6 +22,65 @@ interface ClientRow {
   account_manager: string | null;
   platform_operator: string | null;
   monthly_revenue: number | null;
+  monthly_budget: number | null;
+  fee_config: FeeConfig | null;
+  revenue_override: boolean;
+  status: string;
+  platform: string | null;
+}
+
+// Partners — excluded from all calculations (same as ClientTable)
+const PARTNER_NAMES = new Set([
+  'Bottle.com',
+  'Comet Fuel',
+  'FirstUp Marketing',
+  'Full Circle Media',
+  'Suff Digital',
+]);
+
+// Map full team_members names to the short names used in reporting_clients
+const DISPLAY_NAME_OVERRIDES: Record<string, string> = {
+  'Kenneth Cade MacLean': 'Cade',
+  'Peterson Rainey': 'Peterson',
+};
+
+function toShortName(fullName: string): string {
+  if (DISPLAY_NAME_OVERRIDES[fullName]) return DISPLAY_NAME_OVERRIDES[fullName];
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length <= 1) return fullName;
+  return `${parts[0]} ${parts[parts.length - 1][0]}.`;
+}
+
+/**
+ * Calculate revenue for a single client row using the same cascade as ClientTable:
+ * 1. revenue_override === true -> use monthly_revenue
+ * 2. fee_config + monthly_budget -> calculate via fee engine
+ * 3. monthly_revenue from DB -> use as-is
+ * 4. Nothing -> 0
+ */
+function getRowRevenue(
+  row: ClientRow,
+  totalBudgetByClient: Record<string, number>,
+): number {
+  // 1. Manual override
+  if (row.revenue_override && row.monthly_revenue != null) {
+    return Number(row.monthly_revenue);
+  }
+
+  // 2. Fee config + budget
+  if (row.fee_config && row.monthly_budget != null && Number(row.monthly_budget) > 0) {
+    const budgetAsSpend = Number(row.monthly_budget);
+    const totalClientSpend = totalBudgetByClient[row.client_name] ?? budgetAsSpend;
+    return calculatePlatformRevenue(row.fee_config, budgetAsSpend, totalClientSpend);
+  }
+
+  // 3. Raw monthly_revenue fallback
+  if (row.monthly_revenue != null) {
+    return Number(row.monthly_revenue);
+  }
+
+  // 4. Nothing
+  return 0;
 }
 
 function _StatusDot({ status }: { status: string }) {
@@ -265,51 +326,46 @@ export default function TeamPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Calculate revenue contribution per team member (from clients they manage or operate)
-  const memberRevenue = useMemo(() => {
-    const revenueMap: Record<string, number> = {};
-    // Group client revenue by client_name (sum across platforms)
-    const clientRevByName: Record<string, number> = {};
-    for (const c of clientData) {
-      if (c.monthly_revenue != null) {
-        clientRevByName[c.client_name] = (clientRevByName[c.client_name] ?? 0) + Number(c.monthly_revenue);
+  // Filter out partner companies from client data
+  const activeClients = useMemo(() => {
+    return clientData.filter(c => !PARTNER_NAMES.has(c.client_name));
+  }, [clientData]);
+
+  // Pre-compute total budget per client (needed for tiered/fixed fee_config calculations)
+  const totalBudgetByClient = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const c of activeClients) {
+      if (c.monthly_budget != null) {
+        map[c.client_name] = (map[c.client_name] ?? 0) + Number(c.monthly_budget);
       }
     }
-    // Attribute revenue to managers
+    return map;
+  }, [activeClients]);
+
+  // Calculate revenue per client (sum across platforms, using fee_config cascade)
+  const clientRevenueByName = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const c of activeClients) {
+      const rev = getRowRevenue(c, totalBudgetByClient);
+      map[c.client_name] = (map[c.client_name] ?? 0) + rev;
+    }
+    return map;
+  }, [activeClients, totalBudgetByClient]);
+
+  // Calculate revenue contribution per team member (from clients they manage)
+  const memberRevenue = useMemo(() => {
+    const revenueMap: Record<string, number> = {};
+    // Attribute revenue to account managers (deduplicate by client_name)
     const clientManagerSeen = new Set<string>();
-    for (const c of clientData) {
+    for (const c of activeClients) {
       if (c.account_manager && !clientManagerSeen.has(c.client_name)) {
         clientManagerSeen.add(c.client_name);
-        const rev = clientRevByName[c.client_name] ?? 0;
-        const shortName = c.account_manager;
-        revenueMap[shortName] = (revenueMap[shortName] ?? 0) + rev;
+        const rev = clientRevenueByName[c.client_name] ?? 0;
+        revenueMap[c.account_manager] = (revenueMap[c.account_manager] ?? 0) + rev;
       }
     }
     return revenueMap;
-  }, [clientData]);
-
-  // Estimated monthly cost per team member
-  const memberCost = useMemo(() => {
-    const costMap: Record<string, { cost: number; note: string }> = {};
-    for (const m of members) {
-      const firstName = m.name.split(' ')[0];
-      if (m.employment_type === 'owner') {
-        costMap[firstName] = { cost: 8500, note: '$8,500/mo' };
-      } else if (m.hourly_rate) {
-        // Estimate: contractors ~20hrs/week, full-time based on notes
-        const notesStr = m.notes ?? '';
-        const monthlyMatch = notesStr.match(/\$([0-9,]+)\/month/);
-        if (monthlyMatch) {
-          costMap[firstName] = { cost: parseFloat(monthlyMatch[1].replace(',', '')), note: `${monthlyMatch[0]}` };
-        } else if (notesStr.includes('44 hours/week')) {
-          costMap[firstName] = { cost: m.hourly_rate * 44 * 4.33, note: `$${m.hourly_rate}/hr × 44hrs/wk` };
-        } else {
-          costMap[firstName] = { cost: 0, note: `$${m.hourly_rate}/hr` };
-        }
-      }
-    }
-    return costMap;
-  }, [members]);
+  }, [activeClients, clientRevenueByName]);
 
   // Utilization: estimated_hours_per_month / capacity
   const getUtilization = useCallback((member: TeamMember): { pct: number; color: string; label: string } | null => {
@@ -326,54 +382,45 @@ export default function TeamPage() {
     return { pct, color, label };
   }, []);
 
-  // Client counts per team member (by first name match on platform_operator or account_manager)
+  // Client counts per team member (using toShortName for matching)
   const memberClientCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    // Deduplicate clients by client_name (multiple platform rows per client)
-    const clientsByManager: Record<string, Set<string>> = {};
-    for (const c of clientData) {
+    const clientsByRole: Record<string, Set<string>> = {};
+    for (const c of activeClients) {
       for (const role of [c.account_manager, c.platform_operator]) {
         if (role) {
-          if (!clientsByManager[role]) clientsByManager[role] = new Set();
-          clientsByManager[role].add(c.client_name);
+          if (!clientsByRole[role]) clientsByRole[role] = new Set();
+          clientsByRole[role].add(c.client_name);
         }
       }
     }
-    for (const [name, clients] of Object.entries(clientsByManager)) {
+    for (const [name, clients] of Object.entries(clientsByRole)) {
       counts[name] = clients.size;
     }
     return counts;
-  }, [clientData]);
+  }, [activeClients]);
 
   // Summary stats
   const summaryStats = useMemo(() => {
+    // Total cost: sum of hourly_rate * estimated_hours_per_month for active members
     let totalCost = 0;
-    let totalRevenue = 0;
     for (const m of members) {
       if (m.status !== 'active') continue;
-      const firstName = m.name.split(' ')[0];
-      if (m.estimated_hours_per_month != null && m.hourly_rate != null) {
+      if (m.hourly_rate != null && m.estimated_hours_per_month != null) {
         totalCost += m.hourly_rate * m.estimated_hours_per_month;
-      } else {
-        const cost = memberCost[firstName];
-        if (cost && cost.cost > 0) totalCost += cost.cost;
       }
     }
-    // Sum unique client revenue
-    const clientRevByName: Record<string, number> = {};
-    for (const c of clientData) {
-      if (c.monthly_revenue != null) {
-        clientRevByName[c.client_name] = (clientRevByName[c.client_name] ?? 0) + Number(c.monthly_revenue);
-      }
-    }
-    totalRevenue = Object.values(clientRevByName).reduce((sum, v) => sum + v, 0);
+
+    // Total revenue: sum of calculated revenue across all active clients
+    const totalRevenue = Object.values(clientRevenueByName).reduce((sum, v) => sum + v, 0);
+
     const laborRatio = totalRevenue > 0 ? (totalCost / totalRevenue) * 100 : 0;
     let ratioColor: string;
     if (laborRatio < 50) ratioColor = 'text-emerald-600';
     else if (laborRatio <= 65) ratioColor = 'text-amber-600';
     else ratioColor = 'text-red-600';
     return { totalCost, totalRevenue, laborRatio, ratioColor };
-  }, [members, clientData, memberCost]);
+  }, [members, clientRevenueByName]);
 
   const filtered = members.filter((m) => {
     // Only show active team members
@@ -403,14 +450,14 @@ export default function TeamPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-2xl font-semibold text-slate-900">Team Members</h2>
-        <p className="text-sm text-slate-500 mt-1">Manage team members, rates, and notes</p>
+        <h2 className="text-2xl font-semibold text-[var(--text-primary)]">Team Members</h2>
+        <p className="text-sm text-[var(--text-secondary)] mt-1">Manage team members, rates, and notes</p>
       </div>
 
       {/* Filters */}
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2">
-          <label className="text-sm font-medium text-slate-600">Type</label>
+          <label className="text-sm font-medium text-[var(--text-secondary)]">Type</label>
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
@@ -473,7 +520,9 @@ export default function TeamPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((member) => (
+                {filtered.map((member) => {
+                  const shortName = toShortName(member.name);
+                  return (
                   <tr key={member.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
                     <td className="py-3 px-4">
                       <span className="text-sm font-medium text-slate-900">{member.name}</span>
@@ -503,31 +552,22 @@ export default function TeamPage() {
                     </td>
                     <td className="py-3 px-4 text-center text-sm text-slate-700">
                       {(() => {
-                        const firstName = member.name.split(' ')[0];
-                        const count = memberClientCounts[firstName] ?? 0;
+                        const count = memberClientCounts[shortName] ?? 0;
                         return count > 0 ? count : <span className="text-slate-300">--</span>;
                       })()}
                     </td>
                     <td className="py-3 px-4 text-right text-sm text-slate-600">
                       {(() => {
-                        // Prefer estimated_hours_per_month * hourly_rate when both are set
-                        if (member.estimated_hours_per_month != null && member.hourly_rate != null) {
+                        if (member.hourly_rate != null && member.estimated_hours_per_month != null) {
                           const cost = member.hourly_rate * member.estimated_hours_per_month;
                           return `$${cost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
                         }
-                        const firstName = member.name.split(' ')[0];
-                        const cost = memberCost[firstName];
-                        if (!cost) return <span className="text-slate-300">--</span>;
-                        if (cost.cost > 0) return `$${cost.cost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-                        return <span className="text-slate-400" title={cost.note}>{cost.note}</span>;
+                        return <span className="text-slate-300">--</span>;
                       })()}
                     </td>
                     <td className="py-3 px-4 text-right text-sm font-medium text-emerald-700">
                       {(() => {
-                        const firstName = member.name.split(' ')[0];
-                        // Check common short names used in reporting_clients
-                        const nameVariants = [firstName, member.name.split(' ').map(n => n[0] + n.slice(1)).join(' ')];
-                        const rev = nameVariants.reduce((found, n) => found || memberRevenue[n], 0 as number | undefined);
+                        const rev = memberRevenue[shortName];
                         if (rev && rev > 0) return `$${rev.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
                         return <span className="text-slate-300">--</span>;
                       })()}
@@ -553,7 +593,8 @@ export default function TeamPage() {
                       <NotesCell member={member} onSaved={handleNotesSaved} />
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
