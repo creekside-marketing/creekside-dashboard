@@ -364,7 +364,7 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
                                 </a>
                               ) : null}
                               <a
-                                href={`https://www.facebook.com/ads/archive/render_ad/?id=${ad.adId}`}
+                                href={`https://www.facebook.com/ads/library/?id=${ad.adId}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-sm font-medium text-[#2563eb] hover:text-blue-700 truncate max-w-[250px] transition-colors"
