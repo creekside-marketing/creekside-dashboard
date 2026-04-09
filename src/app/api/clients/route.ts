@@ -95,6 +95,64 @@ export async function GET() {
   }
 }
 
+const ALLOWED_CREATE_FIELDS = [
+  'client_name',
+  'platform',
+  'monthly_budget',
+  'monthly_revenue',
+  'goals',
+  'notes',
+  'priority',
+  'account_manager',
+  'platform_operator',
+  'status',
+  'client_id',
+  'client_type',
+];
+
+export async function POST(request: NextRequest) {
+  const authCookie = request.cookies.get('cm_auth')?.value;
+  const sessionSecret = process.env.DASHBOARD_SESSION_SECRET;
+  if (!sessionSecret || authCookie !== sessionSecret) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    const body = await request.json();
+
+    if (!body.client_name || !body.platform) {
+      return NextResponse.json({ error: 'client_name and platform are required' }, { status: 400 });
+    }
+
+    const insertData: Record<string, unknown> = {};
+    for (const key of Object.keys(body)) {
+      if (ALLOWED_CREATE_FIELDS.includes(key)) {
+        insertData[key] = body[key];
+      }
+    }
+
+    if (!insertData.status) insertData.status = 'active';
+
+    const supabase = createServiceClient();
+    const { data, error } = await supabase
+      .from('reporting_clients')
+      .insert(insertData)
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json(data, { status: 201 });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : 'Unknown error' },
+      { status: 500 }
+    );
+  }
+}
+
 export async function PATCH(request: NextRequest) {
   // Auth check — only internal dashboard users can write
   const authCookie = request.cookies.get('cm_auth')?.value;
