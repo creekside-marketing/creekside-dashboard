@@ -237,7 +237,7 @@ export default function EcomMetaReport({
       const periods = computePriorPeriod(dateRangeIndex);
 
       const campaignUrl = `/api/meta/insights?account_id=${aid}&level=campaign&time_range=${tr}`;
-      const accountUrl = `/api/meta/insights?account_id=${aid}&level=account&since=${periods.currentSince}&until=${periods.currentUntil}&time_increment=1`;
+      const accountUrl = `/api/meta/insights?account_id=${aid}&level=account&since=${periods.currentSince}&until=${periods.currentUntil}&time_breakdown=day`;
       const adUrl = `/api/meta/insights?account_id=${aid}&level=ad&time_range=${tr}`;
       const priorCampaignUrl = `/api/meta/insights?account_id=${aid}&level=campaign&since=${periods.priorSince}&until=${periods.priorUntil}`;
 
@@ -269,8 +269,19 @@ export default function EcomMetaReport({
         try {
           let accountJson = await accountRes.json();
           accountJson = unwrapPipeboardResponse(accountJson);
-          const rows = accountJson.data ?? accountJson ?? [];
-          if (Array.isArray(rows)) setDailyData(parseDailyRows(rows));
+
+          // PipeBoard with time_breakdown returns segmented_metrics array
+          const segments = accountJson.segmented_metrics ?? accountJson.data ?? accountJson ?? [];
+          if (Array.isArray(segments)) {
+            setDailyData(parseDailyRows(segments.map((seg: Record<string, unknown>) => {
+              // Flatten segmented format: metrics are nested under .metrics
+              const metrics = (seg.metrics ?? seg) as Record<string, unknown>;
+              return {
+                ...metrics,
+                date_start: seg.period ?? seg.period_start ?? metrics.date_start ?? metrics.date,
+              };
+            })));
+          }
         } catch { /* optional */ }
       }
 

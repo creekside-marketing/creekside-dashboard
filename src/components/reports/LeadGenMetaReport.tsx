@@ -139,7 +139,7 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
       const periods = computePriorPeriod(dateRangeIndex);
       const [campaignRes, accountRes, priorRes, adRes] = await Promise.all([
         fetch(`${base}&level=campaign&time_range=${tr}`),
-        fetch(`${base}&level=account&since=${periods.currentSince}&until=${periods.currentUntil}&time_increment=1`),
+        fetch(`${base}&level=account&since=${periods.currentSince}&until=${periods.currentUntil}&time_breakdown=day`),
         fetch(`${base}&level=campaign&since=${periods.priorSince}&until=${periods.priorUntil}`),
         fetch(`${base}&level=ad&time_range=${tr}`).catch(() => null),
       ]);
@@ -154,8 +154,17 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
       const t = computeTotals(norm); setTotals(t);
 
       if (accountRes.ok) {
-        try { let aj = await accountRes.json(); aj = unwrapPipeboardResponse(aj);
-          const r = aj.data ?? aj ?? []; if (Array.isArray(r)) setDailyData(parseDailyRows(r));
+        try {
+          let aj = await accountRes.json();
+          aj = unwrapPipeboardResponse(aj);
+          // Handle segmented_metrics format from time_breakdown
+          const segments = aj.segmented_metrics ?? aj.data ?? aj ?? [];
+          if (Array.isArray(segments)) {
+            setDailyData(parseDailyRows(segments.map((seg: Record<string, unknown>) => {
+              const metrics = (seg.metrics ?? seg) as Record<string, unknown>;
+              return { ...metrics, date_start: seg.period ?? seg.period_start ?? metrics.date_start ?? metrics.date };
+            })));
+          }
         } catch { /* optional */ }
       }
       if (priorRes.ok) {
@@ -290,7 +299,7 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
             const leads = getLeads((r.actions ?? []) as MetaAction[]);
             const spend = Number(r.spend ?? 0);
             return { ...row, ad_name: r.ad_name ?? r.name ?? 'Unknown Ad', leads, cpl: leads > 0 ? spend / leads : 0 };
-          })} />
+          }).sort((a, b) => Number(b.leads ?? 0) - Number(a.leads ?? 0))} />
         )}
 
       </>)}

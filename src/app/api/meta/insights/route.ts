@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     };
 
     const breakdownConfig = breakdownLevels[level];
-    const time_increment = searchParams.get('time_increment');
+    const time_breakdown = searchParams.get('time_breakdown');
 
     // Build PipeBoard args — explicit date range overrides preset time_range
     const pipeboardArgs: Record<string, unknown> = {
@@ -39,8 +39,8 @@ export async function GET(request: NextRequest) {
       level: breakdownConfig?.pipeboardLevel ?? level,
     };
 
-    if (time_increment) {
-      pipeboardArgs.time_increment = Number(time_increment);
+    if (time_breakdown) {
+      pipeboardArgs.time_breakdown = time_breakdown;
     }
 
     if (breakdownConfig) {
