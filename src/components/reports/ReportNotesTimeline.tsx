@@ -82,11 +82,17 @@ export default function ReportNotesTimeline({ clientId, mode }: Props) {
   };
 
   if (loading) return null;
-  if (notes.length === 0 && mode === 'public') return null;
 
   // -- Public mode: single note with prev/next pagination --
   if (mode === 'public') {
-    if (notes.length === 0) return null;
+    if (notes.length === 0) {
+      return (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Notes</h2>
+          <p className="text-sm text-slate-400">No report notes available yet.</p>
+        </div>
+      );
+    }
     const note = notes[currentIndex];
     if (!note) return null;
 
