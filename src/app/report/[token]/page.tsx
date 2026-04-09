@@ -1,9 +1,16 @@
 import { createServiceClient } from '@/lib/supabase';
+import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
 import TabbedReport from '@/components/reports/TabbedReport';
 
 export default async function PublicReportPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
+
+  // Check if user is authenticated (dashboard session) → internal mode with editing
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get('cm_auth')?.value;
+  const isAuthenticated = sessionCookie === process.env.DASHBOARD_SESSION_SECRET;
+  const mode = isAuthenticated ? 'internal' : 'public';
 
   // Validate UUID format to prevent junk queries
   const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -43,5 +50,5 @@ export default async function PublicReportPage({ params }: { params: Promise<{ t
     );
   }
 
-  return <TabbedReport clients={validClients} mode="public" initialPlatform={client.platform} />;
+  return <TabbedReport clients={validClients} mode={mode} initialPlatform={client.platform} />;
 }
