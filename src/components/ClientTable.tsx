@@ -469,11 +469,11 @@ function InlineGoalEditor({
 
   if (editing) {
     return (
-      <div className="flex items-center gap-2 justify-end" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center gap-1.5 justify-end" onClick={(e) => e.stopPropagation()}>
         <select
           value={type}
           onChange={(e) => setType(e.target.value)}
-          className="text-sm border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)] focus:border-transparent appearance-auto"
+          className="text-sm border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)] focus:border-transparent"
         >
           {GOAL_TYPES.map(g => (
             <option key={g.value} value={g.value}>{g.label}</option>
@@ -485,7 +485,6 @@ function InlineGoalEditor({
           autoFocus
           value={target}
           onChange={(e) => setTarget(e.target.value)}
-          onBlur={handleSave}
           onKeyDown={(e) => {
             if (e.key === 'Enter') { e.preventDefault(); handleSave(); }
             if (e.key === 'Escape') setEditing(false);
@@ -494,6 +493,19 @@ function InlineGoalEditor({
           placeholder="0"
           className="w-20 px-2 py-1.5 text-sm border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)] focus:border-transparent text-right tabular-nums"
         />
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="px-2 py-1.5 text-xs font-medium text-white bg-[var(--creekside-blue)] rounded-md hover:brightness-110 transition-all disabled:opacity-50"
+        >
+          {saving ? '...' : 'Save'}
+        </button>
+        <button
+          onClick={() => setEditing(false)}
+          className="px-1.5 py-1.5 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+        >
+          ✕
+        </button>
       </div>
     );
   }
