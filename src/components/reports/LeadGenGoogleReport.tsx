@@ -214,18 +214,6 @@ export default function LeadGenGoogleReport({
                 formatYRight={(v) => `$${v.toFixed(0)}`}
               />
 
-              {/* 5. Spend & Conversions */}
-              <ReportChart
-                title="Spend & Conversions"
-                data={dailyData}
-                xKey="date"
-                lines={[
-                  { dataKey: 'cost', label: 'Spend', color: '#3B82F6', type: 'bar', yAxisId: 'left' },
-                  { dataKey: 'conversions', label: 'Conversions', color: '#F59E0B', yAxisId: 'right' },
-                ]}
-                formatY={(v) => `$${v.toLocaleString()}`}
-                formatYRight={(v) => v.toFixed(0)}
-              />
             </>
           )}
 
