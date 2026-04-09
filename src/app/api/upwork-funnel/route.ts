@@ -21,7 +21,8 @@ export async function GET() {
       supabase()
         .from('upwork_jobs')
         .select(UPWORK_JOB_COLUMNS)
-        .order('application_date', { ascending: false }),
+        .order('application_date', { ascending: false })
+        .limit(10000),
       supabase()
         .from('clickup_entries')
         .select(CLICKUP_LEAD_COLUMNS)
