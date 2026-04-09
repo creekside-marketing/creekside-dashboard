@@ -294,7 +294,7 @@ function InlineCurrencyInput({
       ) : displayValue ? (
         <>
           <span>{displayValue}</span>
-          <svg className="w-3 h-3 text-slate-300 opacity-0 group-hover/edit:opacity-100 transition-opacity flex-shrink-0" viewBox="0 0 16 16" fill="currentColor">
+          <svg className="w-0 h-3 text-slate-300 opacity-0 group-hover/edit:opacity-100 group-hover/edit:w-3 transition-all flex-shrink-0 overflow-hidden" viewBox="0 0 16 16" fill="currentColor">
             <path d="M12.15 2.85a1.2 1.2 0 0 1 1.7 1.7l-8.5 8.5-2.5.7.7-2.5 8.6-8.4z" />
           </svg>
         </>
