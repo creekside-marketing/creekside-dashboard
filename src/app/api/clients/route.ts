@@ -1,3 +1,4 @@
+// Creekside Dashboard — Client API
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 
