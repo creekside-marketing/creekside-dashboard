@@ -469,18 +469,19 @@ function InlineGoalEditor({
 
   if (editing) {
     return (
-      <div className="inline-flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center gap-2 justify-end" onClick={(e) => e.stopPropagation()}>
         <select
           value={type}
           onChange={(e) => setType(e.target.value)}
-          className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)] max-w-[80px]"
+          className="text-sm border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)] focus:border-transparent appearance-auto"
         >
           {GOAL_TYPES.map(g => (
             <option key={g.value} value={g.value}>{g.label}</option>
           ))}
         </select>
         <input
-          type="text"
+          type="number"
+          step="any"
           autoFocus
           value={target}
           onChange={(e) => setTarget(e.target.value)}
@@ -490,8 +491,8 @@ function InlineGoalEditor({
             if (e.key === 'Escape') setEditing(false);
           }}
           disabled={saving}
-          placeholder="Target"
-          className="w-16 px-1.5 py-1 text-xs border border-slate-200 rounded bg-white focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)] text-right tabular-nums"
+          placeholder="0"
+          className="w-20 px-2 py-1.5 text-sm border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)] focus:border-transparent text-right tabular-nums"
         />
       </div>
     );
