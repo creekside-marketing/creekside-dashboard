@@ -410,6 +410,118 @@ function InlineTableSelect({
   );
 }
 
+const GOAL_TYPES = [
+  { value: 'conversions', label: 'Conv' },
+  { value: 'cpl', label: 'CPL' },
+  { value: 'cpa', label: 'CPA' },
+  { value: 'roas', label: 'ROAS' },
+  { value: 'spend', label: 'Spend' },
+];
+
+function goalLabel(type: string): string {
+  return GOAL_TYPES.find(g => g.value === type)?.label ?? type.toUpperCase();
+}
+
+function formatGoalTarget(type: string, value: number): string {
+  if (type === 'roas') return `${value}x`;
+  if (type === 'cpl' || type === 'cpa' || type === 'spend') return `$${value.toLocaleString()}`;
+  return value.toLocaleString();
+}
+
+function InlineGoalEditor({
+  clientId,
+  goalType,
+  goalTarget,
+  onSaved,
+}: {
+  clientId: string;
+  goalType: string | null;
+  goalTarget: number | null;
+  onSaved: (clientId: string, field: string, value: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [type, setType] = useState(goalType ?? 'conversions');
+  const [target, setTarget] = useState(goalTarget != null ? String(goalTarget) : '');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    const numTarget = parseFloat(target);
+    if (!type || isNaN(numTarget)) {
+      setEditing(false);
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch('/api/clients', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: clientId, goal_type: type, goal_target: numTarget }),
+      });
+      if (res.ok) {
+        onSaved(clientId, 'goal_type', type);
+        onSaved(clientId, 'goal_target', String(numTarget));
+      }
+    } finally {
+      setSaving(false);
+      setEditing(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <div className="inline-flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+        <select
+          value={type}
+          onChange={(e) => setType(e.target.value)}
+          className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)] max-w-[80px]"
+        >
+          {GOAL_TYPES.map(g => (
+            <option key={g.value} value={g.value}>{g.label}</option>
+          ))}
+        </select>
+        <input
+          type="text"
+          autoFocus
+          value={target}
+          onChange={(e) => setTarget(e.target.value)}
+          onBlur={handleSave}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); handleSave(); }
+            if (e.key === 'Escape') setEditing(false);
+          }}
+          disabled={saving}
+          placeholder="Target"
+          className="w-16 px-1.5 py-1 text-xs border border-slate-200 rounded bg-white focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)] text-right tabular-nums"
+        />
+      </div>
+    );
+  }
+
+  if (!goalType || goalTarget == null) {
+    return (
+      <button
+        onClick={(e) => { e.stopPropagation(); setEditing(true); }}
+        className="text-slate-300 hover:text-[var(--creekside-blue)] text-xs transition-colors"
+      >
+        + Set goal
+      </button>
+    );
+  }
+
+  return (
+    <span
+      onClick={(e) => { e.stopPropagation(); setType(goalType); setTarget(String(goalTarget)); setEditing(true); }}
+      className="cursor-pointer inline-flex items-center gap-1 group/edit hover:text-[var(--creekside-blue)] transition-colors text-slate-700"
+      title="Click to edit"
+    >
+      {formatGoalTarget(goalType, goalTarget)} <span className="text-xs text-slate-400">{goalLabel(goalType)}</span>
+      <svg className="w-0 h-3 text-slate-300 opacity-0 group-hover/edit:opacity-100 group-hover/edit:w-3 transition-all flex-shrink-0 overflow-hidden" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M12.15 2.85a1.2 1.2 0 0 1 1.7 1.7l-8.5 8.5-2.5.7.7-2.5 8.6-8.4z" />
+      </svg>
+    </span>
+  );
+}
+
 function InlinePrioritySelect({
   clientId,
   value,
@@ -1388,55 +1500,14 @@ export default function ClientTable() {
                             );
                           })()}
                         </td>
-                        {/* Target — goal type + target value, editable */}
+                        {/* Target — goal type + target value, inline editable */}
                         <td className="py-4 px-6 text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
-                          {(() => {
-                            const goalType = client.goal_type;
-                            const goalTarget = client.goal_target;
-                            if (!goalType || goalTarget == null) {
-                              return (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const type = prompt('Goal type (conversions, cpl, roas, cpa):');
-                                    if (!type) return;
-                                    const target = prompt('Target value:');
-                                    if (!target) return;
-                                    fetch('/api/clients', {
-                                      method: 'PATCH',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      body: JSON.stringify({ id: client.id, goal_type: type.toLowerCase(), goal_target: parseFloat(target) }),
-                                    }).then(res => { if (res.ok) handleFieldSaved(client.id, 'goal_type', type.toLowerCase()); });
-                                  }}
-                                  className="text-slate-300 hover:text-[var(--creekside-blue)] text-xs transition-colors"
-                                >
-                                  + Set goal
-                                </button>
-                              );
-                            }
-                            const label = goalType === 'conversions' ? 'Conv' : goalType === 'cpl' ? 'CPL' : goalType === 'roas' ? 'ROAS' : goalType === 'cpa' ? 'CPA' : goalType.toUpperCase();
-                            const formatted = goalType === 'roas' ? `${goalTarget}x` : goalType === 'cpl' || goalType === 'cpa' ? `$${goalTarget}` : `${goalTarget}`;
-                            return (
-                              <span
-                                className="text-slate-700 cursor-pointer hover:text-[var(--creekside-blue)] transition-colors"
-                                title={`${label}: ${formatted} (click to edit)`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const target = prompt(`New ${label} target (current: ${formatted}):`, String(goalTarget));
-                                  if (target == null) return;
-                                  const newType = prompt('Goal type:', goalType);
-                                  if (newType == null) return;
-                                  fetch('/api/clients', {
-                                    method: 'PATCH',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ id: client.id, goal_type: newType.toLowerCase(), goal_target: parseFloat(target) }),
-                                  }).then(res => { if (res.ok) { handleFieldSaved(client.id, 'goal_type', newType.toLowerCase()); handleFieldSaved(client.id, 'goal_target', target); } });
-                                }}
-                              >
-                                {formatted} <span className="text-xs text-slate-400">{label}</span>
-                              </span>
-                            );
-                          })()}
+                          <InlineGoalEditor
+                            clientId={client.id}
+                            goalType={client.goal_type}
+                            goalTarget={client.goal_target}
+                            onSaved={handleFieldSaved}
+                          />
                         </td>
                         {/* Current — auto-calculated from live data based on goal type */}
                         <td className="py-4 px-6 text-right text-sm font-medium">
