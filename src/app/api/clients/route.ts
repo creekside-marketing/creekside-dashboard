@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 
 const ALLOWED_UPDATE_FIELDS = [
+  'client_name',
   'monthly_budget',
   'monthly_revenue',
   'goals',
