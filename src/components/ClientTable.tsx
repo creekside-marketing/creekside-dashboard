@@ -922,9 +922,9 @@ export default function ClientTable() {
         continue;
       }
 
-      // 4. No fee_config — fall back to monthly_revenue from DB if it exists
+      // 4. Fall back to monthly_revenue from DB if it exists
       if (c.monthly_revenue != null && Number(c.monthly_revenue) > 0) {
-        result[c.id] = { value: Number(c.monthly_revenue), source: 'override' };
+        result[c.id] = { value: Number(c.monthly_revenue), source: 'none' };
         continue;
       }
 
