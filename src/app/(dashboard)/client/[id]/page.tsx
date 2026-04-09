@@ -1,6 +1,7 @@
 import { createServiceClient } from '@/lib/supabase';
 import ClientReport from '@/components/ClientReport';
 import PerformanceGoals from '@/components/PerformanceGoals';
+import ClientTypeToggle from '@/components/ClientTypeToggle';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
@@ -118,17 +119,21 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         </div>
       </div>
 
-      {/* Contact Info */}
-      {clientMeta?.primary_contact_name && (
-        <div className="flex items-center gap-4 text-sm text-slate-500">
-          <span>Contact: <strong className="text-slate-700">{clientMeta.primary_contact_name}</strong></span>
-          {clientMeta.primary_contact_email && (
-            <a href={`mailto:${clientMeta.primary_contact_email}`} className="text-[var(--creekside-blue)] hover:underline">
-              {clientMeta.primary_contact_email}
-            </a>
-          )}
-        </div>
-      )}
+      {/* Client Type + Contact Info */}
+      <div className="flex items-center gap-4 text-sm text-slate-500">
+        <ClientTypeToggle clientId={client.id} initialType={client.client_type} />
+        {clientMeta?.primary_contact_name && (
+          <>
+            <span className="text-slate-200">|</span>
+            <span>Contact: <strong className="text-slate-700">{clientMeta.primary_contact_name}</strong></span>
+            {clientMeta.primary_contact_email && (
+              <a href={`mailto:${clientMeta.primary_contact_email}`} className="text-[var(--creekside-blue)] hover:underline">
+                {clientMeta.primary_contact_email}
+              </a>
+            )}
+          </>
+        )}
+      </div>
 
       <ClientReport client={client} />
       <PerformanceGoals clientName={client.client_name} />
