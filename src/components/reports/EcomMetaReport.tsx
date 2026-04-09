@@ -25,7 +25,6 @@ import BreakdownTable from './BreakdownTable';
 import ReportNotes from './ReportNotes';
 import {
   SparklineKpiCard,
-  FunnelChart,
 } from './shared';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -379,13 +378,6 @@ export default function EcomMetaReport({
   const roas = totals.roas;
   const sparkRoas = dailyData.map((d) => d.roas);
 
-  // Funnel stages
-  const funnelStages = [
-    { label: 'Link Clicks', value: totals.linkClicks },
-    { label: 'Add to Cart', value: totals.atc },
-    { label: 'Purchases', value: totals.purchases },
-  ];
-
   // Column formatters
   const moneyCol = (v: unknown) => fmtMoney(Number(v ?? 0));
   const pctCol = (v: unknown) => fmtPct(Number(v ?? 0));
@@ -526,10 +518,7 @@ export default function EcomMetaReport({
             />
           )}
 
-          {/* 6. Conversion Funnel */}
-          <FunnelChart title="Conversion Funnel" stages={funnelStages} />
-
-          {/* 7. Campaign Performance */}
+          {/* Campaign Performance */}
           <BreakdownTable
             title="Campaign Performance"
             columns={[

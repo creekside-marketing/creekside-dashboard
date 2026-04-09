@@ -16,7 +16,7 @@ import ReportHeader, { DATE_RANGES, DEFAULT_RANGE_INDEX, computePriorPeriod, cal
 import ReportChart from './ReportChart';
 import BreakdownTable from './BreakdownTable';
 import ReportNotes from './ReportNotes';
-import { SparklineKpiCard, FunnelChart } from './shared';
+import { SparklineKpiCard } from './shared';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -213,7 +213,6 @@ export default function EcomGoogleReport({ client, mode }: { client: ReportingCl
         </>)}
 
         {/* ── Conversion Funnel ───────────────────────────────────────── */}
-        <FunnelChart title="Conversion Funnel" stages={[{ label: 'Impressions', value: totals.impressions }, { label: 'Clicks', value: totals.clicks }, { label: 'Purchases', value: totals.conversions }]} />
 
         {/* ── Campaign Performance Table ──────────────────────────────── */}
         {campaigns.length > 0 && (
