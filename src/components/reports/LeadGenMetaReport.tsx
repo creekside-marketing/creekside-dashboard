@@ -256,7 +256,7 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
       )}
 
       {!loading && !error && (<>
-        {/* 2. Executive Summary KPIs */}
+        {/* Executive Summary KPIs — matches Lead Gen Google layout */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           <SparklineKpiCard label="Total Leads" value={fmt(totals.leads)} change={kpiChanges?.leads.pct}
             changeDirection={kpiChanges?.leads.direction} changeSentiment="positive-up" size="lg"
@@ -267,24 +267,14 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
           <SparklineKpiCard label="Total Spend" value={fmtMoney(totals.spend)} change={kpiChanges?.spend.pct}
             changeDirection={kpiChanges?.spend.direction} changeSentiment="neutral" size="lg"
             sparklineData={dailyData.map((d) => d.spend)} />
-          <SparklineKpiCard label="CPM" value={fmtMoney(totals.cpm)} change={kpiChanges?.cpm.pct}
-            changeDirection={kpiChanges?.cpm.direction} changeSentiment="negative-up" size="lg"
-            sparklineData={dailyData.map((d) => d.cpm)} />
-          <SparklineKpiCard label="Frequency" value={totals.frequency.toFixed(2)} change={kpiChanges?.frequency.pct}
-            changeDirection={kpiChanges?.frequency.direction} changeSentiment="negative-up" size="lg"
-            sparklineData={dailyData.map((d) => d.frequency)} target={3.0} />
-        </div>
-
-        {/* 3. Secondary KPIs */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <SparklineKpiCard label="Link Clicks" value={fmt(totals.linkClicks)} change={kpiChanges?.linkClicks.pct}
-            changeDirection={kpiChanges?.linkClicks.direction} changeSentiment="positive-up" size="sm" />
-          <SparklineKpiCard label="LC-CTR" value={fmtPct(totals.lctr)} change={kpiChanges?.lctr.pct}
-            changeDirection={kpiChanges?.lctr.direction} changeSentiment="positive-up" size="sm" />
-          <SparklineKpiCard label="Impressions" value={fmt(totals.impressions)} change={kpiChanges?.impressions.pct}
-            changeDirection={kpiChanges?.impressions.direction} changeSentiment="positive-up" size="sm" />
-          <SparklineKpiCard label="Reach" value={fmt(totals.reach)} change={kpiChanges?.reach.pct}
-            changeDirection={kpiChanges?.reach.direction} changeSentiment="positive-up" size="sm" />
+          <SparklineKpiCard label="Conv. Rate" value={totals.linkClicks > 0 ? fmtPct(totals.leads / totals.linkClicks) : '--'}
+            change={kpiChanges?.lctr.pct} changeDirection={kpiChanges?.lctr.direction}
+            changeSentiment="positive-up" size="lg"
+            sparklineData={dailyData.map((d) => d.linkClicks > 0 ? d.leads / d.linkClicks : 0)} />
+          <SparklineKpiCard label="Avg CPC" value={totals.linkClicks > 0 ? fmtMoney(totals.spend / totals.linkClicks) : '--'}
+            change={kpiChanges?.cpm.pct} changeDirection={kpiChanges?.cpm.direction}
+            changeSentiment="negative-up" size="lg"
+            sparklineData={dailyData.map((d) => d.linkClicks > 0 ? d.spend / d.linkClicks : 0)} />
         </div>
 
         {/* 4-5. Charts */}
