@@ -1580,8 +1580,7 @@ export default function ClientTable() {
                             } else if (goalType === 'cpl' || goalType === 'cpa') {
                               currentValue = live.costPerConversion;
                             } else if (goalType === 'roas') {
-                              // Use roas from bulk response if available, otherwise calculate from conversion value
-                              currentValue = live.roas ?? (live.spend > 0 && live.conversions > 0 ? (live as Record<string, unknown>).conversionValue as number / live.spend : null) ?? null;
+                              currentValue = live.roas ?? null;
                             } else if (goalType === 'spend') {
                               currentValue = live.spend;
                             }
