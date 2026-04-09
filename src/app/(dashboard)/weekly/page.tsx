@@ -38,16 +38,16 @@ function MetricCard({ label, value, subtext, trend }: {
 }) {
   const trendColor = trend === 'up' ? 'text-emerald-600' : trend === 'down' ? 'text-red-500' : 'text-slate-400';
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4">
-      <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">{label}</p>
-      <p className="text-2xl font-bold text-slate-900 mt-1">{value}</p>
+    <div className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border)] p-4">
+      <p className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">{label}</p>
+      <p className="text-2xl font-bold text-[var(--text-primary)] mt-1">{value}</p>
       {subtext && <p className={`text-xs mt-1 ${trendColor}`}>{subtext}</p>}
     </div>
   );
 }
 
 function SectionHeader({ title }: { title: string }) {
-  return <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">{title}</h3>;
+  return <h3 className="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider">{title}</h3>;
 }
 
 export default function WeeklyScorecardPage() {
@@ -99,13 +99,13 @@ export default function WeeklyScorecardPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-2xl font-semibold text-slate-900">Weekly Scorecard</h2>
-        <p className="text-sm text-slate-500 mt-1">Track progress toward MRR goal with weekly sales and operations metrics</p>
+        <h2 className="text-2xl font-semibold text-[var(--text-primary)]">Weekly Scorecard</h2>
+        <p className="text-sm text-[var(--text-secondary)] mt-1">Track progress toward MRR goal with weekly sales and operations metrics</p>
       </div>
 
       {/* MRR Goal Progress */}
       {goal && (
-        <div className="bg-white rounded-xl border border-slate-200 p-6">
+        <div className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border)] p-6">
           <div className="flex items-center justify-between mb-4">
             <SectionHeader title="MRR Goal Progress" />
             <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${goal.onTrack ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
@@ -114,29 +114,29 @@ export default function WeeklyScorecardPage() {
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div>
-              <p className="text-xs text-slate-500">Target MRR</p>
-              <p className="text-lg font-bold text-slate-900">{fmt(goal.targetMRR)}</p>
+              <p className="text-xs text-[var(--text-secondary)]">Target MRR</p>
+              <p className="text-lg font-bold text-[var(--text-primary)]">{fmt(goal.targetMRR)}</p>
             </div>
             <div>
-              <p className="text-xs text-slate-500">Current MRR</p>
-              <p className="text-lg font-bold text-slate-900">{fmt(goal.currentMRR)}</p>
+              <p className="text-xs text-[var(--text-secondary)]">Current MRR</p>
+              <p className="text-lg font-bold text-[var(--text-primary)]">{fmt(goal.currentMRR)}</p>
             </div>
             <div>
-              <p className="text-xs text-slate-500">Needed / Week</p>
-              <p className="text-lg font-bold text-slate-900">{fmt(goal.mrrNeededPerWeek)}</p>
+              <p className="text-xs text-[var(--text-secondary)]">Needed / Week</p>
+              <p className="text-lg font-bold text-[var(--text-primary)]">{fmt(goal.mrrNeededPerWeek)}</p>
             </div>
             <div>
-              <p className="text-xs text-slate-500">Goal Date</p>
-              <p className="text-lg font-bold text-slate-900">{goal.goalDate}</p>
+              <p className="text-xs text-[var(--text-secondary)]">Goal Date</p>
+              <p className="text-lg font-bold text-[var(--text-primary)]">{goal.goalDate}</p>
             </div>
           </div>
           {/* Progress bar */}
           <div className="mt-4">
-            <div className="flex justify-between text-xs text-slate-500 mb-1">
+            <div className="flex justify-between text-xs text-[var(--text-secondary)] mb-1">
               <span>{fmt(goal.currentMRR)}</span>
               <span>{fmt(goal.targetMRR)}</span>
             </div>
-            <div className="w-full bg-slate-100 rounded-full h-3">
+            <div className="w-full bg-[var(--bg-tertiary)] rounded-full h-3">
               <div
                 className="bg-[var(--accent)] h-3 rounded-full transition-all"
                 style={{ width: `${Math.min((goal.currentMRR / goal.targetMRR) * 100, 100)}%` }}
@@ -207,33 +207,33 @@ export default function WeeklyScorecardPage() {
       {weeks.length > 0 && (
         <div className="space-y-3">
           <SectionHeader title="Weekly History" />
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border)] shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50">
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase">Week</th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500 uppercase">New MRR</th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500 uppercase">Lost MRR</th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500 uppercase">Net</th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500 uppercase">Booked</th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500 uppercase">Showed</th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500 uppercase">Closed</th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500 uppercase">Close %</th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500 uppercase">QA Err</th>
+                  <tr className="border-b border-[var(--border)] bg-[var(--bg-tertiary)]">
+                    <th className="text-left py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase">Week</th>
+                    <th className="text-right py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase">New MRR</th>
+                    <th className="text-right py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase">Lost MRR</th>
+                    <th className="text-right py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase">Net</th>
+                    <th className="text-right py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase">Booked</th>
+                    <th className="text-right py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase">Showed</th>
+                    <th className="text-right py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase">Closed</th>
+                    <th className="text-right py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase">Close %</th>
+                    <th className="text-right py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase">QA Err</th>
                   </tr>
                 </thead>
                 <tbody>
                   {weeks.map((w) => (
-                    <tr key={w.weekOf} className="border-b border-slate-50 hover:bg-slate-50/50">
-                      <td className="py-3 px-4 text-sm font-medium text-slate-900">{w.weekOf}</td>
+                    <tr key={w.weekOf} className="border-b border-[var(--border)] hover:bg-[var(--bg-tertiary)]/50">
+                      <td className="py-3 px-4 text-sm font-medium text-[var(--text-primary)]">{w.weekOf}</td>
                       <td className="py-3 px-4 text-sm text-right text-emerald-600">{fmt(w.newMRR)}</td>
                       <td className="py-3 px-4 text-sm text-right text-red-500">{fmt(w.lostMRR)}</td>
                       <td className={`py-3 px-4 text-sm text-right font-medium ${w.netNewMRR >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{fmt(w.netNewMRR)}</td>
-                      <td className="py-3 px-4 text-sm text-right text-slate-600">{w.callsBooked}</td>
-                      <td className="py-3 px-4 text-sm text-right text-slate-600">{w.callsShowed}</td>
-                      <td className="py-3 px-4 text-sm text-right text-slate-600">{w.dealsClose}</td>
-                      <td className="py-3 px-4 text-sm text-right text-slate-600">{pct(w.closeRate)}</td>
+                      <td className="py-3 px-4 text-sm text-right text-[var(--text-secondary)]">{w.callsBooked}</td>
+                      <td className="py-3 px-4 text-sm text-right text-[var(--text-secondary)]">{w.callsShowed}</td>
+                      <td className="py-3 px-4 text-sm text-right text-[var(--text-secondary)]">{w.dealsClose}</td>
+                      <td className="py-3 px-4 text-sm text-right text-[var(--text-secondary)]">{pct(w.closeRate)}</td>
                       <td className={`py-3 px-4 text-sm text-right ${w.qaErrors > 0 ? 'text-red-500 font-medium' : 'text-slate-400'}`}>{w.qaErrors}</td>
                     </tr>
                   ))}
@@ -245,7 +245,7 @@ export default function WeeklyScorecardPage() {
       )}
 
       {!current && !loading && (
-        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+        <div className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border)] p-12 text-center">
           <p className="text-slate-400 text-sm">No weekly scorecard data yet. Data will appear here once the weekly scorecard API is populated.</p>
         </div>
       )}

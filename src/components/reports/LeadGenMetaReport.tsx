@@ -362,18 +362,15 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
                                 <a href={imageUrl ?? thumbUrl} target="_blank" rel="noopener noreferrer">
                                   <img src={thumbUrl} alt="" className="w-10 h-10 rounded-md object-cover border border-slate-200 shrink-0 hover:ring-2 hover:ring-blue-400 transition-all" />
                                 </a>
-                              ) : (
-                                <div className="w-10 h-10 rounded-md bg-slate-100 border border-slate-200 shrink-0 flex items-center justify-center">
-                                  <span className="text-slate-300 text-xs">No img</span>
-                                </div>
-                              )}
-                              {imageUrl ? (
-                                <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-[#2563eb] hover:text-blue-700 truncate max-w-[200px] transition-colors">
-                                  {ad.adName}
-                                </a>
-                              ) : (
-                                <span className="text-sm font-medium text-slate-900 truncate max-w-[200px]">{ad.adName}</span>
-                              )}
+                              ) : null}
+                              <a
+                                href={`https://www.facebook.com/ads/archive/render_ad/?id=${ad.adId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm font-medium text-[#2563eb] hover:text-blue-700 truncate max-w-[250px] transition-colors"
+                              >
+                                {ad.adName}
+                              </a>
                             </div>
                           </td>
                           <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums">{fmt(ad.impressions)}</td>

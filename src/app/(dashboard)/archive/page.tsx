@@ -55,7 +55,7 @@ function PriorityBadge({ priority }: { priority: string | null }) {
   const styles: Record<string, string> = {
     high: 'bg-red-100 text-red-900 ring-1 ring-inset ring-red-700/30',
     medium: 'bg-yellow-50 text-yellow-700 ring-1 ring-inset ring-yellow-500/20',
-    low: 'bg-slate-50 text-slate-600 ring-1 ring-inset ring-slate-500/20',
+    low: 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] ring-1 ring-inset ring-slate-500/20',
   };
   return (
     <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold capitalize ${styles[lower] || styles.low}`}>
@@ -108,7 +108,8 @@ function InlineTextArea({
         onChange={(e) => setDraft(e.target.value)}
         onBlur={handleSave}
         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSave(); } }}
-        className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)] resize-none"
+        className="w-full text-sm border border-[var(--border)] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)] resize-none"
+        style={{ color: '#1e293b', backgroundColor: '#ffffff' }}
         placeholder={placeholder}
       />
     );
@@ -118,7 +119,7 @@ function InlineTextArea({
     <span
       onClick={(e) => { e.stopPropagation(); setDraft(value ?? ''); setEditing(true); }}
       className={`cursor-pointer text-sm hover:text-[var(--creekside-blue)] transition-colors ${
-        value ? 'text-slate-700 border-b border-dashed border-transparent hover:border-[var(--creekside-blue)]' : 'text-slate-300 italic'
+        value ? 'text-[var(--text-primary)] border-b border-dashed border-transparent hover:border-[var(--creekside-blue)]' : 'text-slate-300 italic'
       }`}
     >
       {saving ? '...' : value || placeholder}
@@ -137,11 +138,11 @@ function SortHeader({ label, sortKey: key, currentKey, direction, onSort }: {
   return (
     <th
       onClick={() => onSort(key)}
-      className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6 cursor-pointer select-none hover:text-slate-900 transition-colors group"
+      className="text-left text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider py-4 px-6 cursor-pointer select-none hover:text-[var(--text-primary)] transition-colors group"
     >
       <span className="inline-flex items-center gap-1">
         {label}
-        <svg className={`w-3.5 h-3.5 transition-all ${isActive ? 'text-slate-700' : 'text-slate-300 group-hover:text-slate-400'}`} viewBox="0 0 14 14" fill="currentColor">
+        <svg className={`w-3.5 h-3.5 transition-all ${isActive ? 'text-[var(--text-primary)]' : 'text-slate-300 group-hover:text-[var(--text-muted)]'}`} viewBox="0 0 14 14" fill="currentColor">
           {isActive && direction === 'asc' ? (
             <path d="M7 3l5 8H2z" />
           ) : isActive && direction === 'desc' ? (
@@ -286,8 +287,8 @@ export default function ArchivePage() {
     return (
       <div className="flex items-center justify-center py-20">
         <div className="flex flex-col items-center gap-3">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-slate-200 border-t-[var(--creekside-blue)]" />
-          <span className="text-sm text-slate-500">Loading archive...</span>
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-[var(--border)] border-t-[var(--creekside-blue)]" />
+          <span className="text-sm text-[var(--text-secondary)]">Loading archive...</span>
         </div>
       </div>
     );
@@ -306,45 +307,45 @@ export default function ArchivePage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-semibold text-slate-900">Client Archive</h2>
-        <p className="text-sm text-slate-500 mt-1">Former clients — track why they left and reactivate when they return</p>
+        <h2 className="text-2xl font-semibold text-[var(--text-primary)]">Client Archive</h2>
+        <p className="text-sm text-[var(--text-secondary)] mt-1">Former clients — track why they left and reactivate when they return</p>
       </div>
 
       {/* Summary Stats — matches ClientTable grid */}
       <div className="grid grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
-          <p className="text-sm font-medium text-slate-500">Archived Clients</p>
-          <p className="text-3xl font-bold text-slate-900 mt-1">{stats.uniqueClients}</p>
+        <div className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border)] px-6 py-4">
+          <p className="text-sm font-medium text-[var(--text-secondary)]">Archived Clients</p>
+          <p className="text-3xl font-bold text-[var(--text-primary)] mt-1">{stats.uniqueClients}</p>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
-          <p className="text-sm font-medium text-slate-500">Google Accounts</p>
+        <div className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border)] px-6 py-4">
+          <p className="text-sm font-medium text-[var(--text-secondary)]">Google Accounts</p>
           <p className="text-3xl font-bold text-emerald-600 mt-1">{stats.googleCount}</p>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
-          <p className="text-sm font-medium text-slate-500">Meta Accounts</p>
+        <div className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border)] px-6 py-4">
+          <p className="text-sm font-medium text-[var(--text-secondary)]">Meta Accounts</p>
           <p className="text-3xl font-bold text-blue-600 mt-1">{stats.metaCount}</p>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
-          <p className="text-sm font-medium text-slate-500">Last Known Monthly Revenue</p>
+        <div className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border)] px-6 py-4">
+          <p className="text-sm font-medium text-[var(--text-secondary)]">Last Known Monthly Revenue</p>
           <p className="text-3xl font-bold text-red-600 mt-1">{formatCurrency(stats.totalLostBudget)}</p>
         </div>
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border)] shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/80">
+              <tr className="border-b border-[var(--border)] bg-[var(--bg-tertiary)]/80">
                 <SortHeader label="Client" sortKey="client_name" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
-                <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Platform</th>
+                <th className="text-left text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider py-4 px-6">Platform</th>
                 <SortHeader label="Last Budget" sortKey="monthly_budget" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <SortHeader label="Priority" sortKey="priority" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <SortHeader label="Manager" sortKey="account_manager" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <SortHeader label="Operator" sortKey="platform_operator" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <SortHeader label="Churned Date" sortKey="churned_date" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
-                <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6 min-w-[250px]">Reason</th>
-                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Actions</th>
+                <th className="text-left text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider py-4 px-6 min-w-[250px]">Reason</th>
+                <th className="text-right text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider py-4 px-6">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -361,15 +362,15 @@ export default function ArchivePage() {
                     return (
                       <tr
                         key={client.id}
-                        className={`transition-colors duration-150 hover:bg-blue-50/50 ${
-                          isFirstInGroup && groupIdx > 0 ? 'border-t border-slate-200' : ''
-                        } ${!isFirstInGroup ? 'border-t border-slate-100' : ''}`}
+                        className={`transition-colors duration-150 hover:bg-[var(--bg-tertiary)]/50 ${
+                          isFirstInGroup && groupIdx > 0 ? 'border-t border-[var(--border)]' : ''
+                        } ${!isFirstInGroup ? 'border-t border-[var(--border)]' : ''}`}
                       >
                         {/* Client Name — only show for first row in group */}
                         <td className="py-4 px-6">
                           {isFirstInGroup ? (
                             <div>
-                              <span className="text-sm font-semibold text-slate-900">{client.client_name}</span>
+                              <span className="text-sm font-semibold text-[var(--text-primary)]">{client.client_name}</span>
                               {(client.contact_name as string) && (
                                 <span className="block text-xs text-slate-400 font-normal mt-0.5">{client.contact_name as string}</span>
                               )}
@@ -381,12 +382,12 @@ export default function ArchivePage() {
                           <div className="flex items-center gap-2">
                             <PlatformBadge platform={client.platform} />
                             {(client.segment_name as string) && (
-                              <span className="text-xs text-slate-500 font-medium">{client.segment_name as string}</span>
+                              <span className="text-xs text-[var(--text-secondary)] font-medium">{client.segment_name as string}</span>
                             )}
                           </div>
                         </td>
                         {/* Budget */}
-                        <td className="py-4 px-6 text-sm text-slate-700 font-medium">
+                        <td className="py-4 px-6 text-sm text-[var(--text-primary)] font-medium">
                           {client.monthly_budget != null
                             ? `$${Number(client.monthly_budget).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
                             : <span className="text-slate-300">--</span>}
@@ -396,15 +397,15 @@ export default function ArchivePage() {
                           {isFirstInGroup ? <PriorityBadge priority={client.priority} /> : null}
                         </td>
                         {/* Manager */}
-                        <td className="py-4 px-6 text-sm text-slate-600">
+                        <td className="py-4 px-6 text-sm text-[var(--text-secondary)]">
                           {isFirstInGroup ? (client.account_manager ?? <span className="text-slate-300">--</span>) : null}
                         </td>
                         {/* Operator */}
-                        <td className="py-4 px-6 text-sm text-slate-600">
+                        <td className="py-4 px-6 text-sm text-[var(--text-secondary)]">
                           {client.platform_operator ?? <span className="text-slate-300">--</span>}
                         </td>
                         {/* Churned Date */}
-                        <td className="py-4 px-6 text-sm text-slate-600">
+                        <td className="py-4 px-6 text-sm text-[var(--text-secondary)]">
                           {isFirstInGroup ? (client.churned_date ?? <span className="text-slate-300">--</span>) : null}
                         </td>
                         {/* Churn Reason */}
@@ -439,8 +440,8 @@ export default function ArchivePage() {
             </tbody>
           </table>
         </div>
-        <div className="px-6 py-4 border-t border-slate-200 bg-slate-50/50 flex items-center justify-between">
-          <span className="text-sm text-slate-500">
+        <div className="px-6 py-4 border-t border-[var(--border)] bg-[var(--bg-tertiary)]/50 flex items-center justify-between">
+          <span className="text-sm text-[var(--text-secondary)]">
             {stats.uniqueClients} clients &middot; {stats.total} accounts
           </span>
         </div>
