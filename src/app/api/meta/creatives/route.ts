@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
         if (!adId) continue;
         const creative = (item.creative ?? item) as Record<string, unknown>;
         const oss = creative.object_story_spec as Record<string, unknown> | undefined;
-        const thumb = (creative.thumbnail_url ?? creative.image_url ?? oss?.link_data && (oss.link_data as Record<string, unknown>).image_url) as string | null;
+        const thumb = (creative.thumbnail_url ?? creative.image_url ?? (oss?.link_data && (oss.link_data as Record<string, unknown>).image_url)) as string | null;
         const img = (creative.image_url ?? thumb) as string | null;
         if (thumb || img) thumbnails[String(adId)] = { thumbnail: thumb, imageUrl: img };
       }
