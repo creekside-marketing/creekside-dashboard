@@ -802,14 +802,18 @@ export default function ClientTable() {
           for (const acct of results) {
             const acctId = (acct.account_id as string) ?? '';
             const insights = acct.insights as Record<string, unknown> | undefined;
-            if (insights) {
-              const parsed = parseMetaInsights(insights);
+            if (insights && acct.status === 'success') {
+              const spend = Number(insights.spend ?? 0);
+              const conversions = Number(insights.conversions ?? 0);
+              const purchaseConversions = Number(insights.purchase_conversions ?? 0);
+              // Use purchase_conversions if available, otherwise total conversions
+              const convCount = purchaseConversions > 0 ? purchaseConversions : conversions;
               const keyId = metaAccounts.has(acctId) ? acctId : metaAccounts.has(`act_${acctId}`) ? `act_${acctId}` : acctId;
               newLiveData[keyId] = {
-                spend: parsed.spend,
-                conversions: parsed.conversions,
-                costPerConversion: parsed.conversions > 0 ? parsed.spend / parsed.conversions : 0,
-                conversionBreakdown: parsed.conversionBreakdown,
+                spend,
+                conversions: convCount,
+                costPerConversion: convCount > 0 ? spend / convCount : 0,
+                conversionBreakdown: [],
               };
             }
           }
