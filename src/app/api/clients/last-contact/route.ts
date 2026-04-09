@@ -32,26 +32,26 @@ export async function GET() {
     if (error) {
       const [gmailRes, fathomRes, gchatRes] = await Promise.all([
         supabase
-          .from('gmail_messages')
+          .from('gmail_summaries')
           .select('client_id, date')
           .not('client_id', 'is', null)
           .order('date', { ascending: false })
           .limit(1000),
         supabase
           .from('fathom_entries')
-          .select('client_id, call_date')
+          .select('client_id, meeting_date')
           .not('client_id', 'is', null)
-          .order('call_date', { ascending: false })
+          .order('meeting_date', { ascending: false })
           .limit(1000),
         supabase
           .from('gchat_summaries')
-          .select('client_id, summary_date')
+          .select('client_id, date')
           .not('client_id', 'is', null)
-          .order('summary_date', { ascending: false })
+          .order('date', { ascending: false })
           .limit(1000),
       ]);
 
-      if (gmailRes.error) console.error('[last-contact] gmail_messages query error:', gmailRes.error.message);
+      if (gmailRes.error) console.error('[last-contact] gmail_summaries query error:', gmailRes.error.message);
       if (fathomRes.error) console.error('[last-contact] fathom_entries query error:', fathomRes.error.message);
       if (gchatRes.error) console.error('[last-contact] gchat_summaries query error:', gchatRes.error.message);
 
@@ -70,10 +70,10 @@ export async function GET() {
         updateMap(row.client_id, row.date, 'email');
       }
       for (const row of fathomRes.data ?? []) {
-        updateMap(row.client_id, row.call_date, 'call');
+        updateMap(row.client_id, row.meeting_date, 'call');
       }
       for (const row of gchatRes.data ?? []) {
-        updateMap(row.client_id, row.summary_date, 'chat');
+        updateMap(row.client_id, row.date, 'chat');
       }
 
       const now = new Date();

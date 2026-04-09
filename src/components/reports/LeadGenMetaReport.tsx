@@ -109,7 +109,7 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
   const [totals, setTotals] = useState(ZERO);
   const [dailyData, setDailyData] = useState<DailyRow[]>([]);
   const [adsData, setAdsData] = useState<Record<string, unknown>[]>([]);
-  const [adThumbnails, setAdThumbnails] = useState<Record<string, string>>({});
+  const [adCreatives, setAdCreatives] = useState<Record<string, { thumbnail: string | null; imageUrl: string | null }>>({});
   const [kpiChanges, setKpiChanges] = useState<Record<string, { pct: string; direction: 'up' | 'down' | 'flat' }> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -190,7 +190,7 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
       setAdsData(parsedAds);
 
       // Fetch ad creative thumbnails using the ad IDs we just got
-      const creativesMap: Record<string, string> = {};
+      const creativesMap: Record<string, { thumbnail: string | null; imageUrl: string | null }> = {};
       try {
         const adIds = parsedAds
           .map((row: Record<string, unknown>) => String(row.ad_id ?? row.id ?? ''))
@@ -201,11 +201,18 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
           if (creativesRes.ok) {
             const cJson = await creativesRes.json();
             const thumbMap = cJson.data ?? {};
-            Object.assign(creativesMap, thumbMap);
+            for (const [id, val] of Object.entries(thumbMap)) {
+              if (val && typeof val === 'object') {
+                creativesMap[id] = val as { thumbnail: string | null; imageUrl: string | null };
+              } else if (typeof val === 'string') {
+                // Backward compat: if API returns plain string URLs
+                creativesMap[id] = { thumbnail: val, imageUrl: val };
+              }
+            }
           }
         }
       } catch { /* optional — thumbnails are a nice-to-have */ }
-      setAdThumbnails(creativesMap);
+      setAdCreatives(creativesMap);
 
       setLastRefreshed(new Date()); startCooldown();
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed to fetch data'); }
@@ -344,19 +351,29 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
                   </thead>
                   <tbody>
                     {processedAds.map((ad, idx) => {
-                      const thumbUrl = adThumbnails[ad.adId];
+                      const creative = adCreatives[ad.adId];
+                      const thumbUrl = creative?.thumbnail;
+                      const imageUrl = creative?.imageUrl;
                       return (
                         <tr key={idx} className="border-b border-slate-100 hover:bg-blue-50/50 transition-colors">
                           <td className="py-3 px-4">
                             <div className="flex items-center gap-3">
                               {thumbUrl ? (
-                                <img src={thumbUrl} alt="" className="w-10 h-10 rounded-md object-cover border border-slate-200 shrink-0" />
+                                <a href={imageUrl ?? thumbUrl} target="_blank" rel="noopener noreferrer">
+                                  <img src={thumbUrl} alt="" className="w-10 h-10 rounded-md object-cover border border-slate-200 shrink-0 hover:ring-2 hover:ring-blue-400 transition-all" />
+                                </a>
                               ) : (
                                 <div className="w-10 h-10 rounded-md bg-slate-100 border border-slate-200 shrink-0 flex items-center justify-center">
                                   <span className="text-slate-300 text-xs">No img</span>
                                 </div>
                               )}
-                              <span className="text-sm font-medium text-slate-900 truncate max-w-[200px]">{ad.adName}</span>
+                              {imageUrl ? (
+                                <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-[#2563eb] hover:text-blue-700 truncate max-w-[200px] transition-colors">
+                                  {ad.adName}
+                                </a>
+                              ) : (
+                                <span className="text-sm font-medium text-slate-900 truncate max-w-[200px]">{ad.adName}</span>
+                              )}
                             </div>
                           </td>
                           <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums">{fmt(ad.impressions)}</td>

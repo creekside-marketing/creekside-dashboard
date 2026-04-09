@@ -32,32 +32,54 @@ export async function GET(request: NextRequest) {
       limit: capped.length,
     });
 
-    // Unwrap MCP content envelope if present (PipeBoard wraps responses)
-    const result = (rawResult && typeof rawResult === 'object')
-      ? unwrapPipeboardResponse(rawResult as Record<string, unknown>)
-      : rawResult;
+    // Try multiple unwrap strategies — PipeBoard response shape varies
+    let parsed = rawResult;
 
-    // Build a map of ad_id → thumbnail URL
-    const thumbnails: Record<string, string> = {};
-    const results = result?.results ?? result?.data ?? [];
-    if (Array.isArray(results)) {
-      for (const item of results) {
-        const adId = item.ad_id ?? item.id;
-        if (!adId) continue;
+    // Strategy 1: unwrap MCP content envelope { content: [{ text: "..." }] }
+    if (parsed && typeof parsed === 'object') {
+      parsed = unwrapPipeboardResponse(parsed as Record<string, unknown>);
+    }
 
-        // Look for image URL in various possible locations in the creative response
-        const creative = item.creative ?? item;
-        const thumb =
-          creative.thumbnail_url ??
-          creative.image_url ??
-          creative.object_story_spec?.link_data?.image_url ??
-          creative.object_story_spec?.link_data?.picture ??
-          creative.object_story_spec?.video_data?.image_url ??
-          creative.image_crops?.['100x100'] ??
-          null;
+    // Strategy 2: if still wrapped in structuredContent.result string
+    if (parsed && typeof parsed === 'object' && typeof (parsed as Record<string, unknown>).result === 'string') {
+      try { parsed = JSON.parse((parsed as Record<string, unknown>).result as string); } catch { /* keep current */ }
+    }
 
-        if (thumb) thumbnails[String(adId)] = thumb;
-      }
+    // Log shape for debugging (visible in Railway logs)
+    const topKeys = parsed && typeof parsed === 'object' ? Object.keys(parsed as object).slice(0, 10) : [];
+    console.log('[creatives] rawResult type:', typeof rawResult, '| parsed keys:', topKeys);
+
+    // Build a map of ad_id → { thumbnail, imageUrl }
+    const thumbnails: Record<string, { thumbnail: string | null; imageUrl: string | null }> = {};
+
+    // Try .results (bulk_get_ad_creatives format) or .data (standard format)
+    const p = parsed as Record<string, unknown>;
+    const resultsList = p?.results ?? p?.data ?? [];
+    const items = Array.isArray(resultsList) ? resultsList : [];
+
+    console.log('[creatives] items count:', items.length, '| first item keys:', items[0] ? Object.keys(items[0]).slice(0, 10) : 'none');
+
+    for (const item of items) {
+      const adId = item.ad_id ?? item.id;
+      if (!adId) continue;
+
+      const creative = item.creative ?? item;
+      const thumb =
+        creative.thumbnail_url ??
+        creative.image_url ??
+        creative.object_story_spec?.link_data?.image_url ??
+        creative.object_story_spec?.link_data?.picture ??
+        creative.object_story_spec?.video_data?.image_url ??
+        null;
+
+      // Also grab the full-size image URL separately for hyperlinks
+      const imageUrl =
+        creative.image_url ??
+        creative.object_story_spec?.link_data?.image_url ??
+        creative.thumbnail_url ??
+        null;
+
+      thumbnails[String(adId)] = { thumbnail: thumb, imageUrl };
     }
 
     return NextResponse.json({ data: thumbnails });
