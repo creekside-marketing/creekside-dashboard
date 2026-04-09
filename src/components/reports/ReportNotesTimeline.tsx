@@ -35,7 +35,6 @@ export default function ReportNotesTimeline({ clientId, mode }: Props) {
   const [loading, setLoading] = useState(true);
   const [showEditor, setShowEditor] = useState(false);
   const [newContent, setNewContent] = useState('');
-  const [author, setAuthor] = useState('');
   const [saving, setSaving] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
 
@@ -59,7 +58,7 @@ export default function ReportNotesTimeline({ clientId, mode }: Props) {
       const res = await fetch('/api/report-notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_id: clientId, author: author.trim() || 'Team', content: newContent.trim() }),
+        body: JSON.stringify({ client_id: clientId, author: 'Creekside', content: newContent.trim() }),
       });
       if (res.ok) {
         setNewContent('');
@@ -120,7 +119,7 @@ export default function ReportNotesTimeline({ clientId, mode }: Props) {
             </div>
           )}
         </div>
-        <div className="text-xs text-slate-400 mb-2">{formatDate(note.created_at)} — {note.author}</div>
+        <div className="text-xs text-slate-400 mb-2">{formatDate(note.created_at)}</div>
         <div className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{note.content}</div>
       </div>
     );
@@ -143,14 +142,8 @@ export default function ReportNotesTimeline({ clientId, mode }: Props) {
 
       {showEditor && (
         <div className="mb-6 border border-slate-200 rounded-xl p-4 bg-slate-50/50">
-          <div className="flex items-center gap-3 mb-3">
+          <div className="mb-3">
             <span className="text-xs font-medium text-slate-500">{formatDate(new Date().toISOString())}</span>
-            <input
-              value={author}
-              onChange={(e) => setAuthor(e.target.value)}
-              placeholder="Your name"
-              className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#2563eb] focus:border-transparent w-40"
-            />
           </div>
           <textarea
             value={newContent}
@@ -184,7 +177,7 @@ export default function ReportNotesTimeline({ clientId, mode }: Props) {
           {notes.map((note) => (
             <div key={note.id} className="border-l-2 border-slate-200 pl-4">
               <div className="flex items-center justify-between">
-                <div className="text-xs text-slate-400">{formatDate(note.created_at)} — {note.author}</div>
+                <div className="text-xs text-slate-400">{formatDate(note.created_at)}</div>
                 <button
                   onClick={() => handleArchive(note.id)}
                   className="text-xs text-slate-300 hover:text-red-400 transition-colors"
