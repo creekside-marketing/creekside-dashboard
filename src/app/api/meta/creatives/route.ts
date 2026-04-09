@@ -35,24 +35,53 @@ export async function GET(request: NextRequest) {
         limit: capped.length,
       });
 
-      const result = (rawResult && typeof rawResult === 'object')
-        ? unwrapPipeboardResponse(rawResult as Record<string, unknown>)
-        : rawResult;
+      // Debug: log the raw shape so we can see exactly what callPipeboard returns
+      console.log('[creatives] rawResult type:', typeof rawResult);
+      console.log('[creatives] rawResult keys:', rawResult && typeof rawResult === 'object' ? Object.keys(rawResult as object) : 'not-object');
+      console.log('[creatives] rawResult snippet:', JSON.stringify(rawResult).slice(0, 500));
 
-      const p = result as Record<string, unknown>;
-      const items = Array.isArray(p?.results) ? p.results : (Array.isArray(p?.data) ? p.data : []);
+      // Deep unwrap: try every possible wrapping layer
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let parsed: any = rawResult;
 
-      for (const item of items as Record<string, unknown>[]) {
-        const adId = item.ad_id ?? item.id;
-        if (!adId) continue;
-        const creative = (item.creative ?? item) as Record<string, unknown>;
-        const oss = creative.object_story_spec as Record<string, unknown> | undefined;
-        const thumb = (creative.thumbnail_url ?? creative.image_url ?? (oss?.link_data && (oss.link_data as Record<string, unknown>).image_url)) as string | null;
-        const img = (creative.image_url ?? thumb) as string | null;
-        if (thumb || img) thumbnails[String(adId)] = { thumbnail: thumb, imageUrl: img };
+      // Layer 1: MCP content envelope { content: [{ text: "..." }] }
+      if (parsed && typeof parsed === 'object') {
+        parsed = unwrapPipeboardResponse(parsed as Record<string, unknown>);
       }
+
+      // Layer 2: nested result string
+      if (parsed && typeof parsed === 'object' && typeof parsed.result === 'string') {
+        try { parsed = JSON.parse(parsed.result); } catch { /* keep */ }
+      }
+
+      // Layer 3: structuredContent.result
+      if (parsed && typeof parsed === 'object' && parsed.structuredContent) {
+        const sc = parsed.structuredContent;
+        if (typeof sc.result === 'string') {
+          try { parsed = JSON.parse(sc.result); } catch { /* keep */ }
+        }
+      }
+
+      console.log('[creatives] parsed keys:', parsed && typeof parsed === 'object' ? Object.keys(parsed) : 'not-object');
+
+      // Extract results array
+      const items = parsed?.results ?? parsed?.data ?? [];
+      console.log('[creatives] items count:', Array.isArray(items) ? items.length : 'not-array');
+
+      if (Array.isArray(items)) {
+        for (const item of items) {
+          const adId = item.ad_id ?? item.id;
+          if (!adId) continue;
+          const creative = item.creative ?? item;
+          const thumb = creative.thumbnail_url ?? creative.image_url ?? creative.object_story_spec?.link_data?.image_url ?? null;
+          const img = creative.image_url ?? thumb ?? null;
+          if (thumb || img) thumbnails[String(adId)] = { thumbnail: thumb, imageUrl: img };
+        }
+      }
+
+      console.log('[creatives] thumbnails found:', Object.keys(thumbnails).length);
     } catch (err) {
-      console.log('[creatives] bulk_get_ad_creatives failed (may be premium):', err instanceof Error ? err.message : 'unknown');
+      console.log('[creatives] bulk_get_ad_creatives failed:', err instanceof Error ? err.message : String(err));
     }
 
     return NextResponse.json({ data: thumbnails });
