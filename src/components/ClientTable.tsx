@@ -771,12 +771,45 @@ export default function ClientTable() {
   const [sortKey, setSortKey] = useState<SortKey>('client_name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
-  // Live data states
-  const [liveData, setLiveData] = useState<Record<string, LiveAccountData>>({});
+  // Live data states — restore from sessionStorage if available
+  const [liveData, setLiveData] = useState<Record<string, LiveAccountData>>(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const cached = sessionStorage.getItem('cm_live_data');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.ts && Date.now() - parsed.ts < 5 * 60 * 1000) return parsed.data;
+      }
+    } catch { /* ignore */ }
+    return {};
+  });
   const [tooltip, setTooltip] = useState<{ x: number; y: number; breakdown: ConversionEntry[] } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
-  const [cooldownRemaining, setCooldownRemaining] = useState(0);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const cached = sessionStorage.getItem('cm_live_data');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.ts && Date.now() - parsed.ts < 5 * 60 * 1000) return new Date(parsed.ts);
+      }
+    } catch { /* ignore */ }
+    return null;
+  });
+  const [cooldownRemaining, setCooldownRemaining] = useState(() => {
+    if (typeof window === 'undefined') return 0;
+    try {
+      const cached = sessionStorage.getItem('cm_live_data');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.ts) {
+          const elapsed = Math.floor((Date.now() - parsed.ts) / 1000);
+          return Math.max(0, COOLDOWN_SECONDS - elapsed);
+        }
+      }
+    } catch { /* ignore */ }
+    return 0;
+  });
   const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Team members for inline selects
@@ -976,14 +1009,22 @@ export default function ClientTable() {
 
     setLiveData(newLiveData);
     setRefreshing(false);
-    setLastRefreshed(new Date());
+    const now = new Date();
+    setLastRefreshed(now);
     setCooldownRemaining(COOLDOWN_SECONDS);
+
+    // Cache in sessionStorage so data persists across navigation
+    try {
+      sessionStorage.setItem('cm_live_data', JSON.stringify({ data: newLiveData, ts: now.getTime() }));
+    } catch { /* storage full or unavailable */ }
   }, [clients, refreshing, cooldownRemaining]);
 
   // Auto-fetch live data once clients are loaded
   const autoFetched = useRef(false);
   useEffect(() => {
-    if (clients.length > 0 && !autoFetched.current && !refreshing && cooldownRemaining <= 0) {
+    // Skip auto-fetch if we have cached data from sessionStorage
+    const hasCachedData = Object.keys(liveData).length > 0;
+    if (clients.length > 0 && !autoFetched.current && !refreshing && !hasCachedData) {
       autoFetched.current = true;
       refreshData();
     }
