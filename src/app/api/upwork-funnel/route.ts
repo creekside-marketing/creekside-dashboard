@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
-const UPWORK_LEADS_FOLDER_ID = '90172601496';
-
 const UPWORK_JOB_COLUMNS = [
   'id', 'application_date', 'week_number', 'job_name',
   'script_used', 'source_type', 'profile_used', 'platform', 'business_type',
@@ -10,9 +8,10 @@ const UPWORK_JOB_COLUMNS = [
   'viewed', 'messaged', 'sales_call', 'won', 'client_name',
 ].join(', ');
 
-const CLICKUP_LEAD_COLUMNS = [
-  'clickup_task_id', 'task_name', 'status', 'assignees', 'due_date',
-  'date_created', 'date_closed', 'ai_summary',
+const UPWORK_LEAD_COLUMNS = [
+  'clickup_task_id', 'lead_name', 'status', 'assignees',
+  'lead_funnel_stage', 'upwork_proposal_url', 'how_found', 'date_last_contacted',
+  'due_date', 'date_created', 'date_closed', 'ai_summary',
 ].join(', ');
 
 export async function GET() {
@@ -24,10 +23,10 @@ export async function GET() {
         .order('application_date', { ascending: false })
         .limit(10000),
       supabase()
-        .from('clickup_entries')
-        .select(CLICKUP_LEAD_COLUMNS)
-        .eq('folder_id', UPWORK_LEADS_FOLDER_ID)
-        .order('date_created', { ascending: false }),
+        .from('upwork_leads')
+        .select(UPWORK_LEAD_COLUMNS)
+        .order('date_created', { ascending: false })
+        .limit(10000),
     ]);
 
     if (jobsResult.error) throw jobsResult.error;
@@ -35,7 +34,7 @@ export async function GET() {
 
     return NextResponse.json({
       upworkJobs: jobsResult.data ?? [],
-      clickupLeads: leadsResult.data ?? [],
+      upworkLeads: leadsResult.data ?? [],
       fetchedAt: new Date().toISOString(),
     });
   } catch (err) {

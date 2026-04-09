@@ -20,11 +20,15 @@ export interface UpworkJob {
   client_name: string | null;
 }
 
-export interface ClickUpLead {
+export interface UpworkLead {
   clickup_task_id: string;
-  task_name: string;
+  lead_name: string;
   status: string | null;
   assignees: string | null;
+  lead_funnel_stage: string | null;
+  upwork_proposal_url: string | null;
+  how_found: string | null;
+  date_last_contacted: string | null;
   due_date: string | null;
   date_created: string;
   date_closed: string | null;
@@ -103,6 +107,6 @@ export interface BreakdownRow {
 
 export interface UpworkFunnelApiResponse {
   upworkJobs: UpworkJob[];
-  clickupLeads: ClickUpLead[];
+  upworkLeads: UpworkLead[];
   fetchedAt: string;
 }

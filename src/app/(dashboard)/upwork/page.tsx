@@ -7,7 +7,7 @@ import {
   Tooltip, Legend, ResponsiveContainer, CartesianGrid, Cell,
 } from 'recharts';
 import type {
-  UpworkJob, ClickUpLead, UpworkFunnelFilters,
+  UpworkJob, UpworkLead, UpworkFunnelFilters,
   FunnelMetrics, MonthlyDataPoint, ScriptPerformanceRow,
   HoursAfterPostBucket, BreakdownRow,
 } from '@/lib/types/upwork-funnel';
@@ -150,7 +150,7 @@ function BreakdownTable({ title, rows }: { title: string; rows: BreakdownRow[] }
 export default function UpworkFunnelPage() {
   /* ── Data fetch ── */
   const [allJobs, setAllJobs] = useState<UpworkJob[]>([]);
-  const [clickupLeads, setClickupLeads] = useState<ClickUpLead[]>([]);
+  const [upworkLeads, setUpworkLeads] = useState<UpworkLead[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -165,7 +165,7 @@ export default function UpworkFunnelPage() {
       })
       .then((data) => {
         setAllJobs(data.upworkJobs ?? []);
-        setClickupLeads(data.clickupLeads ?? []);
+        setUpworkLeads(data.upworkLeads ?? []);
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
@@ -198,11 +198,14 @@ export default function UpworkFunnelPage() {
   const businessTypeBreakdown = useMemo(() => computeBreakdown(filteredJobs, (j) => j.business_type ?? 'Unknown'), [filteredJobs]);
   const platformBreakdown = useMemo(() => computeBreakdown(filteredJobs, (j) => j.platform ?? 'Unknown'), [filteredJobs]);
 
-  const clickupStatusCounts = useMemo(() => {
+  const leadFunnelCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const lead of clickupLeads) counts[lead.status ?? 'Unknown'] = (counts[lead.status ?? 'Unknown'] ?? 0) + 1;
+    for (const lead of upworkLeads) {
+      const stage = lead.lead_funnel_stage || lead.status || 'Unknown';
+      counts[stage] = (counts[stage] ?? 0) + 1;
+    }
     return counts;
-  }, [clickupLeads]);
+  }, [upworkLeads]);
 
   /* ── Filter handlers ── */
   const toggleFilter = useCallback((key: keyof Pick<UpworkFunnelFilters, 'scriptUsed' | 'sourceType' | 'businessType' | 'profileUsed' | 'platform'>, value: string) => {
@@ -270,7 +273,7 @@ export default function UpworkFunnelPage() {
         <h2 className="text-2xl font-semibold text-slate-900">Upwork Funnel</h2>
         <p className="text-sm text-slate-500 mt-1">
           {filteredJobs.length.toLocaleString()} of {allJobs.length.toLocaleString()} applications
-          {clickupLeads.length > 0 && ` · ${clickupLeads.length} ClickUp leads`}
+          {upworkLeads.length > 0 && ` · ${upworkLeads.length} ClickUp leads`}
         </p>
       </div>
 
@@ -451,12 +454,12 @@ export default function UpworkFunnelPage() {
       {/* ClickUp Pipeline */}
       <div className="space-y-6">
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-          <h3 className="text-sm font-semibold text-slate-900 mb-4">ClickUp Lead Pipeline</h3>
-          {Object.keys(clickupStatusCounts).length === 0 ? (
-            <p className="text-slate-400 text-sm">No ClickUp leads found in the Upwork folder</p>
+          <h3 className="text-sm font-semibold text-slate-900 mb-4">Upwork Lead Pipeline</h3>
+          {Object.keys(leadFunnelCounts).length === 0 ? (
+            <p className="text-slate-400 text-sm">No Upwork leads found — run sync_leads.py to populate</p>
           ) : (
             <div className="flex flex-wrap gap-3">
-              {Object.entries(clickupStatusCounts)
+              {Object.entries(leadFunnelCounts)
                 .sort(([, a], [, b]) => b - a)
                 .map(([status, count]) => (
                   <div key={status} className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-2">
@@ -468,18 +471,24 @@ export default function UpworkFunnelPage() {
           )}
         </div>
 
-        {clickupLeads.length > 0 && (
+        {upworkLeads.length > 0 && (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
             <h3 className="text-sm font-semibold text-slate-900 mb-4">Recent Leads</h3>
             <div className="space-y-2">
-              {clickupLeads.slice(0, 10).map((lead) => (
+              {upworkLeads.slice(0, 10).map((lead) => (
                 <div key={lead.clickup_task_id} className="flex items-center justify-between gap-4 py-2 border-b border-slate-100 last:border-0">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-900 truncate">{lead.task_name}</p>
-                    {lead.ai_summary && <p className="text-xs text-slate-400 truncate mt-0.5">{lead.ai_summary}</p>}
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-slate-900 truncate">{lead.lead_name}</p>
+                      {lead.upwork_proposal_url && (
+                        <a href={lead.upwork_proposal_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline shrink-0">Proposal</a>
+                      )}
+                    </div>
+                    {lead.lead_funnel_stage && <p className="text-xs text-slate-500 mt-0.5">{lead.lead_funnel_stage}</p>}
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
                     <LeadStatusBadge status={lead.status ?? 'unknown'} />
+                    {lead.date_last_contacted && <span className="text-xs text-slate-400">Last: {formatDate(lead.date_last_contacted)}</span>}
                     <span className="text-xs text-slate-400">{formatDate(lead.date_created)}</span>
                   </div>
                 </div>
