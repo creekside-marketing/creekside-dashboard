@@ -34,11 +34,20 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   const supabase = createServiceClient();
 
   // Fetch reporting_clients row
-  const { data: client } = await supabase
+  const { data: client, error: clientError } = await supabase
     .from('reporting_clients')
     .select('*')
     .eq('id', id)
     .maybeSingle();
+
+  if (clientError) {
+    return (
+      <div className="p-8 text-red-500">
+        <p className="font-semibold">Failed to load client</p>
+        <p className="text-sm mt-1">{clientError.message}</p>
+      </div>
+    );
+  }
 
   if (!client) {
     notFound();
@@ -55,23 +64,26 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
     gchat_url: string | null;
   } | null = null;
 
-  if (client.client_id) {
-    const { data } = await supabase
-      .from('clients')
-      .select('gdrive_folder_id, clickup_folder_id, contract_url, primary_contact_name, primary_contact_email, website, gchat_url')
-      .eq('id', client.client_id)
-      .maybeSingle();
-    clientMeta = data;
-  } else {
-    // Fallback: match by name — strip segment suffix for grouped clients like Perfect Parking
-    const baseName = client.client_name.replace(/ —.*$/, '');
-    const { data } = await supabase
-      .from('clients')
-      .select('gdrive_folder_id, clickup_folder_id, contract_url, primary_contact_name, primary_contact_email, website, gchat_url')
-      .eq('name', baseName)
-      .limit(1)
-      .maybeSingle();
-    clientMeta = data;
+  try {
+    if (client.client_id) {
+      const { data } = await supabase
+        .from('clients')
+        .select('gdrive_folder_id, clickup_folder_id, contract_url, primary_contact_name, primary_contact_email, website, gchat_url')
+        .eq('id', client.client_id)
+        .maybeSingle();
+      clientMeta = data;
+    } else {
+      const baseName = client.client_name.replace(/ —.*$/, '');
+      const { data } = await supabase
+        .from('clients')
+        .select('gdrive_folder_id, clickup_folder_id, contract_url, primary_contact_name, primary_contact_email, website, gchat_url')
+        .eq('name', baseName)
+        .limit(1)
+        .maybeSingle();
+      clientMeta = data;
+    }
+  } catch {
+    // clientMeta stays null — page still renders without quick links
   }
 
   const driveUrl = clientMeta?.gdrive_folder_id
