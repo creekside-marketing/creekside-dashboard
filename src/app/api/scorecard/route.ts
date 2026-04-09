@@ -1,49 +1,18 @@
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
+import { calculatePlatformRevenue } from '@/lib/fee-engine';
+import type { FeeConfig } from '@/lib/fee-engine';
 
-// ── Fee tier calculator ─────────────────────────────────────────────────
-// Creekside charges % of ad spend: 20% ($0-15k), 15% ($15-30k), 10% ($30-45k), 5% ($45k+)
-// Minimums: $1,000/platform; $2,000 when managing both Google + Meta
-function calcExpectedFee(totalAdSpend: number, platformCount: number): number {
-  if (totalAdSpend <= 0) return 0;
-
-  let fee = 0;
-  let remaining = totalAdSpend;
-
-  // Tier 1: 0-15k at 20%
-  const t1 = Math.min(remaining, 15000);
-  fee += t1 * 0.20;
-  remaining -= t1;
-
-  // Tier 2: 15k-30k at 15%
-  if (remaining > 0) {
-    const t2 = Math.min(remaining, 15000);
-    fee += t2 * 0.15;
-    remaining -= t2;
-  }
-
-  // Tier 3: 30k-45k at 10%
-  if (remaining > 0) {
-    const t3 = Math.min(remaining, 15000);
-    fee += t3 * 0.10;
-    remaining -= t3;
-  }
-
-  // Tier 4: 45k+ at 5%
-  if (remaining > 0) {
-    fee += remaining * 0.05;
-  }
-
-  // Enforce minimums
-  const minimum = platformCount >= 2 ? 2000 : 1000;
-  return Math.max(fee, minimum);
-}
+const PARTNER_NAMES = new Set(['Bottle.com', 'Comet Fuel', 'FirstUp Marketing', 'Full Circle Media', 'Suff Digital']);
 
 interface ClientRow {
   id: string;
   client_name: string;
   platform: string;
   monthly_budget: number | null;
+  monthly_revenue: number | null;
+  fee_config: FeeConfig | null;
+  revenue_override: boolean;
   status: string;
   account_manager: string | null;
   platform_operator: string | null;
@@ -55,14 +24,14 @@ export async function GET() {
 
     const { data, error } = await supabase
       .from('reporting_clients')
-      .select('id, client_name, platform, monthly_budget, status, account_manager, platform_operator');
+      .select('id, client_name, platform, monthly_budget, monthly_revenue, fee_config, revenue_override, status, account_manager, platform_operator');
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     const rows = (data ?? []) as ClientRow[];
-    const activeRows = rows.filter((r) => r.status === 'active');
+    const activeRows = rows.filter((r) => r.status === 'active' && !PARTNER_NAMES.has(r.client_name));
 
     // ── Unique active clients ───────────────────────────────────────────
     const activeClientNames = [...new Set(activeRows.map((r) => r.client_name))];
@@ -85,7 +54,7 @@ export async function GET() {
       (r) => r.platform?.toLowerCase() === 'google'
     ).length;
 
-    // ── Estimated MRR (fee tiers applied per client) ────────────────────
+    // ── Estimated MRR (per-client fee_config calculation using budget as spend) ──
     const clientBudgets: Record<string, { total: number; platforms: Set<string> }> = {};
     for (const row of activeRows) {
       if (!clientBudgets[row.client_name]) {
@@ -99,10 +68,30 @@ export async function GET() {
 
     let estimatedMRR = 0;
     const clientRevenues: { name: string; budget: number; fee: number }[] = [];
-    for (const [name, info] of Object.entries(clientBudgets)) {
-      const fee = calcExpectedFee(info.total, info.platforms.size);
+
+    // Calculate revenue per row using the same cascade as the dashboard
+    const revenueByClient: Record<string, number> = {};
+    for (const row of activeRows) {
+      let rowRevenue = 0;
+
+      if (row.revenue_override && row.monthly_revenue != null) {
+        // Manual override
+        rowRevenue = Number(row.monthly_revenue);
+      } else if (row.fee_config && row.monthly_budget != null && row.monthly_budget > 0) {
+        // Calculate from fee_config using budget as spend
+        const totalBudget = clientBudgets[row.client_name]?.total ?? Number(row.monthly_budget);
+        rowRevenue = calculatePlatformRevenue(row.fee_config, Number(row.monthly_budget), totalBudget);
+      } else if (row.monthly_revenue != null && Number(row.monthly_revenue) > 0) {
+        // DB fallback
+        rowRevenue = Number(row.monthly_revenue);
+      }
+
+      revenueByClient[row.client_name] = (revenueByClient[row.client_name] ?? 0) + rowRevenue;
+    }
+
+    for (const [name, fee] of Object.entries(revenueByClient)) {
       estimatedMRR += fee;
-      clientRevenues.push({ name, budget: info.total, fee });
+      clientRevenues.push({ name, budget: clientBudgets[name]?.total ?? 0, fee });
     }
 
     // ── Top 5 clients by revenue ────────────────────────────────────────
