@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react';
 
 interface Campaign {
   name: string;
-  status: string;
+  status: string | number;
   type?: string;
   impressions: number;
   clicks: number;
@@ -22,8 +22,8 @@ interface CampaignsTableProps {
 
 type SortKey = keyof Campaign;
 
-function StatusDot({ status }: { status: string }) {
-  const lower = status?.toLowerCase() ?? '';
+function StatusDot({ status }: { status: string | number }) {
+  const lower = String(status ?? '').toLowerCase();
   const dotColor =
     lower === 'active' || lower === 'enabled'
       ? 'bg-emerald-500'
@@ -40,7 +40,7 @@ function StatusDot({ status }: { status: string }) {
   return (
     <span className={`inline-flex items-center gap-1.5 text-sm font-medium capitalize ${textColor}`}>
       <span className={`w-2 h-2 rounded-full ${dotColor}`} />
-      {status.toLowerCase()}
+      {lower}
     </span>
   );
 }
@@ -95,7 +95,7 @@ export default function CampaignsTable({ campaigns, platform }: CampaignsTablePr
   const filtered = useMemo(() => {
     if (!activeOnly) return campaigns;
     return campaigns.filter((c) => {
-      const s = c.status?.toLowerCase() ?? '';
+      const s = String(c.status ?? '').toLowerCase() ?? '';
       return s === 'active' || s === 'enabled';
     });
   }, [campaigns, activeOnly]);
@@ -146,7 +146,7 @@ export default function CampaignsTable({ campaigns, platform }: CampaignsTablePr
   ];
 
   const pausedCount = campaigns.length - campaigns.filter((c) => {
-    const s = c.status?.toLowerCase() ?? '';
+    const s = String(c.status ?? '').toLowerCase() ?? '';
     return s === 'active' || s === 'enabled';
   }).length;
 
