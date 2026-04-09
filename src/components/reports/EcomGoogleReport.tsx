@@ -90,7 +90,6 @@ const roasCol = (v: unknown) => `${Number(v ?? 0).toFixed(2)}x`;
 export default function EcomGoogleReport({ client, mode }: { client: ReportingClient; mode: 'internal' | 'public' }) {
   const [campaigns, setCampaigns] = useState<EcomCampaign[]>([]);
   const [totals, setTotals] = useState<EcomTotals>(ZERO);
-  const [priorTotals, setPriorTotals] = useState<EcomTotals | null>(null);
   const [dailyData, setDailyData] = useState<DailyRow[]>([]);
   const [keywords, setKeywords] = useState<Record<string, unknown>[]>([]);
   const [geoData, setGeoData] = useState<Record<string, unknown>[]>([]);
@@ -164,7 +163,6 @@ export default function EcomGoogleReport({ client, mode }: { client: ReportingCl
         try {
           const pr = (await pRes.json()).data ?? [];
           const pt = computeTotals((Array.isArray(pr) ? pr : []).map(normalizeEcomGoogleCampaign));
-          setPriorTotals(pt);
           setKpi({ conversionValue: calcChange(t.conversionValue, pt.conversionValue), roas: calcChange(t.roas, pt.roas), cost: calcChange(t.cost, pt.cost), cpa: calcChange(t.cpa, pt.cpa), aov: calcChange(t.aov, pt.aov), conversions: calcChange(t.conversions, pt.conversions), ctr: calcChange(t.ctr, pt.ctr), cpc: calcChange(t.cpc, pt.cpc), impressions: calcChange(t.impressions, pt.impressions) });
         } catch { setKpi(null); }
       }

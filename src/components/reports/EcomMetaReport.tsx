@@ -1,8 +1,8 @@
 'use client';
 
 /**
- * EcomMetaReport — Upgraded ecommerce Meta Ads report with sparklines, funnel,
- * ad creative thumbnails, and auto-generated insights.
+ * EcomMetaReport — Ecommerce Meta Ads report with sparklines, funnel,
+ * and ad creative thumbnails.
  *
  * CANNOT: Write data (read-only report view).
  * CANNOT: Modify budgets or campaigns.
@@ -193,7 +193,6 @@ export default function EcomMetaReport({
 }) {
   const [campaigns, setCampaigns] = useState<EcomCampaign[]>([]);
   const [totals, setTotals] = useState<EcomTotals>({ impressions: 0, linkClicks: 0, lctr: 0, spend: 0, atc: 0, checkouts: 0, purchases: 0, purchaseRevenue: 0, roas: 0, cpci: 0, cpp: 0, cpm: 0 });
-  const [, setPriorTotals] = useState<EcomTotals | null>(null);
   const [dailyData, setDailyData] = useState<DailyRow[]>([]);
   const [adsData, setAdsData] = useState<Record<string, unknown>[]>([]);
   const [adThumbnails, setAdThumbnails] = useState<Record<string, string>>({});
@@ -284,8 +283,6 @@ export default function EcomMetaReport({
           const priorArr = Array.isArray(priorRaw) ? priorRaw : [];
           const priorNorm = priorArr.map(normalizeEcomCampaign);
           const pt = computeTotals(priorNorm);
-          setPriorTotals(pt);
-
           setKpiChanges({
             purchases: calcChange(t.purchases, pt.purchases),
             cpp: calcChange(t.cpp, pt.cpp),
@@ -297,7 +294,7 @@ export default function EcomMetaReport({
             linkClicks: calcChange(t.linkClicks, pt.linkClicks),
             lctr: calcChange(t.lctr, pt.lctr),
           });
-        } catch { setKpiChanges(null); setPriorTotals(null); }
+        } catch { setKpiChanges(null); }
       }
 
       // Parse breakdown data

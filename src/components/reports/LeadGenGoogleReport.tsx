@@ -5,7 +5,6 @@
  *
  * Replaces the original LeadGenReport with richer visualizations:
  * - SparklineKpiCards with inline trend lines
- * - InsightsBlock with auto-generated data-driven insights
  * - DemographicChart for age/gender breakdowns
  *
  * CANNOT: Modify ad account settings or budgets.
@@ -22,7 +21,7 @@ import {
   SparklineKpiCard,
   DemographicChart,
 } from './shared';
-import { useGoogleAdsData, type Campaign, type Totals, type KpiChangeSet } from '@/hooks/useGoogleAdsData';
+import { useGoogleAdsData } from '@/hooks/useGoogleAdsData';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -94,18 +93,11 @@ export default function LeadGenGoogleReport({
   const costPerLead = totals.conversions > 0 ? totals.cost / totals.conversions : 0;
   const convRate = totals.clicks > 0 ? totals.conversions / totals.clicks : 0;
 
-  // Compute pacing days for insights generation
+  // Days elapsed in current period — used for targetCpl pacing
   const daysElapsed = (() => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const label = DATE_RANGES[dateRangeIndex].label;
     if (label === 'This Month') return Math.max(Math.floor((today.getTime() - new Date(today.getFullYear(), today.getMonth(), 1).getTime()) / 86400000), 1);
-    if (label === 'Last Month') return new Date(today.getFullYear(), today.getMonth(), 0).getDate();
-    return label === '7d' ? 7 : label === '14d' ? 14 : 30;
-  })();
-  const daysInPeriod = (() => {
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const label = DATE_RANGES[dateRangeIndex].label;
-    if (label === 'This Month') return new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
     if (label === 'Last Month') return new Date(today.getFullYear(), today.getMonth(), 0).getDate();
     return label === '7d' ? 7 : label === '14d' ? 14 : 30;
   })();

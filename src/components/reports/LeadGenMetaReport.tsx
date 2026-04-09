@@ -5,7 +5,7 @@
  *
  * Fetches campaign, account, ad, and demographic data from `/api/meta/insights`,
  * normalizes lead actions (lead + offsite_conversion.fb_pixel_lead), and renders
- * KPIs, charts, funnel, breakdowns, insights, and notes.
+ * KPIs, charts, campaign/ads tables, and notes.
  *
  * CANNOT: Modify ad account data — read-only display.
  * CANNOT: Handle non-Meta platforms — Meta-specific normalization only.
@@ -107,7 +107,6 @@ const ZERO: Omit<LeadGenRow, 'name'> = { impressions: 0, linkClicks: 0, spend: 0
 export default function LeadGenMetaReport({ client, mode }: { client: ReportingClient; mode: 'internal' | 'public' }) {
   const [campaigns, setCampaigns] = useState<LeadGenRow[]>([]);
   const [totals, setTotals] = useState(ZERO);
-  const [priorTotals, setPriorTotals] = useState<Omit<LeadGenRow, 'name'> | null>(null);
   const [dailyData, setDailyData] = useState<DailyRow[]>([]);
   const [adsData, setAdsData] = useState<Record<string, unknown>[]>([]);
   const [kpiChanges, setKpiChanges] = useState<Record<string, { pct: string; direction: 'up' | 'down' | 'flat' }> | null>(null);
@@ -162,13 +161,13 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
       if (priorRes.ok) {
         try { let pj = await priorRes.json(); pj = unwrapPipeboardResponse(pj);
           const pa = Array.isArray(pj.data ?? pj) ? (pj.data ?? pj) : [];
-          const pt = computeTotals((pa as unknown[]).map(normalize)); setPriorTotals(pt);
+          const pt = computeTotals((pa as unknown[]).map(normalize));
           setKpiChanges({ leads: calcChange(t.leads, pt.leads), cpl: calcChange(t.cpl, pt.cpl),
             spend: calcChange(t.spend, pt.spend), cpm: calcChange(t.cpm, pt.cpm),
             frequency: calcChange(t.frequency, pt.frequency), linkClicks: calcChange(t.linkClicks, pt.linkClicks),
             lctr: calcChange(t.lctr, pt.lctr), impressions: calcChange(t.impressions, pt.impressions),
             reach: calcChange(t.reach, pt.reach) });
-        } catch { setKpiChanges(null); setPriorTotals(null); }
+        } catch { setKpiChanges(null); }
       }
       const parseBd = async (res: Response | null) => {
         if (!res?.ok) return [];
