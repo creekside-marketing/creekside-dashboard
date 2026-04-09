@@ -49,6 +49,8 @@ interface EcomTotals {
   atc: number;
   checkouts: number;
   purchases: number;
+  purchaseRevenue: number;
+  roas: number;
   cpci: number;
   cpp: number;
   cpm: number;
@@ -65,6 +67,8 @@ interface EcomCampaign {
   checkouts: number;
   cpci: number;
   purchases: number;
+  purchaseRevenue: number;
+  roas: number;
   cpp: number;
 }
 
@@ -74,6 +78,8 @@ interface DailyRow {
   atc: number;
   checkouts: number;
   purchases: number;
+  purchaseRevenue: number;
+  roas: number;
   spend: number;
   impressions: number;
   linkClicks: number;
@@ -91,15 +97,23 @@ function getActionValue(actions: Array<{ action_type: string; value: string }> |
   return found ? Math.round(Number(found.value) || 0) : 0;
 }
 
+function getActionRevenue(actionValues: Array<{ action_type: string; value: string }> | undefined, type: string): number {
+  if (!actionValues) return 0;
+  const found = actionValues.find((a) => a.action_type === type);
+  return found ? Number(found.value) || 0 : 0;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalizeEcomCampaign(row: any): EcomCampaign {
   const actions = (row.actions ?? []) as Array<{ action_type: string; value: string }>;
+  const actionValues = (row.action_values ?? []) as Array<{ action_type: string; value: string }>;
   const linkClicks = Number(row.inline_link_clicks ?? row.clicks ?? 0);
   const impressions = Number(row.impressions ?? 0);
   const spend = Number(row.spend ?? 0);
   const atc = getActionValue(actions, 'offsite_conversion.fb_pixel_add_to_cart');
   const checkouts = getActionValue(actions, 'offsite_conversion.fb_pixel_initiate_checkout');
   const purchases = getActionValue(actions, 'offsite_conversion.fb_pixel_purchase');
+  const purchaseRevenue = getActionRevenue(actionValues, 'offsite_conversion.fb_pixel_purchase');
 
   return {
     name: row.adset_name ?? row.campaign_name ?? row.ad_name ?? 'Unknown',
@@ -112,6 +126,8 @@ function normalizeEcomCampaign(row: any): EcomCampaign {
     checkouts,
     cpci: checkouts > 0 ? spend / checkouts : 0,
     purchases,
+    purchaseRevenue,
+    roas: spend > 0 ? purchaseRevenue / spend : 0,
     cpp: purchases > 0 ? spend / purchases : 0,
   };
 }
@@ -125,11 +141,13 @@ function computeTotals(campaigns: EcomCampaign[]): EcomTotals {
       atc: acc.atc + c.atc,
       checkouts: acc.checkouts + c.checkouts,
       purchases: acc.purchases + c.purchases,
+      purchaseRevenue: acc.purchaseRevenue + c.purchaseRevenue,
     }),
-    { impressions: 0, linkClicks: 0, spend: 0, atc: 0, checkouts: 0, purchases: 0 }
+    { impressions: 0, linkClicks: 0, spend: 0, atc: 0, checkouts: 0, purchases: 0, purchaseRevenue: 0 }
   );
   return {
     ...t,
+    roas: t.spend > 0 ? t.purchaseRevenue / t.spend : 0,
     lctr: t.impressions > 0 ? t.linkClicks / t.impressions : 0,
     cpci: t.checkouts > 0 ? t.spend / t.checkouts : 0,
     cpp: t.purchases > 0 ? t.spend / t.purchases : 0,
@@ -142,14 +160,18 @@ function parseDailyRows(rows: any[]): DailyRow[] {
   return rows
     .map((row) => {
       const actions = (row.actions ?? []) as Array<{ action_type: string; value: string }>;
+      const actionValues = (row.action_values ?? []) as Array<{ action_type: string; value: string }>;
       const spend = Number(row.spend ?? 0);
       const impressions = Number(row.impressions ?? 0);
       const purchases = getActionValue(actions, 'offsite_conversion.fb_pixel_purchase');
+      const purchaseRevenue = getActionRevenue(actionValues, 'offsite_conversion.fb_pixel_purchase');
       return {
         date: row.date_start ?? row.date ?? '',
         atc: getActionValue(actions, 'offsite_conversion.fb_pixel_add_to_cart'),
         checkouts: getActionValue(actions, 'offsite_conversion.fb_pixel_initiate_checkout'),
         purchases,
+        purchaseRevenue,
+        roas: spend > 0 ? purchaseRevenue / spend : 0,
         spend,
         impressions,
         linkClicks: Number(row.inline_link_clicks ?? row.clicks ?? 0),
@@ -192,6 +214,10 @@ function buildInsights(
     const drop = (((prior.cpp - t.cpp) / prior.cpp) * 100).toFixed(1);
     insights.push({ type: 'win', text: `Cost per purchase decreased ${drop}% vs. prior period (${fmtMoney(t.cpp)} vs. ${fmtMoney(prior.cpp)}).` });
   }
+  if (prior && prior.roas > 0 && t.roas > prior.roas) {
+    const gain = (((t.roas - prior.roas) / prior.roas) * 100).toFixed(1);
+    insights.push({ type: 'win', text: `ROAS improved ${gain}% vs. prior period (${t.roas.toFixed(2)}x vs. ${prior.roas.toFixed(2)}x).` });
+  }
   if (prior && prior.purchases > 0 && t.purchases > prior.purchases) {
     const gain = (((t.purchases - prior.purchases) / prior.purchases) * 100).toFixed(1);
     insights.push({ type: 'win', text: `Purchases increased ${gain}% vs. prior period (${fmt(t.purchases)} vs. ${fmt(prior.purchases)}).` });
@@ -226,7 +252,7 @@ export default function EcomMetaReport({
   mode: 'internal' | 'public';
 }) {
   const [campaigns, setCampaigns] = useState<EcomCampaign[]>([]);
-  const [totals, setTotals] = useState<EcomTotals>({ impressions: 0, linkClicks: 0, lctr: 0, spend: 0, atc: 0, checkouts: 0, purchases: 0, cpci: 0, cpp: 0, cpm: 0 });
+  const [totals, setTotals] = useState<EcomTotals>({ impressions: 0, linkClicks: 0, lctr: 0, spend: 0, atc: 0, checkouts: 0, purchases: 0, purchaseRevenue: 0, roas: 0, cpci: 0, cpp: 0, cpm: 0 });
   const [priorTotals, setPriorTotals] = useState<EcomTotals | null>(null);
   const [dailyData, setDailyData] = useState<DailyRow[]>([]);
   const [adsData, setAdsData] = useState<Record<string, unknown>[]>([]);
@@ -328,10 +354,7 @@ export default function EcomMetaReport({
           setKpiChanges({
             purchases: calcChange(t.purchases, pt.purchases),
             cpp: calcChange(t.cpp, pt.cpp),
-            roas: calcChange(
-              t.spend > 0 ? t.purchases / t.spend : 0,
-              pt.spend > 0 ? pt.purchases / pt.spend : 0,
-            ),
+            roas: calcChange(t.roas, pt.roas),
             spend: calcChange(t.spend, pt.spend),
             cpm: calcChange(t.cpm, pt.cpm),
             atc: calcChange(t.atc, pt.atc),
@@ -385,8 +408,8 @@ export default function EcomMetaReport({
   const sparkSpend = dailyData.map((d) => d.spend);
   const sparkCpm = dailyData.map((d) => d.cpm);
 
-  const roas = totals.spend > 0 ? totals.purchases / totals.spend : 0;
-  const sparkRoas = dailyData.map((d) => (d.spend > 0 ? d.purchases / d.spend : 0));
+  const roas = totals.roas;
+  const sparkRoas = dailyData.map((d) => d.roas);
 
   // Budget pacing
   const pacing = computePacingDays(dateRangeIndex);
@@ -571,6 +594,7 @@ export default function EcomMetaReport({
               { key: 'cpci', label: 'CPCI', align: 'right', format: nullMoney },
               { key: 'purchases', label: 'Purchases', align: 'right', format: numCol },
               { key: 'cpp', label: 'CPP', align: 'right', format: nullMoney },
+              { key: 'roas', label: 'ROAS', align: 'right', format: (v: unknown) => { const n = Number(v ?? 0); return n > 0 ? n.toFixed(2) + 'x' : '--'; } },
             ]}
             data={campaigns}
             maxRows={15}

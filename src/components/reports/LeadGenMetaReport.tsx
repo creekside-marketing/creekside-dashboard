@@ -99,6 +99,21 @@ function parseDailyRows(rows: any[]): DailyRow[] {
   }).sort((a, b) => a.date.localeCompare(b.date));
 }
 
+/** Compute days elapsed and total days for the selected date range. */
+function computePacingDays(rangeIndex: number): { daysElapsed: number; daysInPeriod: number } {
+  const today = new Date();
+  const label = DATE_RANGES[rangeIndex].label;
+  if (label === 'This Month') {
+    return { daysElapsed: Math.max(today.getDate() - 1, 1), daysInPeriod: new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate() };
+  }
+  if (label === 'Last Month') {
+    const d = new Date(today.getFullYear(), today.getMonth(), 0).getDate();
+    return { daysElapsed: d, daysInPeriod: d };
+  }
+  const days = label === '7d' ? 7 : label === '14d' ? 14 : 30;
+  return { daysElapsed: days, daysInPeriod: days };
+}
+
 function buildInsights(t: Omit<LeadGenRow, 'name'>, p: Omit<LeadGenRow, 'name'> | null): Insight[] {
   const out: Insight[] = [];
   if (!p) return out;
@@ -218,9 +233,8 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
   const numCol = (v: unknown) => fmt(Number(v ?? 0));
   const nullMoney = (v: unknown) => { const n = Number(v ?? 0); return n > 0 ? fmtMoney(n) : '--'; };
   const insights = buildInsights(totals, priorTotals);
-  const now = new Date();
-  const showPacing = client.monthly_budget != null && client.monthly_budget > 0
-    && (currentRange.label === 'This Month' || currentRange.label === '30d');
+  const pacing = computePacingDays(dateRangeIndex);
+  const showPacing = client.monthly_budget != null && client.monthly_budget > 0;
   const demoMap = (row: Record<string, unknown>) => {
     const actions = (row.actions ?? []) as MetaAction[];
     return { ...row, leads: getLeads(actions) };
@@ -281,7 +295,7 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
 
         {/* 4. Budget Pacing */}
         {showPacing && <BudgetPacingGauge spent={totals.spend} budget={client.monthly_budget!}
-          daysElapsed={now.getDate()} daysInPeriod={new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()} />}
+          daysElapsed={pacing.daysElapsed} daysInPeriod={pacing.daysInPeriod} />}
 
         {/* 5-6. Charts */}
         {dailyData.length > 0 && (<>

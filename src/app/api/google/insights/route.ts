@@ -40,6 +40,7 @@ export async function GET(request: NextRequest) {
           metrics.average_cpc,
           metrics.cost_micros,
           metrics.conversions,
+          metrics.conversions_value,
           metrics.cost_per_conversion,
           segments.date
         FROM customer
@@ -55,6 +56,7 @@ export async function GET(request: NextRequest) {
         average_cpc: Number(row.metrics.average_cpc) / 1_000_000,
         cost: Number(row.metrics.cost_micros) / 1_000_000,
         conversions: row.metrics.conversions,
+        conversion_value: Number(row.metrics.conversions_value ?? 0),
         cost_per_conversion: Number(row.metrics.cost_per_conversion) / 1_000_000,
       }));
 
@@ -96,6 +98,7 @@ export async function GET(request: NextRequest) {
           metrics.average_cpc,
           metrics.cost_micros,
           metrics.conversions,
+          metrics.conversions_value,
           metrics.cost_per_conversion
         FROM keyword_view
         WHERE ${dateFilter}
@@ -114,6 +117,7 @@ export async function GET(request: NextRequest) {
         average_cpc: Number(row.metrics.average_cpc) / 1_000_000,
         cost: Number(row.metrics.cost_micros) / 1_000_000,
         conversions: row.metrics.conversions,
+        conversion_value: Number(row.metrics.conversions_value ?? 0),
         cost_per_conversion: Number(row.metrics.cost_per_conversion) / 1_000_000,
       }));
 
@@ -308,6 +312,7 @@ export async function GET(request: NextRequest) {
         metrics.average_cpc,
         metrics.cost_micros,
         metrics.conversions,
+        metrics.conversions_value,
         metrics.cost_per_conversion
       FROM campaign
       WHERE ${dateFilter}
@@ -326,6 +331,7 @@ export async function GET(request: NextRequest) {
       average_cpc: Number(row.metrics.average_cpc) / 1_000_000,
       cost: Number(row.metrics.cost_micros) / 1_000_000,
       conversions: row.metrics.conversions,
+      conversion_value: Number(row.metrics.conversions_value ?? 0),
       cost_per_conversion: Number(row.metrics.cost_per_conversion) / 1_000_000,
     }));
 
