@@ -18,6 +18,8 @@ const ALLOWED_UPDATE_FIELDS = [
   'client_report_notes',
   'fee_config',
   'revenue_override',
+  'goal_type',
+  'goal_target',
 ];
 
 // Fields that should be tracked in manual_overrides when changed by a user

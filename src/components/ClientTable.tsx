@@ -20,6 +20,8 @@ interface Client {
   status: string;
   fee_config: FeeConfig | null;
   revenue_override: boolean;
+  goal_type: string | null;
+  goal_target: number | null;
   [key: string]: unknown;
 }
 
@@ -39,6 +41,7 @@ interface LiveAccountData {
   conversions: number;
   costPerConversion: number;
   conversionBreakdown: ConversionEntry[];
+  roas?: number;
   error?: string;
 }
 
@@ -810,11 +813,13 @@ export default function ClientTable() {
               // Use purchase_conversions if available, otherwise total conversions
               const convCount = purchaseConversions > 0 ? purchaseConversions : conversions;
               const keyId = metaAccounts.has(acctId) ? acctId : metaAccounts.has(`act_${acctId}`) ? `act_${acctId}` : acctId;
+              const roas = insights.roas != null ? Number(insights.roas) : undefined;
               newLiveData[keyId] = {
                 spend,
                 conversions: convCount,
                 costPerConversion: convCount > 0 ? spend / convCount : 0,
                 conversionBreakdown: [],
+                roas,
               };
             }
           }
@@ -1187,8 +1192,8 @@ export default function ClientTable() {
                 <SortHeader label="Operator" sortKey="platform_operator" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <SortHeader label="Budget" sortKey="monthly_budget" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Spend</th>
-                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Conv.</th>
-                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Cost/Conv</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Target</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Current</th>
               </tr>
             </thead>
             <tbody>
@@ -1383,11 +1388,101 @@ export default function ClientTable() {
                             );
                           })()}
                         </td>
-                        <td className="py-4 px-6 text-right text-sm font-medium text-slate-700">
-                          {renderLiveCell(client, 'conversions')}
+                        {/* Target — goal type + target value, editable */}
+                        <td className="py-4 px-6 text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
+                          {(() => {
+                            const goalType = client.goal_type;
+                            const goalTarget = client.goal_target;
+                            if (!goalType || goalTarget == null) {
+                              return (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const type = prompt('Goal type (conversions, cpl, roas, cpa):');
+                                    if (!type) return;
+                                    const target = prompt('Target value:');
+                                    if (!target) return;
+                                    fetch('/api/clients', {
+                                      method: 'PATCH',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ id: client.id, goal_type: type.toLowerCase(), goal_target: parseFloat(target) }),
+                                    }).then(res => { if (res.ok) handleFieldSaved(client.id, 'goal_type', type.toLowerCase()); });
+                                  }}
+                                  className="text-slate-300 hover:text-[var(--creekside-blue)] text-xs transition-colors"
+                                >
+                                  + Set goal
+                                </button>
+                              );
+                            }
+                            const label = goalType === 'conversions' ? 'Conv' : goalType === 'cpl' ? 'CPL' : goalType === 'roas' ? 'ROAS' : goalType === 'cpa' ? 'CPA' : goalType.toUpperCase();
+                            const formatted = goalType === 'roas' ? `${goalTarget}x` : goalType === 'cpl' || goalType === 'cpa' ? `$${goalTarget}` : `${goalTarget}`;
+                            return (
+                              <span
+                                className="text-slate-700 cursor-pointer hover:text-[var(--creekside-blue)] transition-colors"
+                                title={`${label}: ${formatted} (click to edit)`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const target = prompt(`New ${label} target (current: ${formatted}):`, String(goalTarget));
+                                  if (target == null) return;
+                                  const newType = prompt('Goal type:', goalType);
+                                  if (newType == null) return;
+                                  fetch('/api/clients', {
+                                    method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ id: client.id, goal_type: newType.toLowerCase(), goal_target: parseFloat(target) }),
+                                  }).then(res => { if (res.ok) { handleFieldSaved(client.id, 'goal_type', newType.toLowerCase()); handleFieldSaved(client.id, 'goal_target', target); } });
+                                }}
+                              >
+                                {formatted} <span className="text-xs text-slate-400">{label}</span>
+                              </span>
+                            );
+                          })()}
                         </td>
-                        <td className="py-4 px-6 text-right text-sm font-medium text-slate-700">
-                          {renderLiveCell(client, 'costPerConversion')}
+                        {/* Current — auto-calculated from live data based on goal type */}
+                        <td className="py-4 px-6 text-right text-sm font-medium">
+                          {(() => {
+                            const goalType = client.goal_type;
+                            if (!goalType) return <span className="text-slate-300">--</span>;
+                            const accountId = client.ad_account_id;
+                            const live = accountId ? liveData[accountId] : null;
+                            if (!live || live.error) return <span className="text-slate-300">--</span>;
+
+                            let currentValue: number | null = null;
+                            if (goalType === 'conversions') {
+                              currentValue = live.conversions;
+                            } else if (goalType === 'cpl' || goalType === 'cpa') {
+                              currentValue = live.costPerConversion;
+                            } else if (goalType === 'roas') {
+                              currentValue = live.roas ?? null;
+                            } else if (goalType === 'spend') {
+                              currentValue = live.spend;
+                            }
+
+                            if (currentValue == null) return <span className="text-slate-300">--</span>;
+
+                            // Color: green if meeting/beating target, red if not
+                            const target = client.goal_target;
+                            let colorClass = 'text-slate-700';
+                            if (target != null) {
+                              if (goalType === 'cpl' || goalType === 'cpa') {
+                                // Lower is better
+                                colorClass = currentValue <= target ? 'text-emerald-600' : 'text-red-600';
+                              } else {
+                                // Higher is better
+                                colorClass = currentValue >= target ? 'text-emerald-600' : 'text-red-600';
+                              }
+                            }
+
+                            const formatted = goalType === 'roas'
+                              ? `${currentValue.toFixed(2)}x`
+                              : goalType === 'cpl' || goalType === 'cpa'
+                                ? formatCurrency(currentValue)
+                                : goalType === 'spend'
+                                  ? formatCurrency(currentValue)
+                                  : formatInteger(currentValue);
+
+                            return <span className={colorClass}>{formatted}</span>;
+                          })()}
                         </td>
                       </tr>
                     );
