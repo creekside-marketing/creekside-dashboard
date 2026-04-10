@@ -6,10 +6,9 @@ import { usePathname } from 'next/navigation';
 const tabs = [
   { label: 'Clients', href: '/' },
   { label: 'Team', href: '/team' },
-  { label: 'Weekly Scorecard', href: '/weekly' },
+  { label: 'Scorecard', href: '/scorecard' },
   { label: 'Archive', href: '/archive' },
   { label: 'Billing', href: '/billing' },
-  { label: 'Scorecard', href: '/scorecard' },
   { label: 'Upwork', href: '/upwork' },
 ];
 
