@@ -1,0 +1,7 @@
+# Default: all changes require Peterson or Cade
+* @peterson-rainey @cademac
+
+# Client-facing report components — contractors team can edit
+/src/components/reports/ @creekside-marketing/contractors
+/src/app/report/ @creekside-marketing/contractors
+/src/app/api/report-notes/ @creekside-marketing/contractors
