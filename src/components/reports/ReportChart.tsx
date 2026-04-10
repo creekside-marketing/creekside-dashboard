@@ -95,6 +95,12 @@ export default function ReportChart({
               boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
             }}
             labelFormatter={(label) => formatXDate(String(label ?? ''))}
+            formatter={(value: number, name: string) => {
+              const line = lines.find((l) => l.label === name || l.dataKey === name);
+              const axis = line?.yAxisId ?? 'left';
+              const fn = axis === 'right' && formatYRight ? formatYRight : formatY;
+              return fn ? [fn(value), name] : [value.toLocaleString(), name];
+            }}
           />
           <Legend
             iconType="circle"
