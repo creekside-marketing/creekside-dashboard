@@ -19,6 +19,12 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const authCookie = request.cookies.get('cm_auth')?.value;
+  const sessionSecret = process.env.DASHBOARD_SESSION_SECRET;
+  if (!sessionSecret || authCookie !== sessionSecret) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const body = await request.json();
   const { client_id, author, content } = body;
   if (!client_id || !content) return NextResponse.json({ error: 'client_id and content required' }, { status: 400 });
@@ -35,6 +41,12 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const authCookie = request.cookies.get('cm_auth')?.value;
+  const sessionSecret = process.env.DASHBOARD_SESSION_SECRET;
+  if (!sessionSecret || authCookie !== sessionSecret) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const body = await request.json();
   const { id, archived } = body;
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
