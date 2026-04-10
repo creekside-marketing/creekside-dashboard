@@ -1,5 +1,7 @@
 'use client';
 
+// Stress test: contractor edit to client-facing report — 2026-04-10
+
 interface DateRangeOption {
   label: string;
   metaParam: string;
