@@ -95,11 +95,13 @@ export default function ReportChart({
               boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
             }}
             labelFormatter={(label) => formatXDate(String(label ?? ''))}
-            formatter={(value: number, name: string) => {
-              const line = lines.find((l) => l.label === name || l.dataKey === name);
+            formatter={(value, name) => {
+              const v = Number(value ?? 0);
+              const n = String(name ?? '');
+              const line = lines.find((l) => l.label === n || l.dataKey === n);
               const axis = line?.yAxisId ?? 'left';
               const fn = axis === 'right' && formatYRight ? formatYRight : formatY;
-              return fn ? [fn(value), name] : [value.toLocaleString(), name];
+              return fn ? [fn(v), n] : [v.toLocaleString(), n];
             }}
           />
           <Legend
