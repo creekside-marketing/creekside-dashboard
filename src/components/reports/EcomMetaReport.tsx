@@ -493,10 +493,10 @@ export default function EcomMetaReport({
             />
           </div>
 
-          {/* 4. Spend & Purchases Trend */}
-          {dailyData.length > 0 && (
+          {/* Charts */}
+          {dailyData.length > 0 && (<>
             <ReportChart
-              title="Spend & Purchases Trend"
+              title="Purchases vs Cost"
               data={dailyData}
               xKey="date"
               lines={[
@@ -506,7 +506,17 @@ export default function EcomMetaReport({
               formatY={(v) => `$${v.toLocaleString()}`}
               formatYRight={(v) => v.toFixed(0)}
             />
-          )}
+            <ReportChart
+              title="ROAS Trend"
+              data={dailyData}
+              xKey="date"
+              lines={[
+                { dataKey: 'roas', label: 'ROAS', color: '#8B5CF6' },
+              ]}
+              formatY={(v) => `${v.toFixed(1)}x`}
+              height={250}
+            />
+          </>)}
 
           {/* Campaign Performance */}
           <BreakdownTable

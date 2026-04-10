@@ -284,11 +284,6 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
               { dataKey: 'leads', label: 'Leads', color: '#10B981', type: 'bar', yAxisId: 'left' },
               { dataKey: 'cpl', label: 'CPL', color: '#8B5CF6', yAxisId: 'right' },
             ]} formatY={(v) => v.toFixed(0)} formatYRight={(v) => `$${v.toFixed(0)}`} />
-          <ReportChart title="Spend & Frequency" data={dailyData} xKey="date"
-            lines={[
-              { dataKey: 'spend', label: 'Spend', color: '#3B82F6', type: 'bar', yAxisId: 'left' },
-              { dataKey: 'frequency', label: 'Frequency', color: '#F59E0B', yAxisId: 'right' },
-            ]} formatY={(v) => `$${v.toLocaleString()}`} formatYRight={(v) => v.toFixed(1)} />
         </>)}
 
         {/* 6. Campaign Performance */}
