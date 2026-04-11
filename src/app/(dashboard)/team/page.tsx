@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { calculatePlatformRevenue } from '@/lib/fee-engine';
 import type { FeeConfig } from '@/lib/fee-engine';
 
@@ -27,6 +27,15 @@ interface ClientRow {
   revenue_override: boolean;
   status: string;
   platform: string | null;
+}
+
+interface TeamMemberError {
+  id: string;
+  team_member_id: string;
+  description: string;
+  error_date: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // Partners — excluded from all calculations (same as ClientTable)
@@ -308,6 +317,16 @@ export default function TeamPage() {
   const [clientData, setClientData] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [allErrors, setAllErrors] = useState<TeamMemberError[]>([]);
+  const [expandedMember, setExpandedMember] = useState<string | null>(null);
+  const [memberErrors, setMemberErrors] = useState<TeamMemberError[]>([]);
+  const [loadingErrors, setLoadingErrors] = useState(false);
+  const [newErrorDesc, setNewErrorDesc] = useState('');
+  const [newErrorDate, setNewErrorDate] = useState(new Date().toISOString().split('T')[0]);
+  const [editingError, setEditingError] = useState<string | null>(null);
+  const [editDesc, setEditDesc] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -324,7 +343,15 @@ export default function TeamPage() {
     }
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  const fetchAllErrors = useCallback(async () => {
+    try {
+      const res = await fetch('/api/team/errors');
+      const data = await res.json();
+      if (Array.isArray(data)) setAllErrors(data);
+    } catch {}
+  }, []);
+
+  useEffect(() => { fetchData(); fetchAllErrors(); }, [fetchData, fetchAllErrors]);
 
   // Filter out partner companies from client data
   const activeClients = useMemo(() => {
@@ -367,21 +394,6 @@ export default function TeamPage() {
     return revenueMap;
   }, [activeClients, clientRevenueByName]);
 
-  // Utilization: estimated_hours_per_month / capacity
-  const getUtilization = useCallback((member: TeamMember): { pct: number; color: string; label: string } | null => {
-    if (member.employment_type === 'owner') return null;
-    if (member.estimated_hours_per_month == null) return null;
-    const capacity = member.employment_type === 'full_time' ? 173 : 160;
-    const pct = (member.estimated_hours_per_month / capacity) * 100;
-    let color: string;
-    let label: string;
-    if (pct > 90) { color = 'text-red-600'; label = 'Overloaded'; }
-    else if (pct >= 70) { color = 'text-emerald-600'; label = 'Healthy'; }
-    else if (pct >= 50) { color = 'text-amber-600'; label = 'Under'; }
-    else { color = 'text-red-600'; label = 'Low'; }
-    return { pct, color, label };
-  }, []);
-
   // Client counts per team member (using toShortName for matching)
   const memberClientCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -422,6 +434,17 @@ export default function TeamPage() {
     return { totalCost, totalRevenue, laborRatio, ratioColor };
   }, [members, clientRevenueByName]);
 
+  const errorSummary = useMemo(() => {
+    const now = new Date();
+    const d30 = new Date(now); d30.setDate(d30.getDate() - 30);
+    const d90 = new Date(now); d90.setDate(d90.getDate() - 90);
+    return {
+      lifetime: allErrors.length,
+      last30: allErrors.filter(e => new Date(e.error_date) >= d30).length,
+      last90: allErrors.filter(e => new Date(e.error_date) >= d90).length,
+    };
+  }, [allErrors]);
+
   const filtered = members.filter((m) => {
     // Only show active team members
     if (m.status !== 'active') return false;
@@ -445,6 +468,82 @@ export default function TeamPage() {
     setMembers((prev) =>
       prev.map((m) => (m.id === id ? { ...m, estimated_hours_per_month: hours } : m))
     );
+  };
+
+  const toggleExpand = async (memberId: string) => {
+    if (expandedMember === memberId) {
+      setExpandedMember(null);
+      setMemberErrors([]);
+      return;
+    }
+    setExpandedMember(memberId);
+    setLoadingErrors(true);
+    setNewErrorDesc('');
+    setNewErrorDate(new Date().toISOString().split('T')[0]);
+    setEditingError(null);
+    setErrorMsg(null);
+    try {
+      const res = await fetch(`/api/team/errors?team_member_id=${memberId}`);
+      const data = await res.json();
+      if (Array.isArray(data)) setMemberErrors(data);
+    } finally {
+      setLoadingErrors(false);
+    }
+  };
+
+  const addError = async (memberId: string) => {
+    if (!newErrorDesc.trim()) return;
+    try {
+      const res = await fetch('/api/team/errors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ team_member_id: memberId, description: newErrorDesc.trim(), error_date: newErrorDate }),
+      });
+      if (res.ok) {
+        const created = await res.json();
+        setMemberErrors(prev => [created, ...prev]);
+        setAllErrors(prev => [created, ...prev]);
+        setNewErrorDesc('');
+        setNewErrorDate(new Date().toISOString().split('T')[0]);
+      }
+    } catch {
+      setErrorMsg('Failed to add error');
+    }
+  };
+
+  const updateError = async (errorId: string) => {
+    if (!editDesc.trim()) return;
+    try {
+      const res = await fetch('/api/team/errors', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: errorId, description: editDesc.trim(), error_date: editDate }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setMemberErrors(prev => prev.map(e => e.id === errorId ? updated : e));
+        setAllErrors(prev => prev.map(e => e.id === errorId ? updated : e));
+        setEditingError(null);
+      }
+    } catch {
+      setErrorMsg('Failed to update error');
+    }
+  };
+
+  const deleteError = async (errorId: string) => {
+    try {
+      const res = await fetch('/api/team/errors', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: errorId }),
+      });
+      if (res.ok) {
+        setMemberErrors(prev => prev.filter(e => e.id !== errorId));
+        setAllErrors(prev => prev.filter(e => e.id !== errorId));
+      }
+    } catch {
+      setErrorMsg('Failed to delete error');
+    }
   };
 
   return (
@@ -473,6 +572,7 @@ export default function TeamPage() {
 
       {/* Utilization Summary */}
       {!loading && (
+        <>
         <div className="grid grid-cols-3 gap-4">
           <div className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border)] shadow-sm p-4">
             <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Total Team Cost / Mo</p>
@@ -493,6 +593,21 @@ export default function TeamPage() {
             </p>
           </div>
         </div>
+        <div className="grid grid-cols-3 gap-4">
+          <div className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border)] shadow-sm p-4">
+            <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Errors — Lifetime</p>
+            <p className="text-xl font-bold text-[var(--text-primary)] mt-1">{errorSummary.lifetime}</p>
+          </div>
+          <div className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border)] shadow-sm p-4">
+            <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Errors — Last 30 Days</p>
+            <p className={`text-xl font-bold mt-1 ${errorSummary.last30 > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{errorSummary.last30}</p>
+          </div>
+          <div className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border)] shadow-sm p-4">
+            <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Errors — Last 90 Days</p>
+            <p className={`text-xl font-bold mt-1 ${errorSummary.last90 > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>{errorSummary.last90}</p>
+          </div>
+        </div>
+        </>
       )}
 
       {/* Table */}
@@ -511,7 +626,6 @@ export default function TeamPage() {
                   <th className="text-left py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Type</th>
                   <th className="text-left py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Rate</th>
                   <th className="text-right py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Est. Hours/Mo</th>
-                  <th className="text-center py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Utilization</th>
                   <th className="text-center py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Clients</th>
                   <th className="text-right py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Est. Monthly Cost</th>
                   <th className="text-right py-3 px-4 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Revenue Contribution</th>
@@ -523,76 +637,171 @@ export default function TeamPage() {
                 {filtered.map((member) => {
                   const shortName = toShortName(member.name);
                   return (
-                  <tr key={member.id} className="border-b border-[var(--border)] hover:bg-[var(--bg-tertiary)]/50 transition-colors">
-                    <td className="py-3 px-4">
-                      <span className="text-sm font-medium text-[var(--text-primary)]">{member.name}</span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="text-sm text-[var(--text-secondary)]">{member.role}</span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <TypeBadge type={member.employment_type} />
-                    </td>
-                    <td className="py-3 px-4">
-                      <InlineRateEditor member={member} onSaved={handleRateSaved} />
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <InlineHoursEditor member={member} onSaved={handleHoursSaved} />
-                    </td>
-                    <td className="py-3 px-4 text-center text-sm">
-                      {(() => {
-                        const util = getUtilization(member);
-                        if (!util) return <span className="text-slate-300">--</span>;
-                        return (
-                          <span className={`font-medium ${util.color}`} title={util.label}>
-                            {util.pct.toFixed(0)}%
-                          </span>
-                        );
-                      })()}
-                    </td>
-                    <td className="py-3 px-4 text-center text-sm text-[var(--text-primary)]">
-                      {(() => {
-                        const count = memberClientCounts[shortName] ?? 0;
-                        return count > 0 ? count : <span className="text-slate-300">--</span>;
-                      })()}
-                    </td>
-                    <td className="py-3 px-4 text-right text-sm text-[var(--text-secondary)]">
-                      {(() => {
-                        if (member.hourly_rate != null && member.estimated_hours_per_month != null) {
-                          const cost = member.hourly_rate * member.estimated_hours_per_month;
-                          return `$${cost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-                        }
-                        return <span className="text-slate-300">--</span>;
-                      })()}
-                    </td>
-                    <td className="py-3 px-4 text-right text-sm font-medium text-emerald-700">
-                      {(() => {
-                        const rev = memberRevenue[shortName];
-                        if (rev && rev > 0) return `$${rev.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-                        return <span className="text-slate-300">--</span>;
-                      })()}
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      {member.prework_spreadsheet_id ? (
-                        <a
-                          href={`https://docs.google.com/spreadsheets/d/${member.prework_spreadsheet_id}/edit`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center text-[var(--creekside-blue)] hover:text-blue-800 transition-colors"
-                          title="Open pre-work spreadsheet"
+                  <React.Fragment key={member.id}>
+                    <tr className="border-b border-[var(--border)] hover:bg-[var(--bg-tertiary)]/50 transition-colors">
+                      <td className="py-3 px-4">
+                        <button
+                          onClick={() => toggleExpand(member.id)}
+                          className="text-sm font-medium text-[var(--text-primary)] hover:text-[var(--creekside-blue)] cursor-pointer transition-colors flex items-center gap-1.5"
                         >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            className={`h-3.5 w-3.5 transition-transform ${expandedMember === member.id ? 'rotate-90' : ''}`}
+                            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                           </svg>
-                        </a>
-                      ) : (
-                        <span className="text-slate-300">--</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4">
-                      <NotesCell member={member} onSaved={handleNotesSaved} />
-                    </td>
-                  </tr>
+                          {member.name}
+                        </button>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="text-sm text-[var(--text-secondary)]">{member.role}</span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <TypeBadge type={member.employment_type} />
+                      </td>
+                      <td className="py-3 px-4">
+                        <InlineRateEditor member={member} onSaved={handleRateSaved} />
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <InlineHoursEditor member={member} onSaved={handleHoursSaved} />
+                      </td>
+                      <td className="py-3 px-4 text-center text-sm text-[var(--text-primary)]">
+                        {(() => {
+                          const count = memberClientCounts[shortName] ?? 0;
+                          return count > 0 ? count : <span className="text-slate-300">--</span>;
+                        })()}
+                      </td>
+                      <td className="py-3 px-4 text-right text-sm text-[var(--text-secondary)]">
+                        {(() => {
+                          if (member.hourly_rate != null && member.estimated_hours_per_month != null) {
+                            const cost = member.hourly_rate * member.estimated_hours_per_month;
+                            return `$${cost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+                          }
+                          return <span className="text-slate-300">--</span>;
+                        })()}
+                      </td>
+                      <td className="py-3 px-4 text-right text-sm font-medium text-emerald-700">
+                        {(() => {
+                          const rev = memberRevenue[shortName];
+                          if (rev && rev > 0) return `$${rev.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+                          return <span className="text-slate-300">--</span>;
+                        })()}
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        {member.prework_spreadsheet_id ? (
+                          <a
+                            href={`https://docs.google.com/spreadsheets/d/${member.prework_spreadsheet_id}/edit`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center text-[var(--creekside-blue)] hover:text-blue-800 transition-colors"
+                            title="Open pre-work spreadsheet"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                          </a>
+                        ) : (
+                          <span className="text-slate-300">--</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <NotesCell member={member} onSaved={handleNotesSaved} />
+                      </td>
+                    </tr>
+                    {expandedMember === member.id && (
+                      <tr>
+                        <td colSpan={10} className="bg-[var(--bg-tertiary)]/30 px-4 py-4">
+                          <div className="max-w-3xl space-y-3">
+                            <h4 className="text-sm font-semibold text-[var(--text-primary)]">Error Log — {member.name}</h4>
+
+                            {errorMsg && (
+                              <div className="flex items-center justify-between px-3 py-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-md">
+                                <span>{errorMsg}</span>
+                                <button onClick={() => setErrorMsg(null)} className="text-red-500 hover:text-red-700 font-medium text-xs">Dismiss</button>
+                              </div>
+                            )}
+
+                            {/* Add new error form */}
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="date"
+                                value={newErrorDate}
+                                onChange={(e) => setNewErrorDate(e.target.value)}
+                                className="px-2 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)] focus:border-transparent"
+                              />
+                              <input
+                                type="text"
+                                placeholder="Describe the error..."
+                                value={newErrorDesc}
+                                onChange={(e) => setNewErrorDesc(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') addError(member.id); }}
+                                className="flex-1 px-2 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)] focus:border-transparent"
+                              />
+                              <button
+                                onClick={() => addError(member.id)}
+                                disabled={!newErrorDesc.trim()}
+                                className="px-3 py-1.5 text-sm font-medium text-white bg-[var(--creekside-blue)] rounded-md hover:bg-blue-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                Add
+                              </button>
+                            </div>
+
+                            {/* Error list */}
+                            {loadingErrors ? (
+                              <p className="text-sm text-slate-400">Loading errors...</p>
+                            ) : memberErrors.length === 0 ? (
+                              <p className="text-sm text-slate-400">No errors recorded</p>
+                            ) : (
+                              <div className="space-y-1.5">
+                                {memberErrors.map((err) => (
+                                  <div key={err.id} className="flex items-center gap-2 py-1.5 px-2 rounded-md bg-[var(--bg-secondary)] border border-[var(--border)]">
+                                    {editingError === err.id ? (
+                                      <>
+                                        <input
+                                          type="date"
+                                          value={editDate}
+                                          onChange={(e) => setEditDate(e.target.value)}
+                                          className="px-2 py-1 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)]"
+                                        />
+                                        <input
+                                          type="text"
+                                          value={editDesc}
+                                          onChange={(e) => setEditDesc(e.target.value)}
+                                          onKeyDown={(e) => { if (e.key === 'Enter') updateError(err.id); if (e.key === 'Escape') setEditingError(null); }}
+                                          className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)]"
+                                          autoFocus
+                                        />
+                                        <button onClick={() => updateError(err.id)} className="text-xs text-emerald-600 hover:text-emerald-800 font-medium">Save</button>
+                                        <button onClick={() => setEditingError(null)} className="text-xs text-slate-400 hover:text-slate-600 font-medium">Cancel</button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <span className="text-xs text-[var(--text-secondary)] shrink-0 w-24">{err.error_date}</span>
+                                        <span className="text-sm text-[var(--text-primary)] flex-1">{err.description}</span>
+                                        <button
+                                          onClick={() => { setEditingError(err.id); setEditDesc(err.description); setEditDate(err.error_date); }}
+                                          className="text-xs text-[var(--creekside-blue)] hover:text-blue-800 font-medium"
+                                        >
+                                          Edit
+                                        </button>
+                                        <button
+                                          onClick={() => deleteError(err.id)}
+                                          className="text-xs text-red-500 hover:text-red-700 font-medium"
+                                        >
+                                          Delete
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                   );
                 })}
               </tbody>
