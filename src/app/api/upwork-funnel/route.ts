@@ -12,7 +12,7 @@ const UPWORK_JOB_COLUMNS = [
 const UPWORK_LEAD_COLUMNS = [
   'clickup_task_id', 'lead_name', 'status', 'assignees',
   'lead_funnel_stage', 'upwork_proposal_url', 'how_found', 'date_last_contacted',
-  'due_date', 'date_created', 'date_closed', 'ai_summary',
+  'due_date', 'date_created', 'date_closed', 'ai_summary', 'salesman',
 ].join(', ');
 
 const PAGE_SIZE = 1000;

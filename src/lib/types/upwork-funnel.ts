@@ -35,6 +35,7 @@ export interface UpworkLead {
   date_created: string;
   date_closed: string | null;
   ai_summary: string | null;
+  salesman: string | null;
 }
 
 /* ── Filter state ── */

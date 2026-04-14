@@ -227,6 +227,43 @@ export default function UpworkFunnelPage() {
   const businessTypeBreakdown = useMemo(() => computeBreakdown(filteredJobs, (j) => j.business_type ?? 'Unknown'), [filteredJobs]);
   const platformBreakdown = useMemo(() => computeBreakdown(filteredJobs, (j) => j.platform ?? 'Unknown'), [filteredJobs]);
 
+  const salesmanStats = useMemo(() => {
+    // Build lead lookup
+    const leadsById = new Map<string, typeof upworkLeads[0]>();
+    for (const lead of upworkLeads) {
+      if (lead.clickup_task_id) leadsById.set(lead.clickup_task_id, lead);
+    }
+
+    // Group filtered jobs by salesman (from their linked lead)
+    const bySalesman = new Map<string, { leads: number; calls: number; won: number; connectsSpent: number }>();
+    for (const job of filteredJobs) {
+      if (!job.clickup_task_id) continue;
+      const lead = leadsById.get(job.clickup_task_id);
+      if (!lead) continue;
+
+      const name = lead.salesman || 'Unassigned';
+      const entry = bySalesman.get(name) ?? { leads: 0, calls: 0, won: 0, connectsSpent: 0 };
+      entry.leads++;
+      if (job.sales_call) entry.calls++;
+      if (job.won) entry.won++;
+      entry.connectsSpent += job.connects_spent ?? 0;
+      bySalesman.set(name, entry);
+    }
+
+    return Array.from(bySalesman.entries())
+      .map(([name, s]) => ({
+        name,
+        leads: s.leads,
+        calls: s.calls,
+        won: s.won,
+        callRate: s.leads > 0 ? s.calls / s.leads : 0,
+        winRate: s.leads > 0 ? s.won / s.leads : 0,
+        closeRate: s.calls > 0 ? s.won / s.calls : 0,
+        connectsPerWin: s.won > 0 ? s.connectsSpent / s.won : 0,
+      }))
+      .sort((a, b) => b.leads - a.leads);
+  }, [filteredJobs, upworkLeads]);
+
   const leadFunnelCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const lead of upworkLeads) {
@@ -483,6 +520,50 @@ export default function UpworkFunnelPage() {
         <BreakdownTable title="By Business Type" rows={businessTypeBreakdown} />
         <BreakdownTable title="By Platform" rows={platformBreakdown} />
       </div>
+
+      {/* Salesman Performance */}
+      {salesmanStats.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+          <h3 className="text-sm font-semibold text-slate-900 mb-4">Performance by Salesman</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {salesmanStats.map((s) => (
+              <div key={s.name} className="border border-slate-200 rounded-lg p-4">
+                <p className="text-base font-semibold text-slate-900 mb-3 capitalize">{s.name}</p>
+                <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-xs">
+                  <div>
+                    <p className="text-slate-500">Leads</p>
+                    <p className="text-lg font-bold text-slate-900">{s.leads}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Calls Booked</p>
+                    <p className="text-lg font-bold text-slate-900">{s.calls}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Won</p>
+                    <p className="text-lg font-bold text-emerald-600">{s.won}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Close Rate</p>
+                    <p className="text-lg font-bold text-slate-900">{s.calls > 0 ? pct(s.closeRate) : '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Lead → Call</p>
+                    <p className="text-sm font-semibold text-slate-700">{pct(s.callRate)}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Lead → Win</p>
+                    <p className="text-sm font-semibold text-slate-700">{pct(s.winRate)}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Connects / Win</p>
+                    <p className="text-sm font-semibold text-slate-700">{s.won > 0 ? s.connectsPerWin.toFixed(0) : '—'}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ClickUp Pipeline */}
       <div className="space-y-6">
