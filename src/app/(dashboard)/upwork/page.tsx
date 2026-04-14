@@ -183,6 +183,7 @@ export default function UpworkFunnelPage() {
 
   /* ── Filters ── */
   const [filters, setFilters] = useState<UpworkFunnelFilters>(INITIAL_FILTERS);
+  const [showClosedLeads, setShowClosedLeads] = useState(false);
 
   useEffect(() => {
     fetch('/api/upwork-funnel')
@@ -749,19 +750,40 @@ export default function UpworkFunnelPage() {
       {/* ClickUp Pipeline */}
       <div className="space-y-6">
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-          <h3 className="text-sm font-semibold text-slate-900 mb-4">Upwork Lead Pipeline</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-slate-900">Upwork Lead Pipeline</h3>
+            <button
+              onClick={() => setShowClosedLeads((v) => !v)}
+              className="text-xs text-slate-500 hover:text-slate-700 transition-colors"
+            >
+              {showClosedLeads ? 'Hide' : 'Show'} closed leads
+            </button>
+          </div>
           {Object.keys(leadFunnelCounts).length === 0 ? (
             <p className="text-slate-400 text-sm">No Upwork leads found — run sync_leads.py to populate</p>
           ) : (
             <div className="flex flex-wrap gap-3">
               {Object.entries(leadFunnelCounts)
+                .filter(([status]) => {
+                  const lower = status.toLowerCase();
+                  const isClosed = lower.includes('lost') || lower === 'referred' || lower === 'referred to denise';
+                  return showClosedLeads || !isClosed;
+                })
                 .sort(([, a], [, b]) => b - a)
-                .map(([status, count]) => (
-                  <div key={status} className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-2">
-                    <p className="text-xl font-bold text-slate-900">{count}</p>
-                    <p className="text-xs text-slate-500 capitalize">{status}</p>
-                  </div>
-                ))}
+                .map(([status, count]) => {
+                  const lower = status.toLowerCase();
+                  let cardStyle = 'bg-slate-50 border-slate-200';
+                  if (lower === 'won') cardStyle = 'bg-emerald-50 border-emerald-200';
+                  else if (lower.includes('call booked') || lower.includes('pursuing')) cardStyle = 'bg-blue-50 border-blue-200';
+                  else if (lower.includes('invoice') || lower.includes('contract')) cardStyle = 'bg-emerald-50 border-emerald-200';
+                  else if (lower.includes('lost')) cardStyle = 'bg-slate-50 border-slate-200 opacity-60';
+                  return (
+                    <div key={status} className={`border rounded-lg px-4 py-2 ${cardStyle}`}>
+                      <p className="text-xl font-bold text-slate-900">{count}</p>
+                      <p className="text-xs text-slate-500 capitalize">{status}</p>
+                    </div>
+                  );
+                })}
             </div>
           )}
         </div>
