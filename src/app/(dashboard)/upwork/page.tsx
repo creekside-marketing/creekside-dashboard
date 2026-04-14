@@ -307,7 +307,7 @@ export default function UpworkFunnelPage() {
       };
     };
 
-    // Last 10 weeks average (weeks 2-11 ago, excluding this week and last week)
+    // Last 10 weeks average (weeks 1-10 ago, excluding current incomplete week)
     const last10Start = getWeekRange(10).start;
     const last10End = getWeekRange(1).end;
     const last10Jobs = enrichedJobs.filter((j) => j.application_date && j.application_date >= last10Start && j.application_date <= last10End);
