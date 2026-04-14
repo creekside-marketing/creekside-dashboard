@@ -18,6 +18,8 @@ export interface UpworkJob {
   sales_call: boolean | null;
   won: boolean | null;
   client_name: string | null;
+  upwork_url: string | null;
+  clickup_task_id: string | null;
 }
 
 export interface UpworkLead {
@@ -94,6 +96,8 @@ export interface HoursAfterPostBucket {
   count: number;
   viewRate: number;
   replyRate: number;
+  callRate: number;
+  winRate: number;
 }
 
 export interface BreakdownRow {

@@ -74,8 +74,14 @@ export function computeMonthlyTrend(jobs: UpworkJob[]): MonthlyDataPoint[] {
     byMonth.set(month, arr);
   }
 
+  // Exclude current (incomplete) month, keep last 12 complete months
+  const now = new Date();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
   return Array.from(byMonth.entries())
+    .filter(([month]) => month < currentMonth)
     .sort(([a], [b]) => a.localeCompare(b))
+    .slice(-12)
     .map(([month, group]) => {
       const total = group.length;
       const competition = group.map((j) => j.competing_proposals).filter((c): c is number => c != null);
@@ -145,6 +151,8 @@ export function computeHoursAfterPostBuckets(jobs: UpworkJob[]): HoursAfterPostB
       count: total,
       viewRate: safeDiv(group.filter((j) => j.viewed).length, total),
       replyRate: safeDiv(group.filter((j) => j.messaged).length, total),
+      callRate: safeDiv(group.filter((j) => j.sales_call).length, total),
+      winRate: safeDiv(group.filter((j) => j.won).length, total),
     };
   });
 }

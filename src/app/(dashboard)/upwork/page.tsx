@@ -201,7 +201,7 @@ export default function UpworkFunnelPage() {
   const leadFunnelCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const lead of upworkLeads) {
-      const stage = lead.lead_funnel_stage || lead.status || 'Unknown';
+      const stage = lead.status || 'Unknown';
       counts[stage] = (counts[stage] ?? 0) + 1;
     }
     return counts;
@@ -254,6 +254,8 @@ export default function UpworkFunnelPage() {
     count: b.count,
     viewRate: +(b.viewRate * 100).toFixed(1),
     replyRate: +(b.replyRate * 100).toFixed(1),
+    callRate: +(b.callRate * 100).toFixed(1),
+    winRate: +(b.winRate * 100).toFixed(1),
   }));
 
   /* ── Script performance best-of ── */
@@ -436,8 +438,10 @@ export default function UpworkFunnelPage() {
               <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} />
               <Tooltip contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: 12 }} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="viewRate" fill="#14B8A6" radius={[4, 4, 0, 0]} barSize={20} name="View %" />
-              <Bar dataKey="replyRate" fill="#3B82F6" radius={[4, 4, 0, 0]} barSize={20} name="Reply %" />
+              <Bar dataKey="viewRate" fill="#14B8A6" radius={[4, 4, 0, 0]} barSize={16} name="View %" />
+              <Bar dataKey="replyRate" fill="#3B82F6" radius={[4, 4, 0, 0]} barSize={16} name="Reply %" />
+              <Bar dataKey="callRate" fill="#F59E0B" radius={[4, 4, 0, 0]} barSize={16} name="Call %" />
+              <Bar dataKey="winRate" fill="#10B981" radius={[4, 4, 0, 0]} barSize={16} name="Win %" />
             </ReBarChart>
           </ResponsiveContainer>
         </div>
@@ -497,14 +501,72 @@ export default function UpworkFunnelPage() {
           </div>
         )}
 
-        {/* Linked View Placeholder */}
-        <div className="border-2 border-dashed border-slate-200 rounded-xl p-6 text-center">
-          <p className="text-sm font-semibold text-slate-500 mb-2">Linked View — Coming Soon</p>
-          <p className="text-xs text-slate-400 leading-relaxed max-w-lg mx-auto">
-            Once Upwork applications are linked to ClickUp leads (via ClickUp Task ID in the spreadsheet + Upwork Proposal URL in ClickUp custom fields),
-            this section will show the full journey from application to close with timeline and conversion data.
-          </p>
-        </div>
+        {/* Linked Applications (matched to ClickUp leads via task ID) */}
+        {(() => {
+          // Build a map of ClickUp task IDs to leads for O(1) lookup
+          const leadsById = new Map<string, typeof upworkLeads[0]>();
+          for (const lead of upworkLeads) {
+            if (lead.clickup_task_id) {
+              leadsById.set(lead.clickup_task_id, lead);
+            }
+          }
+
+          // Find jobs that have a matching lead via clickup_task_id
+          const linkedJobs = filteredJobs
+            .filter((job) => job.clickup_task_id && leadsById.has(job.clickup_task_id))
+            .slice(0, 20);
+
+          if (linkedJobs.length === 0 && leadsById.size === 0) return null;
+
+          return (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+              <h3 className="text-sm font-semibold text-slate-900 mb-1">Linked Applications &rarr; ClickUp Leads</h3>
+              <p className="text-xs text-slate-500 mb-4">
+                {linkedJobs.length} of {filteredJobs.filter((j) => j.clickup_task_id).length} applications linked to ClickUp leads
+              </p>
+              {linkedJobs.length === 0 ? (
+                <p className="text-sm text-slate-400">No matches found &mdash; ensure ClickUp task IDs in the spreadsheet match task IDs in the Upwork Leads list.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-500 uppercase tracking-wider">
+                        <th className="text-left py-2 px-3">Job</th>
+                        <th className="text-left py-2 px-3">Applied</th>
+                        <th className="text-center py-2 px-3">Viewed</th>
+                        <th className="text-center py-2 px-3">Messaged</th>
+                        <th className="text-center py-2 px-3">Call</th>
+                        <th className="text-center py-2 px-3">Won</th>
+                        <th className="text-left py-2 px-3">ClickUp Status</th>
+                        <th className="text-left py-2 px-3">Last Contact</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {linkedJobs.map((job) => {
+                        const lead = leadsById.get(job.clickup_task_id!)!;
+                        return (
+                          <tr key={job.id} className="border-t border-slate-100 hover:bg-slate-50/50">
+                            <td className="py-2 px-3 max-w-[200px]">
+                              <p className="font-medium text-slate-900 truncate">{job.job_name ?? 'Untitled'}</p>
+                              <p className="text-slate-400 truncate">{lead.lead_name}</p>
+                            </td>
+                            <td className="text-slate-600 py-2 px-3 whitespace-nowrap">{formatDate(job.application_date)}</td>
+                            <td className="text-center py-2 px-3">{job.viewed ? '\u2713' : '\u2014'}</td>
+                            <td className="text-center py-2 px-3">{job.messaged ? '\u2713' : '\u2014'}</td>
+                            <td className="text-center py-2 px-3">{job.sales_call ? '\u2713' : '\u2014'}</td>
+                            <td className="text-center py-2 px-3">{job.won ? '\u2713' : '\u2014'}</td>
+                            <td className="py-2 px-3"><LeadStatusBadge status={lead.status ?? 'unknown'} /></td>
+                            <td className="text-slate-400 py-2 px-3 whitespace-nowrap">{formatDate(lead.date_last_contacted)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
