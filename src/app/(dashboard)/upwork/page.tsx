@@ -254,7 +254,7 @@ export default function UpworkFunnelPage() {
   const platformBreakdown = useMemo(() => computeBreakdown(filteredJobs, (j) => j.platform ?? 'Unknown'), [filteredJobs]);
 
   const weeklyComparison = useMemo(() => {
-    const weeks = [getWeekRange(0), getWeekRange(1)];
+    const weeks = [getWeekRange(1), getWeekRange(2)];
     const safeDiv = (a: number, b: number) => (b === 0 ? 0 : a / b);
 
     const compute = (range: { start: string; end: string }) => {
@@ -275,8 +275,8 @@ export default function UpworkFunnelPage() {
     };
 
     // Last 10 weeks average (weeks 2-11 ago, excluding this week and last week)
-    const last10Start = getWeekRange(11).start;
-    const last10End = getWeekRange(2).end;
+    const last10Start = getWeekRange(10).start;
+    const last10End = getWeekRange(1).end;
     const last10Jobs = enrichedJobs.filter((j) => j.application_date && j.application_date >= last10Start && j.application_date <= last10End);
     const l10Applied = last10Jobs.length;
     const l10Viewed = last10Jobs.filter((j) => j.viewed).length;
@@ -299,8 +299,8 @@ export default function UpworkFunnelPage() {
     };
 
     return {
-      thisWeek: { ...compute(weeks[0]), label: weeks[0].label },
-      lastWeek: { ...compute(weeks[1]), label: weeks[1].label },
+      thisWeek: { ...compute(weeks[0]), label: 'Last Week' },
+      lastWeek: { ...compute(weeks[1]), label: '2 Weeks Ago' },
       last10Avg: { ...last10Avg, label: 'Last 10 Wks (avg)' },
     };
   }, [enrichedJobs]);
