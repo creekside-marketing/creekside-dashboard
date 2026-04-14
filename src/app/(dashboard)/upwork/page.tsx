@@ -31,6 +31,33 @@ function toISODate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+const CONNECT_COST = 0.15;
+
+function dollars(connects: number): string {
+  return `$${(connects * CONNECT_COST).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+}
+
+function getWeekRange(weeksAgo: number): { start: string; end: string; label: string } {
+  const now = new Date();
+  const day = now.getDay();
+  // Monday = start of week
+  const mondayThisWeek = new Date(now);
+  mondayThisWeek.setDate(now.getDate() - ((day + 6) % 7));
+  mondayThisWeek.setHours(0, 0, 0, 0);
+
+  const start = new Date(mondayThisWeek);
+  start.setDate(start.getDate() - weeksAgo * 7);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 6);
+
+  const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return {
+    start: toISODate(start),
+    end: toISODate(end),
+    label: weeksAgo === 0 ? 'This Week' : weeksAgo === 1 ? 'Last Week' : `${fmt(start)} – ${fmt(end)}`,
+  };
+}
+
 const EMPTY_METRICS: FunnelMetrics = {
   totalApplications: 0, totalViewed: 0, totalMessaged: 0, totalSalesCalls: 0, totalWon: 0,
   viewRate: 0, replyRate: 0, callRate: 0, winRate: 0, callToCloseRate: 0,
@@ -223,9 +250,60 @@ export default function UpworkFunnelPage() {
   const scriptPerformance = useMemo(() => computeScriptPerformance(filteredJobs), [filteredJobs]);
   const hoursAfterPostBuckets = useMemo(() => computeHoursAfterPostBuckets(filteredJobs), [filteredJobs]);
   const sourceTypeBreakdown = useMemo(() => computeBreakdown(filteredJobs, (j) => j.source_type ?? 'Unknown'), [filteredJobs]);
-  const profileBreakdown = useMemo(() => computeBreakdown(filteredJobs, (j) => j.profile_used ?? 'Unknown'), [filteredJobs]);
   const businessTypeBreakdown = useMemo(() => computeBreakdown(filteredJobs, (j) => j.business_type ?? 'Unknown'), [filteredJobs]);
   const platformBreakdown = useMemo(() => computeBreakdown(filteredJobs, (j) => j.platform ?? 'Unknown'), [filteredJobs]);
+
+  const weeklyComparison = useMemo(() => {
+    const weeks = [getWeekRange(0), getWeekRange(1)];
+    const safeDiv = (a: number, b: number) => (b === 0 ? 0 : a / b);
+
+    const compute = (range: { start: string; end: string }) => {
+      const jobs = enrichedJobs.filter((j) => j.application_date && j.application_date >= range.start && j.application_date <= range.end);
+      const applied = jobs.length;
+      const viewed = jobs.filter((j) => j.viewed).length;
+      const replied = jobs.filter((j) => j.messaged).length;
+      const calls = jobs.filter((j) => j.sales_call).length;
+      const won = jobs.filter((j) => j.won).length;
+      const connects = jobs.reduce((sum, j) => sum + (j.connects_spent ?? 0), 0);
+      return {
+        applied, viewed, replied, calls, won, connects,
+        viewRate: safeDiv(viewed, applied),
+        replyToViewRate: safeDiv(replied, viewed),
+        callToReplyRate: safeDiv(calls, replied),
+        winToCallRate: safeDiv(won, calls),
+      };
+    };
+
+    // All-time weekly average
+    const totalWeeks = enrichedJobs.length > 0
+      ? Math.max(1, (() => {
+          const dates = enrichedJobs.map((j) => j.application_date).filter(Boolean).sort();
+          if (dates.length < 2) return 1;
+          const first = new Date(dates[0]!);
+          const last = new Date(dates[dates.length - 1]!);
+          return Math.ceil((last.getTime() - first.getTime()) / (7 * 24 * 60 * 60 * 1000));
+        })())
+      : 1;
+
+    const allTime = {
+      applied: enrichedJobs.length / totalWeeks,
+      viewed: enrichedJobs.filter((j) => j.viewed).length / totalWeeks,
+      replied: enrichedJobs.filter((j) => j.messaged).length / totalWeeks,
+      calls: enrichedJobs.filter((j) => j.sales_call).length / totalWeeks,
+      won: enrichedJobs.filter((j) => j.won).length / totalWeeks,
+      connects: enrichedJobs.reduce((sum, j) => sum + (j.connects_spent ?? 0), 0) / totalWeeks,
+      viewRate: safeDiv(enrichedJobs.filter((j) => j.viewed).length, enrichedJobs.length),
+      replyToViewRate: safeDiv(enrichedJobs.filter((j) => j.messaged).length, enrichedJobs.filter((j) => j.viewed).length),
+      callToReplyRate: safeDiv(enrichedJobs.filter((j) => j.sales_call).length, enrichedJobs.filter((j) => j.messaged).length),
+      winToCallRate: safeDiv(enrichedJobs.filter((j) => j.won).length, enrichedJobs.filter((j) => j.sales_call).length),
+    };
+
+    return {
+      thisWeek: { ...compute(weeks[0]), label: weeks[0].label },
+      lastWeek: { ...compute(weeks[1]), label: weeks[1].label },
+      allTimeAvg: { ...allTime, label: 'All Time (wk avg)' },
+    };
+  }, [enrichedJobs]);
 
   const salesmanStats = useMemo(() => {
     // Build lead lookup
@@ -345,6 +423,66 @@ export default function UpworkFunnelPage() {
         </p>
       </div>
 
+      {/* Weekly Comparison */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="bg-slate-50 text-slate-500 uppercase tracking-wider">
+              <th className="text-left py-2.5 px-4 font-semibold"></th>
+              <th className="text-right py-2.5 px-4 font-semibold">{weeklyComparison.thisWeek.label}</th>
+              <th className="text-right py-2.5 px-4 font-semibold">{weeklyComparison.lastWeek.label}</th>
+              <th className="text-right py-2.5 px-4 font-semibold">{weeklyComparison.allTimeAvg.label}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[
+              { label: 'Jobs Applied', key: 'applied' },
+              { label: 'Applications Viewed', key: 'viewed' },
+              { label: 'Replies Received', key: 'replied' },
+              { label: 'Calls Booked', key: 'calls' },
+              { label: 'Clients Won', key: 'won' },
+              { label: 'Spend', key: 'connects' },
+            ].map(({ label, key }) => {
+              const tw = weeklyComparison.thisWeek[key as keyof typeof weeklyComparison.thisWeek] as number;
+              const lw = weeklyComparison.lastWeek[key as keyof typeof weeklyComparison.lastWeek] as number;
+              const at = weeklyComparison.allTimeAvg[key as keyof typeof weeklyComparison.allTimeAvg] as number;
+              const fmt = key === 'connects'
+                ? (v: number) => dollars(v)
+                : (v: number, isAvg?: boolean) => isAvg ? v.toFixed(1) : v.toLocaleString();
+              return (
+                <tr key={key} className="border-t border-slate-100">
+                  <td className="py-2 px-4 font-medium text-slate-900">{label}</td>
+                  <td className="py-2 px-4 text-right text-slate-900 font-semibold">{fmt(tw)}</td>
+                  <td className="py-2 px-4 text-right text-slate-700">{fmt(lw)}</td>
+                  <td className="py-2 px-4 text-right text-slate-500">{fmt(at, true)}</td>
+                </tr>
+              );
+            })}
+            <tr className="border-t-2 border-slate-200">
+              <td colSpan={4} className="py-1.5"></td>
+            </tr>
+            {[
+              { label: 'View Rate', key: 'viewRate' },
+              { label: 'Views → Replies', key: 'replyToViewRate' },
+              { label: 'Replies → Calls', key: 'callToReplyRate' },
+              { label: 'Calls → Clients', key: 'winToCallRate' },
+            ].map(({ label, key }) => {
+              const tw = weeklyComparison.thisWeek[key as keyof typeof weeklyComparison.thisWeek] as number;
+              const lw = weeklyComparison.lastWeek[key as keyof typeof weeklyComparison.lastWeek] as number;
+              const at = weeklyComparison.allTimeAvg[key as keyof typeof weeklyComparison.allTimeAvg] as number;
+              return (
+                <tr key={key} className="border-t border-slate-100">
+                  <td className="py-2 px-4 font-medium text-slate-900">{label}</td>
+                  <td className="py-2 px-4 text-right text-slate-900 font-semibold">{pct(tw)}</td>
+                  <td className="py-2 px-4 text-right text-slate-700">{pct(lw)}</td>
+                  <td className="py-2 px-4 text-right text-slate-500">{pct(at)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
       {/* Filters */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-4">
         <div className="flex items-center justify-between">
@@ -427,11 +565,11 @@ export default function UpworkFunnelPage() {
         </div>
       )}
 
-      {/* Connects Efficiency */}
+      {/* Spend Efficiency */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <KpiCard label="Total Connects" value={metrics.totalConnectsSpent.toLocaleString()} />
-        <KpiCard label="Connects / Call" value={metrics.connectsPerCall.toFixed(0)} />
-        <KpiCard label="Connects / Win" value={metrics.connectsPerWin.toFixed(0)} />
+        <KpiCard label="Total Spend" value={dollars(metrics.totalConnectsSpent)} />
+        <KpiCard label="Cost / Call" value={dollars(metrics.connectsPerCall)} />
+        <KpiCard label="Cost / Win" value={dollars(metrics.connectsPerWin)} />
         <KpiCard label="Avg Competition" value={metrics.avgCompetingProposals.toFixed(1)} change="competing proposals" />
       </div>
 
@@ -516,7 +654,6 @@ export default function UpworkFunnelPage() {
       {/* Breakdowns */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <BreakdownTable title="By Source Type" rows={sourceTypeBreakdown} />
-        <BreakdownTable title="By Profile" rows={profileBreakdown} />
         <BreakdownTable title="By Business Type" rows={businessTypeBreakdown} />
         <BreakdownTable title="By Platform" rows={platformBreakdown} />
       </div>
