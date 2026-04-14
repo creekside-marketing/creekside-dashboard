@@ -210,21 +210,51 @@ export default function UpworkFunnelPage() {
       if (lead.clickup_task_id) leadsById.set(lead.clickup_task_id, lead);
     }
 
-    return allJobs.map((job) => {
+    // Track which leads get matched to a job
+    const matchedLeadIds = new Set<string>();
+
+    const enriched = allJobs.map((job) => {
       const lead = job.clickup_task_id ? leadsById.get(job.clickup_task_id) : undefined;
+      if (lead) matchedLeadIds.add(lead.clickup_task_id);
       const leadStatus = (lead?.status ?? '').toLowerCase();
       const leadStage = lead?.lead_funnel_stage ?? '';
       return {
         ...job,
-        // Viewed stays from spreadsheet
-        // Messaged = has a linked ClickUp lead
         messaged: !!lead,
-        // Sales Call = lead stage or status indicates call happened
         sales_call: !!lead && (CALL_STAGES.has(leadStage) || CALL_STATUSES.has(leadStatus)),
-        // Won = lead status is won or send invoice
         won: !!lead && WON_STATUSES.has(leadStatus),
       };
     });
+
+    // Add unmatched leads as synthetic job entries so they count in the funnel
+    for (const lead of upworkLeads) {
+      if (matchedLeadIds.has(lead.clickup_task_id)) continue;
+      const leadStatus = (lead.status ?? '').toLowerCase();
+      const leadStage = lead.lead_funnel_stage ?? '';
+      enriched.push({
+        id: `lead-${lead.clickup_task_id}`,
+        application_date: lead.date_created?.slice(0, 10) ?? null,
+        week_number: null,
+        job_name: lead.lead_name,
+        script_used: null,
+        source_type: null,
+        profile_used: null,
+        platform: null,
+        business_type: null,
+        connects_spent: null,
+        competing_proposals: null,
+        hours_after_post: null,
+        viewed: false,
+        messaged: true,
+        sales_call: CALL_STAGES.has(leadStage) || CALL_STATUSES.has(leadStatus),
+        won: WON_STATUSES.has(leadStatus),
+        client_name: lead.lead_name,
+        upwork_url: lead.upwork_proposal_url,
+        clickup_task_id: lead.clickup_task_id,
+      });
+    }
+
+    return enriched;
   }, [allJobs, upworkLeads]);
 
   /* ── Filter options (derived from data) ── */
