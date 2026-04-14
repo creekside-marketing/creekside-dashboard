@@ -171,11 +171,37 @@ export default function UpworkFunnelPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  /* ── Enrich jobs with ClickUp-derived funnel data ── */
+  const CALL_STAGES = new Set(['Call Booked', 'Pursuing', 'Contract Proposed']);
+  const WON_STATUSES = new Set(['won', 'send invoice & contract']);
+
+  const enrichedJobs = useMemo(() => {
+    // Build lookup: clickup_task_id → lead
+    const leadsById = new Map<string, typeof upworkLeads[0]>();
+    for (const lead of upworkLeads) {
+      if (lead.clickup_task_id) leadsById.set(lead.clickup_task_id, lead);
+    }
+
+    return allJobs.map((job) => {
+      const lead = job.clickup_task_id ? leadsById.get(job.clickup_task_id) : undefined;
+      return {
+        ...job,
+        // Viewed stays from spreadsheet
+        // Messaged = has a linked ClickUp lead
+        messaged: !!lead,
+        // Sales Call = lead funnel stage indicates call happened
+        sales_call: !!lead && CALL_STAGES.has(lead.lead_funnel_stage ?? ''),
+        // Won = lead status is won or send invoice
+        won: !!lead && WON_STATUSES.has((lead.status ?? '').toLowerCase()),
+      };
+    });
+  }, [allJobs, upworkLeads]);
+
   /* ── Filter options (derived from data) ── */
   const filterOptions = useMemo(() => {
     const unique = (keyFn: (j: UpworkJob) => string | null) => {
       const set = new Set<string>();
-      for (const j of allJobs) set.add(keyFn(j) ?? 'Unknown');
+      for (const j of enrichedJobs) set.add(keyFn(j) ?? 'Unknown');
       return Array.from(set).sort();
     };
     return {
@@ -185,10 +211,10 @@ export default function UpworkFunnelPage() {
       profiles: unique((j) => j.profile_used),
       platforms: unique((j) => j.platform),
     };
-  }, [allJobs]);
+  }, [enrichedJobs]);
 
   /* ── Filtered data + derived metrics ── */
-  const filteredJobs = useMemo(() => applyFilters(allJobs, filters), [allJobs, filters]);
+  const filteredJobs = useMemo(() => applyFilters(enrichedJobs, filters), [enrichedJobs, filters]);
   const metrics = useMemo(() => filteredJobs.length > 0 ? computeFunnelMetrics(filteredJobs) : EMPTY_METRICS, [filteredJobs]);
   const monthlyTrend = useMemo(() => computeMonthlyTrend(filteredJobs), [filteredJobs]);
   const scriptPerformance = useMemo(() => computeScriptPerformance(filteredJobs), [filteredJobs]);
@@ -274,7 +300,7 @@ export default function UpworkFunnelPage() {
       <div>
         <h2 className="text-2xl font-semibold text-slate-900">Upwork Funnel</h2>
         <p className="text-sm text-slate-500 mt-1">
-          {filteredJobs.length.toLocaleString()} of {allJobs.length.toLocaleString()} applications
+          {filteredJobs.length.toLocaleString()} of {enrichedJobs.length.toLocaleString()} applications
           {upworkLeads.length > 0 && ` · ${upworkLeads.length} ClickUp leads`}
         </p>
       </div>
