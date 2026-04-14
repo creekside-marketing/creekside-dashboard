@@ -467,25 +467,31 @@ export default function UpworkFunnelPage() {
           </thead>
           <tbody>
             {[
-              { label: 'Jobs Applied', key: 'applied' },
-              { label: 'Applications Viewed', key: 'viewed' },
-              { label: 'Replies Received', key: 'replied' },
-              { label: 'Calls Booked', key: 'calls' },
-              { label: 'Clients Won', key: 'won' },
-              { label: 'Spend', key: 'connects' },
-            ].map(({ label, key }) => {
+              { label: 'Jobs Applied', key: 'applied', inverse: false },
+              { label: 'Applications Viewed', key: 'viewed', inverse: false },
+              { label: 'Replies Received', key: 'replied', inverse: false },
+              { label: 'Calls Booked', key: 'calls', inverse: false },
+              { label: 'Clients Won', key: 'won', inverse: false },
+              { label: 'Spend', key: 'connects', inverse: true },
+            ].map(({ label, key, inverse }) => {
               const tw = weeklyComparison.thisWeek[key as keyof typeof weeklyComparison.thisWeek] as number;
               const lw = weeklyComparison.lastWeek[key as keyof typeof weeklyComparison.lastWeek] as number;
-              const at = weeklyComparison.last10Avg[key as keyof typeof weeklyComparison.last10Avg] as number;
+              const avg = weeklyComparison.last10Avg[key as keyof typeof weeklyComparison.last10Avg] as number;
               const fmt = key === 'connects'
                 ? (v: number) => dollars(v)
                 : (v: number, isAvg?: boolean) => isAvg ? v.toFixed(1) : v.toLocaleString();
+              const twAbove = inverse ? tw < avg : tw > avg;
+              const twBelow = inverse ? tw > avg : tw < avg;
               return (
                 <tr key={key} className="border-t border-slate-100">
                   <td className="py-2 px-4 font-medium text-slate-900">{label}</td>
-                  <td className="py-2 px-4 text-right text-slate-900 font-semibold">{fmt(tw)}</td>
+                  <td className="py-2 px-4 text-right font-semibold">
+                    <span className={twAbove ? 'text-emerald-600' : twBelow ? 'text-red-500' : 'text-slate-900'}>
+                      {twAbove ? '\u25B2 ' : twBelow ? '\u25BC ' : ''}{fmt(tw)}
+                    </span>
+                  </td>
                   <td className="py-2 px-4 text-right text-slate-700">{fmt(lw)}</td>
-                  <td className="py-2 px-4 text-right text-slate-500">{fmt(at, true)}</td>
+                  <td className="py-2 px-4 text-right text-slate-500">{fmt(avg, true)}</td>
                 </tr>
               );
             })}
@@ -500,13 +506,19 @@ export default function UpworkFunnelPage() {
             ].map(({ label, key }) => {
               const tw = weeklyComparison.thisWeek[key as keyof typeof weeklyComparison.thisWeek] as number;
               const lw = weeklyComparison.lastWeek[key as keyof typeof weeklyComparison.lastWeek] as number;
-              const at = weeklyComparison.last10Avg[key as keyof typeof weeklyComparison.last10Avg] as number;
+              const avg = weeklyComparison.last10Avg[key as keyof typeof weeklyComparison.last10Avg] as number;
+              const twAbove = tw > avg;
+              const twBelow = tw < avg;
               return (
                 <tr key={key} className="border-t border-slate-100">
                   <td className="py-2 px-4 font-medium text-slate-900">{label}</td>
-                  <td className="py-2 px-4 text-right text-slate-900 font-semibold">{pct(tw)}</td>
+                  <td className="py-2 px-4 text-right font-semibold">
+                    <span className={twAbove ? 'text-emerald-600' : twBelow ? 'text-red-500' : 'text-slate-900'}>
+                      {twAbove ? '\u25B2 ' : twBelow ? '\u25BC ' : ''}{pct(tw)}
+                    </span>
+                  </td>
                   <td className="py-2 px-4 text-right text-slate-700">{pct(lw)}</td>
-                  <td className="py-2 px-4 text-right text-slate-500">{pct(at)}</td>
+                  <td className="py-2 px-4 text-right text-slate-500">{pct(avg)}</td>
                 </tr>
               );
             })}
