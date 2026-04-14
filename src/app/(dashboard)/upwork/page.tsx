@@ -274,34 +274,34 @@ export default function UpworkFunnelPage() {
       };
     };
 
-    // All-time weekly average
-    const totalWeeks = enrichedJobs.length > 0
-      ? Math.max(1, (() => {
-          const dates = enrichedJobs.map((j) => j.application_date).filter(Boolean).sort();
-          if (dates.length < 2) return 1;
-          const first = new Date(dates[0]!);
-          const last = new Date(dates[dates.length - 1]!);
-          return Math.ceil((last.getTime() - first.getTime()) / (7 * 24 * 60 * 60 * 1000));
-        })())
-      : 1;
+    // Last 10 weeks average (weeks 2-11 ago, excluding this week and last week)
+    const last10Start = getWeekRange(11).start;
+    const last10End = getWeekRange(2).end;
+    const last10Jobs = enrichedJobs.filter((j) => j.application_date && j.application_date >= last10Start && j.application_date <= last10End);
+    const l10Applied = last10Jobs.length;
+    const l10Viewed = last10Jobs.filter((j) => j.viewed).length;
+    const l10Replied = last10Jobs.filter((j) => j.messaged).length;
+    const l10Calls = last10Jobs.filter((j) => j.sales_call).length;
+    const l10Won = last10Jobs.filter((j) => j.won).length;
+    const l10Connects = last10Jobs.reduce((sum, j) => sum + (j.connects_spent ?? 0), 0);
 
-    const allTime = {
-      applied: enrichedJobs.length / totalWeeks,
-      viewed: enrichedJobs.filter((j) => j.viewed).length / totalWeeks,
-      replied: enrichedJobs.filter((j) => j.messaged).length / totalWeeks,
-      calls: enrichedJobs.filter((j) => j.sales_call).length / totalWeeks,
-      won: enrichedJobs.filter((j) => j.won).length / totalWeeks,
-      connects: enrichedJobs.reduce((sum, j) => sum + (j.connects_spent ?? 0), 0) / totalWeeks,
-      viewRate: safeDiv(enrichedJobs.filter((j) => j.viewed).length, enrichedJobs.length),
-      replyToViewRate: safeDiv(enrichedJobs.filter((j) => j.messaged).length, enrichedJobs.filter((j) => j.viewed).length),
-      callToReplyRate: safeDiv(enrichedJobs.filter((j) => j.sales_call).length, enrichedJobs.filter((j) => j.messaged).length),
-      winToCallRate: safeDiv(enrichedJobs.filter((j) => j.won).length, enrichedJobs.filter((j) => j.sales_call).length),
+    const last10Avg = {
+      applied: l10Applied / 10,
+      viewed: l10Viewed / 10,
+      replied: l10Replied / 10,
+      calls: l10Calls / 10,
+      won: l10Won / 10,
+      connects: l10Connects / 10,
+      viewRate: safeDiv(l10Viewed, l10Applied),
+      replyToViewRate: safeDiv(l10Replied, l10Viewed),
+      callToReplyRate: safeDiv(l10Calls, l10Replied),
+      winToCallRate: safeDiv(l10Won, l10Calls),
     };
 
     return {
       thisWeek: { ...compute(weeks[0]), label: weeks[0].label },
       lastWeek: { ...compute(weeks[1]), label: weeks[1].label },
-      allTimeAvg: { ...allTime, label: 'All Time (wk avg)' },
+      last10Avg: { ...last10Avg, label: 'Last 10 Wks (avg)' },
     };
   }, [enrichedJobs]);
 
@@ -431,7 +431,7 @@ export default function UpworkFunnelPage() {
               <th className="text-left py-2.5 px-4 font-semibold"></th>
               <th className="text-right py-2.5 px-4 font-semibold">{weeklyComparison.thisWeek.label}</th>
               <th className="text-right py-2.5 px-4 font-semibold">{weeklyComparison.lastWeek.label}</th>
-              <th className="text-right py-2.5 px-4 font-semibold">{weeklyComparison.allTimeAvg.label}</th>
+              <th className="text-right py-2.5 px-4 font-semibold">{weeklyComparison.last10Avg.label}</th>
             </tr>
           </thead>
           <tbody>
@@ -445,7 +445,7 @@ export default function UpworkFunnelPage() {
             ].map(({ label, key }) => {
               const tw = weeklyComparison.thisWeek[key as keyof typeof weeklyComparison.thisWeek] as number;
               const lw = weeklyComparison.lastWeek[key as keyof typeof weeklyComparison.lastWeek] as number;
-              const at = weeklyComparison.allTimeAvg[key as keyof typeof weeklyComparison.allTimeAvg] as number;
+              const at = weeklyComparison.last10Avg[key as keyof typeof weeklyComparison.last10Avg] as number;
               const fmt = key === 'connects'
                 ? (v: number) => dollars(v)
                 : (v: number, isAvg?: boolean) => isAvg ? v.toFixed(1) : v.toLocaleString();
@@ -469,7 +469,7 @@ export default function UpworkFunnelPage() {
             ].map(({ label, key }) => {
               const tw = weeklyComparison.thisWeek[key as keyof typeof weeklyComparison.thisWeek] as number;
               const lw = weeklyComparison.lastWeek[key as keyof typeof weeklyComparison.lastWeek] as number;
-              const at = weeklyComparison.allTimeAvg[key as keyof typeof weeklyComparison.allTimeAvg] as number;
+              const at = weeklyComparison.last10Avg[key as keyof typeof weeklyComparison.last10Avg] as number;
               return (
                 <tr key={key} className="border-t border-slate-100">
                   <td className="py-2 px-4 font-medium text-slate-900">{label}</td>
