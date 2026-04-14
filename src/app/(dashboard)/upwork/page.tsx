@@ -276,13 +276,15 @@ export default function UpworkFunnelPage() {
 
   /* ── Filtered data + derived metrics ── */
   const filteredJobs = useMemo(() => applyFilters(enrichedJobs, filters), [enrichedJobs, filters]);
+  // Spreadsheet-only jobs (exclude synthetic leads from ClickUp for breakdowns)
+  const sheetJobs = useMemo(() => filteredJobs.filter((j) => !j.id.startsWith('lead-')), [filteredJobs]);
   const metrics = useMemo(() => filteredJobs.length > 0 ? computeFunnelMetrics(filteredJobs) : EMPTY_METRICS, [filteredJobs]);
-  const monthlyTrend = useMemo(() => computeMonthlyTrend(filteredJobs), [filteredJobs]);
-  const scriptPerformance = useMemo(() => computeScriptPerformance(filteredJobs), [filteredJobs]);
-  const hoursAfterPostBuckets = useMemo(() => computeHoursAfterPostBuckets(filteredJobs), [filteredJobs]);
-  const sourceTypeBreakdown = useMemo(() => computeBreakdown(filteredJobs, (j) => j.source_type ?? 'Unknown'), [filteredJobs]);
-  const businessTypeBreakdown = useMemo(() => computeBreakdown(filteredJobs, (j) => j.business_type ?? 'Unknown'), [filteredJobs]);
-  const platformBreakdown = useMemo(() => computeBreakdown(filteredJobs, (j) => j.platform ?? 'Unknown'), [filteredJobs]);
+  const monthlyTrend = useMemo(() => computeMonthlyTrend(sheetJobs), [sheetJobs]);
+  const scriptPerformance = useMemo(() => computeScriptPerformance(sheetJobs), [sheetJobs]);
+  const hoursAfterPostBuckets = useMemo(() => computeHoursAfterPostBuckets(sheetJobs), [sheetJobs]);
+  const sourceTypeBreakdown = useMemo(() => computeBreakdown(sheetJobs, (j) => j.source_type ?? 'Unknown'), [sheetJobs]);
+  const businessTypeBreakdown = useMemo(() => computeBreakdown(sheetJobs, (j) => j.business_type ?? 'Unknown'), [sheetJobs]);
+  const platformBreakdown = useMemo(() => computeBreakdown(sheetJobs, (j) => j.platform ?? 'Unknown'), [sheetJobs]);
 
   const weeklyComparison = useMemo(() => {
     const weeks = [getWeekRange(1), getWeekRange(2)];
