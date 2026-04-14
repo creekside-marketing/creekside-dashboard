@@ -201,7 +201,7 @@ export default function UpworkFunnelPage() {
 
   /* ── Enrich jobs with ClickUp-derived funnel data ── */
   const CALL_STAGES = new Set(['Call Booked', 'Pursuing', 'Contract Proposed']);
-  const CALL_STATUSES = new Set(['follow up post-call', 'call booked pete']);
+  const CALL_STATUSES = new Set(['follow up post-call', 'call booked pete', 'call booked cade']);
   const WON_STATUSES = new Set(['won', 'send invoice & contract']);
 
   const enrichedJobs = useMemo(() => {
@@ -375,14 +375,30 @@ export default function UpworkFunnelPage() {
       .sort((a, b) => b.leads - a.leads);
   }, [filteredJobs, upworkLeads]);
 
+  const KNOWN_LEAD_STATUSES = [
+    'won', 'send invoice & contract', 'call booked pete', 'call booked cade',
+    'pursuing', 'in discussion', 'follow up  pre-call', 'follow up post-call',
+    'call requested', 'referred', 'referred to denise', 'lost (follow up)', 'lost (dnd)',
+  ];
+
   const leadFunnelCounts = useMemo(() => {
+    // Initialize all known statuses to 0
     const counts: Record<string, number> = {};
+    for (const s of KNOWN_LEAD_STATUSES) counts[s] = 0;
+
+    // Filter leads by active date range
+    const dateStart = filters.dateRange.start;
+    const dateEnd = filters.dateRange.end;
+
     for (const lead of upworkLeads) {
+      const created = lead.date_created?.slice(0, 10) ?? '';
+      if (dateStart && created < dateStart) continue;
+      if (dateEnd && created > dateEnd) continue;
       const stage = lead.status || 'Unknown';
       counts[stage] = (counts[stage] ?? 0) + 1;
     }
     return counts;
-  }, [upworkLeads]);
+  }, [upworkLeads, filters.dateRange]);
 
   /* ── Filter handlers ── */
   const toggleFilter = useCallback((key: keyof Pick<UpworkFunnelFilters, 'scriptUsed' | 'sourceType' | 'businessType' | 'profileUsed' | 'platform'>, value: string) => {
