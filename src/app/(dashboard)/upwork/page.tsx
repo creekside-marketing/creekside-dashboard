@@ -173,6 +173,7 @@ export default function UpworkFunnelPage() {
 
   /* ── Enrich jobs with ClickUp-derived funnel data ── */
   const CALL_STAGES = new Set(['Call Booked', 'Pursuing', 'Contract Proposed']);
+  const CALL_STATUSES = new Set(['follow up post-call', 'call booked pete']);
   const WON_STATUSES = new Set(['won', 'send invoice & contract']);
 
   const enrichedJobs = useMemo(() => {
@@ -184,15 +185,17 @@ export default function UpworkFunnelPage() {
 
     return allJobs.map((job) => {
       const lead = job.clickup_task_id ? leadsById.get(job.clickup_task_id) : undefined;
+      const leadStatus = (lead?.status ?? '').toLowerCase();
+      const leadStage = lead?.lead_funnel_stage ?? '';
       return {
         ...job,
         // Viewed stays from spreadsheet
         // Messaged = has a linked ClickUp lead
         messaged: !!lead,
-        // Sales Call = lead funnel stage indicates call happened
-        sales_call: !!lead && CALL_STAGES.has(lead.lead_funnel_stage ?? ''),
+        // Sales Call = lead stage or status indicates call happened
+        sales_call: !!lead && (CALL_STAGES.has(leadStage) || CALL_STATUSES.has(leadStatus)),
         // Won = lead status is won or send invoice
-        won: !!lead && WON_STATUSES.has((lead.status ?? '').toLowerCase()),
+        won: !!lead && WON_STATUSES.has(leadStatus),
       };
     });
   }, [allJobs, upworkLeads]);
