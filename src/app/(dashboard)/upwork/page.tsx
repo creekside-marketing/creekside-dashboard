@@ -664,20 +664,34 @@ export default function UpworkFunnelPage() {
 
       {/* Hours After Post Impact */}
       {hoursData.some((d) => d.count > 0) && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-          <h3 className="text-sm font-semibold text-slate-900 mb-4">Hours After Post vs Performance</h3>
-          <ResponsiveContainer width="100%" height={240}>
-            <ReBarChart data={hoursData} margin={{ left: 0, right: 0, top: 0, bottom: 0 }}>
-              <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} />
-              <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} />
-              <Tooltip contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: 12 }} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="viewRate" fill="#14B8A6" radius={[4, 4, 0, 0]} barSize={16} name="View %" />
-              <Bar dataKey="replyRate" fill="#3B82F6" radius={[4, 4, 0, 0]} barSize={16} name="Reply %" />
-              <Bar dataKey="callRate" fill="#F59E0B" radius={[4, 4, 0, 0]} barSize={16} name="Call %" />
-              <Bar dataKey="winRate" fill="#10B981" radius={[4, 4, 0, 0]} barSize={16} name="Win %" />
-            </ReBarChart>
-          </ResponsiveContainer>
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+          <div className="px-4 py-3 border-b border-slate-100">
+            <h3 className="text-sm font-semibold text-slate-900">Hours After Post vs Performance</h3>
+          </div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-slate-50 text-slate-500 uppercase tracking-wider">
+                <th className="text-left py-2 px-4">Timing</th>
+                <th className="text-right py-2 px-3">Apps</th>
+                <th className="text-right py-2 px-3">View %</th>
+                <th className="text-right py-2 px-3">Reply %</th>
+                <th className="text-right py-2 px-3">Call %</th>
+                <th className="text-right py-2 px-3">Win %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {hoursData.map((d) => (
+                <tr key={d.label} className="border-t border-slate-100 hover:bg-slate-50/50">
+                  <td className="text-slate-900 py-2 px-4 font-medium">{d.label}</td>
+                  <td className="text-slate-600 text-right py-2 px-3">{d.count.toLocaleString()}</td>
+                  <td className="text-slate-900 text-right py-2 px-3">{d.viewRate.toFixed(1)}%</td>
+                  <td className="text-slate-900 text-right py-2 px-3">{d.replyRate.toFixed(1)}%</td>
+                  <td className="text-slate-900 text-right py-2 px-3">{d.callRate.toFixed(1)}%</td>
+                  <td className="text-slate-900 text-right py-2 px-3">{d.winRate.toFixed(1)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 

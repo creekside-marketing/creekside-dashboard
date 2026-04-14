@@ -112,6 +112,7 @@ export function computeScriptPerformance(jobs: UpworkJob[]): ScriptPerformanceRo
   }
 
   return Array.from(byScript.entries())
+    .filter(([, group]) => group.length >= 50)
     .map(([scriptName, group]) => {
       const total = group.length;
       const connects = group.map((j) => j.connects_spent).filter((c): c is number => c != null);
