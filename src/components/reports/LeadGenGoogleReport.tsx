@@ -22,17 +22,7 @@ import {
   DemographicChart,
 } from './shared';
 import { useGoogleAdsData } from '@/hooks/useGoogleAdsData';
-
-// ── Types ────────────────────────────────────────────────────────────────
-
-interface ReportingClient {
-  id: string;
-  client_name: string;
-  platform: string;
-  ad_account_id: string | null;
-  monthly_budget: number | null;
-  client_report_notes: string | null;
-}
+import { ReportingClient } from './types';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 

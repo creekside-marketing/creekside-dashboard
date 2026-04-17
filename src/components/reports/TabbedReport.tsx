@@ -15,19 +15,11 @@ import EcomGoogleReport from './EcomGoogleReport';
 import EcomMetaReport from './EcomMetaReport';
 import LeadGenReport from './LeadGenReport';
 import EcomReport from './EcomReport';
+import registry from './custom/registry';
+import ReportErrorBoundary from './custom/ReportErrorBoundary';
+import { ReportingClient } from './types';
 
 // ── Types ────────────────────────────────────────────────────────────────
-
-interface ReportingClient {
-  id: string;
-  client_name: string;
-  platform: string;
-  ad_account_id: string | null;
-  monthly_budget: number | null;
-  client_report_notes: string | null;
-  client_type: string | null;
-  report_token: string;
-}
 
 interface TabbedReportProps {
   clients: ReportingClient[];  // 1 or 2 clients (one per platform)
@@ -48,6 +40,25 @@ function sortByPlatform(clients: ReportingClient[]): ReportingClient[] {
 // ── Report component resolver ────────────────────────────────────────────
 
 function getReportComponent(client: ReportingClient, mode: 'internal' | 'public') {
+  // Custom report path — fully isolated per-client component
+  if (client.report_mode === 'custom' && client.custom_report_slug) {
+    const CustomComponent = registry[client.custom_report_slug];
+    if (CustomComponent) {
+      const defaultReport = getDefaultReportComponent(client, mode);
+      return (
+        <ReportErrorBoundary fallback={defaultReport} clientName={client.client_name}>
+          <CustomComponent client={client} mode={mode} />
+        </ReportErrorBoundary>
+      );
+    }
+    // Slug set but not in registry — fall through to default
+  }
+
+  return getDefaultReportComponent(client, mode);
+}
+
+// Extracted from original getReportComponent — unchanged logic
+function getDefaultReportComponent(client: ReportingClient, mode: 'internal' | 'public') {
   const clientType = client.client_type || (client.platform === 'google' ? 'lead_gen' : client.platform === 'meta' ? 'ecom' : null);
   const platform = client.platform?.toLowerCase();
 

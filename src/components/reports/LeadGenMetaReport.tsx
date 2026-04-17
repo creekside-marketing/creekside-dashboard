@@ -20,14 +20,9 @@ import ReportChart from './ReportChart';
 import BreakdownTable from './BreakdownTable';
 import ReportNotesTimeline from './ReportNotesTimeline';
 import { SparklineKpiCard } from './shared';
+import { ReportingClient } from './types';
 
 // ── Types ────────────────────────────────────────────────────────────────
-
-interface ReportingClient {
-  id: string; client_name: string; platform: string;
-  ad_account_id: string | null; monthly_budget: number | null;
-  client_report_notes: string | null;
-}
 
 interface LeadGenRow {
   name: string; impressions: number; linkClicks: number; spend: number;
