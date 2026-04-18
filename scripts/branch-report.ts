@@ -27,8 +27,8 @@
  */
 
 import { execSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, rmSync, cpSync } from 'node:fs';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -125,10 +125,14 @@ function preflightGitChecks(): void {
 
 // ── Arg parsing ──────────────────────────────────────────────────────────
 
-function parseArgs(): { clientName: string; platform: Platform } {
-  const args = process.argv.slice(2);
+function parseArgs(): { clientName: string; platform: Platform; force: boolean } {
+  // Accept `--force` in any position. Everything else must be exactly
+  // <client name> <platform>.
+  const raw = process.argv.slice(2);
+  const force = raw.includes('--force');
+  const args = raw.filter(a => a !== '--force');
   if (args.length !== 2) {
-    die('Usage: npm run branch-report -- "<client name>" <google|meta>');
+    die('Usage: npm run branch-report -- "<client name>" <google|meta> [--force]');
   }
   const [clientName, platformRaw] = args;
   const platform = platformRaw.toLowerCase();
@@ -136,7 +140,7 @@ function parseArgs(): { clientName: string; platform: Platform } {
     die(`Platform must be "google" or "meta" (got "${platformRaw}")`);
   }
   if (!clientName.trim()) die('Client name cannot be empty');
-  return { clientName: clientName.trim(), platform };
+  return { clientName: clientName.trim(), platform, force };
 }
 
 // ── Slug + PascalCase derivation ─────────────────────────────────────────
@@ -267,46 +271,153 @@ function resolveTemplate(client: ReportingClientRow, platform: Platform): Templa
 }
 
 /**
- * Rewrite sibling-relative imports (`./x`) to parent-relative (`../x`) so
- * that a file copied from `src/components/reports/` into the `custom/`
- * subdirectory still resolves the same sibling modules.
- *
- * Handles:
- *   - `from './x'` and `from "./x"`
- *   - dynamic `import('./x')` / `import("./x")`
- *   - nested paths: `./shared/foo` → `../shared/foo`
- *
- * Does NOT rewrite:
- *   - absolute imports (`@/...`, `react`, `next/...`)
- *   - already parent-relative paths (`../x`) — the `(?!\.)` negative
- *     lookahead after `./` ensures we only match true sibling imports
- *     (the char after `./` must not be another `.`).
+ * Find all sibling-relative and parent-relative import paths in a source file.
+ * Returns the raw path strings as they appear in the source (e.g., "./X", "../shared").
+ * Handles both single-line `from './X'` and dynamic `import('./X')`.
  */
-function rewriteRelativeImports(src: string): string {
-  return src
-    .replace(/from\s+(['"])\.\/(?!\.)/g, 'from $1../')
-    .replace(/import\(\s*(['"])\.\/(?!\.)/g, 'import($1../');
+function findRelativeImports(src: string): string[] {
+  const paths: string[] = [];
+  const fromRe = /from\s+['"](\.[^'"]+)['"]/g;
+  const dynRe = /import\(\s*['"](\.[^'"]+)['"]\s*\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = fromRe.exec(src)) !== null) paths.push(m[1]);
+  while ((m = dynRe.exec(src)) !== null) paths.push(m[1]);
+  return paths;
 }
 
-function copyAndRenameTemplate(template: TemplateConfig, slug: string, newComponentName: string): string {
-  const src = join(REPORTS_DIR, template.filename);
-  const dest = join(CUSTOM_DIR, `${slug}.tsx`);
-  if (!existsSync(src)) die(`Template not found: ${src}`);
-  if (existsSync(dest)) die(`Destination already exists but failed idempotency check: ${dest}`);
+/**
+ * Resolve a relative import path against a source file path. Tries .tsx, .ts,
+ * then /index.tsx, /index.ts. Returns absolute path on success, null otherwise.
+ */
+function resolveImportPath(importPath: string, fromFile: string): string | null {
+  const basePath = resolve(dirname(fromFile), importPath);
+  for (const ext of ['.tsx', '.ts', '.jsx', '.js']) {
+    if (existsSync(basePath + ext)) return basePath + ext;
+  }
+  for (const ext of ['.tsx', '.ts']) {
+    const idxPath = join(basePath, 'index' + ext);
+    if (existsSync(idxPath)) return idxPath;
+  }
+  if (existsSync(basePath) && !existsSync(basePath + '.tsx')) {
+    // Direct file match (e.g. .css would go here, but our code only has TS)
+    return basePath;
+  }
+  return null;
+}
 
-  // Read source, rewrite sibling-relative imports (since we move one level
-  // deeper into `custom/`), then rename the exported component. Write once.
-  const original = readFileSync(src, 'utf8');
-  const rewritten = rewriteRelativeImports(original);
-  const renamed = rewritten.replace(
+/**
+ * Deep-branch a template: copy the template + every transitive relative import
+ * into a scoped directory so the branch is fully self-contained. Contractors
+ * can edit any file in the scoped dir without affecting other clients.
+ *
+ * Layout produced:
+ *   src/components/reports/custom/<slug>.tsx              ← main entry (renamed component)
+ *   src/components/reports/custom/_<slug>/...             ← scoped copies of every dep
+ *
+ * The main entry's relative imports are rewritten from `./X` to `./_<slug>/X`.
+ * Files inside `_<slug>/` keep their own relative imports unchanged — their
+ * directory structure mirrors the original reports/ tree so relative paths
+ * among them continue to resolve correctly.
+ *
+ * Imports that escape reports/ (e.g. `@/components/X`) are left as-is — those
+ * refer to app-wide components outside the reports system.
+ *
+ * Returns paths of: the main branch file + the scoped dir (both for rollback).
+ */
+function deepBranchTemplate(
+  template: TemplateConfig,
+  slug: string,
+  newComponentName: string,
+): { mainFile: string; scopedDir: string } {
+  const templateAbs = join(REPORTS_DIR, template.filename);
+  if (!existsSync(templateAbs)) die(`Template not found: ${templateAbs}`);
+
+  const mainDest = join(CUSTOM_DIR, `${slug}.tsx`);
+  const scopedDir = join(CUSTOM_DIR, `_${slug}`);
+
+  if (existsSync(mainDest)) die(`Destination already exists but failed idempotency check: ${mainDest}`);
+  if (existsSync(scopedDir)) die(`Scoped dir already exists but failed idempotency check: ${scopedDir}`);
+
+  mkdirSync(scopedDir, { recursive: true });
+
+  // Recursively copy every internal dep into the scoped dir, preserving the
+  // directory structure relative to REPORTS_DIR. We skip anything under
+  // reports/custom/ (branches should never depend on other branches) and
+  // anything outside reports/ (those remain as external @/ imports).
+  const visited = new Set<string>();
+  const CUSTOM_SUBDIR = join(REPORTS_DIR, 'custom');
+
+  function copyInternal(absPath: string): void {
+    if (visited.has(absPath)) return;
+    visited.add(absPath);
+
+    // Only copy files inside reports/ and not inside reports/custom/.
+    if (!absPath.startsWith(REPORTS_DIR + sep)) return;
+    if (absPath.startsWith(CUSTOM_SUBDIR + sep)) return;
+
+    const relFromReports = relative(REPORTS_DIR, absPath);
+    const destInScoped = join(scopedDir, relFromReports);
+
+    mkdirSync(dirname(destInScoped), { recursive: true });
+
+    const source = readFileSync(absPath, 'utf8');
+
+    // Recurse on every relative import, then copy verbatim. Copying verbatim
+    // is safe because the scoped tree mirrors the source structure — relative
+    // paths among copied files continue to resolve.
+    for (const impPath of findRelativeImports(source)) {
+      const resolved = resolveImportPath(impPath, absPath);
+      if (resolved) copyInternal(resolved);
+    }
+
+    writeFileSync(destInScoped, source);
+  }
+
+  // Start the walk from the template.
+  copyInternal(templateAbs);
+
+  // The template itself got copied into scopedDir/<filename>. We don't want it
+  // there — the main entry lives at custom/<slug>.tsx. Read, delete, rewrite,
+  // write to its final home.
+  const templateInScoped = join(scopedDir, template.filename);
+  if (!existsSync(templateInScoped)) {
+    die(`Internal error: template was not copied into scoped dir (${templateInScoped})`);
+  }
+  let mainSource = readFileSync(templateInScoped, 'utf8');
+  unlinkSync(templateInScoped);
+
+  // Rewrite `./X` (sibling relative to original reports/) → `./_<slug>/X` so
+  // the main entry pulls from its scoped copies. Parent-relative `../` paths
+  // in a reports/ file would escape into src/components/, which would mean
+  // the file depends on non-reports code — shouldn't happen for templates.
+  mainSource = mainSource
+    .replace(/from\s+(['"])\.\/(?!\.)/g, `from $1./_${slug}/`)
+    .replace(/import\(\s*(['"])\.\/(?!\.)/g, `import($1./_${slug}/`);
+
+  // Rename the exported component for uniqueness in the registry.
+  const before = mainSource;
+  mainSource = mainSource.replace(
     new RegExp(`\\b${template.componentName}\\b`, 'g'),
     newComponentName,
   );
-  if (renamed === rewritten) {
+  if (mainSource === before) {
     die(`Failed to rename component — did not find "${template.componentName}" in ${template.filename}`);
   }
-  writeFileSync(dest, renamed);
-  return dest;
+
+  writeFileSync(mainDest, mainSource);
+  return { mainFile: mainDest, scopedDir };
+}
+
+/**
+ * Clean up a branch's filesystem footprint. Safe to call for rollback even if
+ * some pieces are missing. Errors are logged (not thrown) so rollback of
+ * OTHER state (DB, registry) is never blocked by a filesystem hiccup.
+ */
+function cleanupBranchFiles(mainFile: string, scopedDir: string): void {
+  try { if (existsSync(mainFile)) unlinkSync(mainFile); }
+  catch (e) { console.warn('Failed to delete branch file during cleanup:', (e as Error).message); }
+  try { if (existsSync(scopedDir)) rmSync(scopedDir, { recursive: true, force: true }); }
+  catch (e) { console.warn('Failed to delete scoped dir during cleanup:', (e as Error).message); }
 }
 
 // ── Registry update (preserve + alphabetical) ────────────────────────────
@@ -400,7 +511,8 @@ function git(args: string[]): { status: number; stdout: string; stderr: string }
 }
 
 interface PushRollbackContext {
-  branchFilePath: string;
+  mainFile: string;
+  scopedDir: string;
   prevRegistry: string;
   supabase: SupabaseClient;
   clientId: string;
@@ -428,14 +540,15 @@ async function commitAndPush(
   slug: string,
   rollback: PushRollbackContext,
 ): Promise<{ sha: string }> {
-  const { branchFilePath, prevRegistry, supabase, clientId } = rollback;
+  const { mainFile, scopedDir, prevRegistry, supabase, clientId } = rollback;
 
-  const addA = git(['add', branchFilePath, REGISTRY_PATH]);
+  const addA = git(['add', mainFile, scopedDir, REGISTRY_PATH]);
   if (addA.status !== 0) die(`git add failed: ${addA.stderr || addA.stdout}`);
 
-  const relBranch = branchFilePath.replace(`${REPO_ROOT}/`, '');
+  const relBranch = mainFile.replace(`${REPO_ROOT}/`, '');
+  const relScoped = scopedDir.replace(`${REPO_ROOT}/`, '');
   const commitSubject = `chore: branch report for ${clientName} (${platform})`;
-  const message = `${commitSubject}\n\nSlug: ${slug}\nFile: ${relBranch}`;
+  const message = `${commitSubject}\n\nSlug: ${slug}\nMain: ${relBranch}\nScoped deps: ${relScoped}/`;
 
   const commit = git(['commit', '-m', message]);
   if (commit.status !== 0) die(`git commit failed: ${commit.stderr || commit.stdout}`);
@@ -477,7 +590,7 @@ async function commitAndPush(
       `expected "${commitSubject}". Your local commit was not reset and the ` +
       `DB is still in 'custom' mode. Resolve manually: inspect \`git log\`, ` +
       `revert reporting_clients.id=${clientId} to report_mode='default', ` +
-      `and remove ${branchFilePath} if present.`,
+      `and remove ${mainFile} + ${scopedDir}/ if present.`,
     );
   }
 
@@ -489,11 +602,9 @@ async function commitAndPush(
     );
   }
 
-  // reset --hard already reverts both files, but handle them defensively in
-  // case the branch file existed untracked pre-commit (shouldn't, since we
-  // checked idempotency, but cheap safety).
-  try { if (existsSync(branchFilePath)) unlinkSync(branchFilePath); }
-  catch (e) { console.warn('Failed to delete branch file during rollback:', (e as Error).message); }
+  // reset --hard already reverts tracked files, but handle them defensively
+  // in case anything existed untracked pre-commit.
+  cleanupBranchFiles(mainFile, scopedDir);
   try { restoreRegistry(prevRegistry); }
   catch (e) { console.warn('Failed to restore registry during rollback:', (e as Error).message); }
 
@@ -514,7 +625,7 @@ async function commitAndPush(
 async function main(): Promise<void> {
   loadDotEnvLocal();
 
-  const { clientName, platform } = parseArgs();
+  const { clientName, platform, force } = parseArgs();
   // Fail fast on a dirty index or non-main branch BEFORE any DB queries,
   // file writes, or template resolution — cheaper to bail here.
   preflightGitChecks();
@@ -522,7 +633,7 @@ async function main(): Promise<void> {
   const slug = deriveSlug(clientName, platform);
   const componentName = pascalCase(slug) + 'Report';
 
-  info(`Client: "${clientName}" | Platform: ${platform}`);
+  info(`Client: "${clientName}" | Platform: ${platform}${force ? ' | --force' : ''}`);
   info(`Target slug: ${slug}`);
 
   const supabase = getSupabase();
@@ -530,32 +641,65 @@ async function main(): Promise<void> {
   info(`Matched reporting_clients row ${client.id} (${client.client_name}, ${client.client_type})`);
 
   // ── Idempotency check ──
-  const destFile = join(CUSTOM_DIR, `${slug}.tsx`);
+  const mainFilePath = join(CUSTOM_DIR, `${slug}.tsx`);
+  const scopedDirPath = join(CUSTOM_DIR, `_${slug}`);
   const alreadyCustom = client.report_mode === 'custom' && client.custom_report_slug === slug;
   const fileExists = branchFileExists(slug);
+  const scopedDirExists = existsSync(scopedDirPath);
   const registered = registryHasEntry(slug);
 
-  if (alreadyCustom && fileExists && registered) {
+  if (!force && alreadyCustom && fileExists && registered) {
     console.log(`\n[branch-report] Already branched. Edit: src/components/reports/custom/${slug}.tsx\n`);
+    console.log(`[branch-report] Scoped deps: src/components/reports/custom/_${slug}/`);
+    console.log(`[branch-report] To re-branch from scratch, re-run with --force.\n`);
     process.exit(0);
   }
 
-  // If any partial state exists, bail rather than silently "fixing" — safer.
-  if (fileExists || registered || alreadyCustom) {
+  // With --force, tear down existing state cleanly BEFORE proceeding. Revert
+  // DB first so if anything goes wrong we're not stuck in a half-branched state.
+  if (force && (alreadyCustom || fileExists || scopedDirExists || registered)) {
+    info('--force specified — tearing down existing branch state');
+    if (alreadyCustom) {
+      await revertReportMode(supabase, client.id);
+      info('  DB reverted to report_mode=default');
+    }
+    if (fileExists || scopedDirExists) {
+      cleanupBranchFiles(mainFilePath, scopedDirPath);
+      info('  Main file + scoped dir removed');
+    }
+    if (registered) {
+      // Rebuild registry without this slug. Cheapest way: read, filter, write.
+      const regContents = readFileSync(REGISTRY_PATH, 'utf8');
+      const filtered = regContents
+        .split('\n')
+        .filter(line => {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('//')) return true;
+          return !(trimmed.includes(`'${slug}':`) || trimmed.includes(`"${slug}":`));
+        })
+        .join('\n');
+      writeFileSync(REGISTRY_PATH, filtered);
+      info('  Registry entry removed');
+    }
+  } else if (fileExists || registered || alreadyCustom || scopedDirExists) {
+    // Partial state without --force: bail rather than silently "fixing" — safer.
     die(
       `Partial branch state detected — refusing to proceed to avoid duplicating work.\n` +
       `  file exists:       ${fileExists}\n` +
+      `  scoped dir exists: ${scopedDirExists}\n` +
       `  registry entry:    ${registered}\n` +
       `  DB report_mode:    ${client.report_mode}\n` +
       `  DB custom_slug:    ${client.custom_report_slug}\n` +
-      `Resolve manually (remove partial pieces) and re-run.`,
+      `Resolve manually (remove partial pieces) or re-run with --force to rebuild.`,
     );
   }
 
-  // ── Template + copy ──
+  // ── Template + deep copy ──
   const template = resolveTemplate(client, platform);
-  info(`Template: ${template.filename} → custom/${slug}.tsx (component ${componentName})`);
-  const branchFilePath = copyAndRenameTemplate(template, slug, componentName);
+  info(`Template: ${template.filename}`);
+  info(`  → main: custom/${slug}.tsx (component ${componentName})`);
+  info(`  → deps: custom/_${slug}/`);
+  const { mainFile, scopedDir } = deepBranchTemplate(template, slug, componentName);
 
   // ── Registry ──
   const { previousContents: prevRegistry } = addRegistryEntry(slug);
@@ -571,7 +715,7 @@ async function main(): Promise<void> {
   if (!tc.ok) {
     console.error('\n[branch-report] Typecheck FAILED — rolling back all changes.\n');
     console.error(tc.output);
-    try { unlinkSync(branchFilePath); } catch (e) { console.warn('Failed to delete branch file during rollback:', (e as Error).message); }
+    cleanupBranchFiles(mainFile, scopedDir);
     restoreRegistry(prevRegistry);
     await revertReportMode(supabase, client.id);
     die('Rolled back. Fix the type errors above and re-run.');
@@ -582,7 +726,8 @@ async function main(): Promise<void> {
   // commitAndPush will die() with full rollback if push cannot succeed even
   // after a rebase retry, so reaching the next line means the push landed.
   const { sha } = await commitAndPush(client.client_name, platform, slug, {
-    branchFilePath,
+    mainFile,
+    scopedDir,
     prevRegistry,
     supabase,
     clientId: client.id,
@@ -595,7 +740,8 @@ async function main(): Promise<void> {
   console.log(` Client:       ${client.client_name}`);
   console.log(` Platform:     ${platform}`);
   console.log(` Slug:         ${slug}`);
-  console.log(` File:         src/components/reports/custom/${slug}.tsx`);
+  console.log(` Main file:    src/components/reports/custom/${slug}.tsx`);
+  console.log(` Scoped deps:  src/components/reports/custom/_${slug}/`);
   console.log(` Commit:       ${sha}`);
   console.log(` Push:         ok (origin main)`);
   console.log(` Deploy:       Railway will auto-deploy in ~2 min.`);
