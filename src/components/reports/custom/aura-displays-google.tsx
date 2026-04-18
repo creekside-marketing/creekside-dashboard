@@ -1,5 +1,12 @@
 'use client';
 
+
+/**
+ * Branched from EcomGoogleReport.tsx on 2026-04-18.
+ * Standalone per-client fork — upstream template changes do NOT auto-propagate.
+ * To re-sync from the latest template, re-run:
+ *   npm run branch-report -- "<client>" google --force
+ */
 /**
  * SHARED TEMPLATE — DO NOT EDIT DIRECTLY.
  *
