@@ -373,39 +373,79 @@ function deepBranchTemplate(
     writeFileSync(destInScoped, source);
   }
 
-  // Start the walk from the template.
-  copyInternal(templateAbs);
+  // Start the walk from the template. Wrap in try/catch so any I/O failure
+  // (permissions, mid-walk crash, disk full) triggers cleanup of the partial
+  // scoped dir — otherwise the next run would hit "already exists" and require
+  // manual cleanup. The cleanup path is guarded by a prefix check so we never
+  // rmSync something outside CUSTOM_DIR.
+  try {
+    copyInternal(templateAbs);
 
-  // The template itself got copied into scopedDir/<filename>. We don't want it
-  // there — the main entry lives at custom/<slug>.tsx. Read, delete, rewrite,
-  // write to its final home.
-  const templateInScoped = join(scopedDir, template.filename);
-  if (!existsSync(templateInScoped)) {
-    die(`Internal error: template was not copied into scoped dir (${templateInScoped})`);
+    // The template itself got copied into scopedDir/<filename>. We don't want it
+    // there — the main entry lives at custom/<slug>.tsx. Read, delete, rewrite,
+    // write to its final home.
+    const templateInScoped = join(scopedDir, template.filename);
+    if (!existsSync(templateInScoped)) {
+      die(`Internal error: template was not copied into scoped dir (${templateInScoped})`);
+    }
+    let mainSource = readFileSync(templateInScoped, 'utf8');
+    unlinkSync(templateInScoped);
+
+    // Rewrite `./X` (sibling relative to original reports/) → `./_<slug>/X` so
+    // the main entry pulls from its scoped copies. Parent-relative `../` paths
+    // in a reports/ file would escape into src/components/, which would mean
+    // the file depends on non-reports code — shouldn't happen for templates.
+    mainSource = mainSource
+      .replace(/from\s+(['"])\.\/(?!\.)/g, `from $1./_${slug}/`)
+      .replace(/import\(\s*(['"])\.\/(?!\.)/g, `import($1./_${slug}/`);
+
+    // Rename the exported component for uniqueness in the registry.
+    const before = mainSource;
+    mainSource = mainSource.replace(
+      new RegExp(`\\b${template.componentName}\\b`, 'g'),
+      newComponentName,
+    );
+    if (mainSource === before) {
+      die(`Failed to rename component — did not find "${template.componentName}" in ${template.filename}`);
+    }
+
+    // Prepend a drift-warning header so Peterson (or a future reader) knows
+    // the file is a static fork — upstream template changes do NOT propagate.
+    const today = new Date().toISOString().slice(0, 10);
+    const driftHeader =
+      `/**\n` +
+      ` * Branched from ${template.filename} on ${today}.\n` +
+      ` * Standalone per-client fork — upstream template changes do NOT auto-propagate.\n` +
+      ` * To re-sync from the latest template, re-run:\n` +
+      ` *   npm run branch-report -- "<client>" ${/-google$/.test(slug) ? 'google' : 'meta'} --force\n` +
+      ` */\n`;
+
+    // Insert the header AFTER any 'use client' directive so directive remains
+    // first in the file (Next.js requirement).
+    if (mainSource.trimStart().startsWith(`'use client'`) || mainSource.trimStart().startsWith(`"use client"`)) {
+      mainSource = mainSource.replace(
+        /^(\s*['"]use client['"];?\s*)/,
+        `$1\n${driftHeader}`,
+      );
+    } else {
+      mainSource = driftHeader + mainSource;
+    }
+
+    writeFileSync(mainDest, mainSource);
+    return { mainFile: mainDest, scopedDir };
+  } catch (err) {
+    // Roll back any partial state from this call before re-throwing.
+    // Guard rmSync with a prefix check so a bug can never nuke outside CUSTOM_DIR.
+    if (scopedDir.startsWith(CUSTOM_DIR + sep) && existsSync(scopedDir)) {
+      try { rmSync(scopedDir, { recursive: true, force: true }); }
+      catch (cleanupErr) { console.warn('deepBranchTemplate cleanup (scopedDir) failed:', (cleanupErr as Error).message); }
+    }
+    if (mainDest.startsWith(CUSTOM_DIR + sep) && existsSync(mainDest)) {
+      try { unlinkSync(mainDest); }
+      catch (cleanupErr) { console.warn('deepBranchTemplate cleanup (mainDest) failed:', (cleanupErr as Error).message); }
+    }
+    throw err;
   }
-  let mainSource = readFileSync(templateInScoped, 'utf8');
-  unlinkSync(templateInScoped);
-
-  // Rewrite `./X` (sibling relative to original reports/) → `./_<slug>/X` so
-  // the main entry pulls from its scoped copies. Parent-relative `../` paths
-  // in a reports/ file would escape into src/components/, which would mean
-  // the file depends on non-reports code — shouldn't happen for templates.
-  mainSource = mainSource
-    .replace(/from\s+(['"])\.\/(?!\.)/g, `from $1./_${slug}/`)
-    .replace(/import\(\s*(['"])\.\/(?!\.)/g, `import($1./_${slug}/`);
-
-  // Rename the exported component for uniqueness in the registry.
-  const before = mainSource;
-  mainSource = mainSource.replace(
-    new RegExp(`\\b${template.componentName}\\b`, 'g'),
-    newComponentName,
-  );
-  if (mainSource === before) {
-    die(`Failed to rename component — did not find "${template.componentName}" in ${template.filename}`);
-  }
-
-  writeFileSync(mainDest, mainSource);
-  return { mainFile: mainDest, scopedDir };
 }
 
 /**
@@ -745,6 +785,10 @@ async function main(): Promise<void> {
   console.log(` Commit:       ${sha}`);
   console.log(` Push:         ok (origin main)`);
   console.log(` Deploy:       Railway will auto-deploy in ~2 min.`);
+  console.log('────────────────────────────────────────');
+  console.log(' Note: template updates do NOT auto-propagate to this branch.');
+  console.log(`       If you later improve ${template.filename}, re-run with`);
+  console.log(`       \`--force\` to re-sync this client.`);
   console.log('────────────────────────────────────────\n');
 }
 
