@@ -1,6 +1,20 @@
 'use client';
 
 /**
+ * SHARED TEMPLATE — DO NOT EDIT DIRECTLY.
+ *
+ * This component renders the report for EVERY client with
+ * client_type=ecom and platform=google that is on report_mode='default'.
+ * Editing this file will change the report for all those clients at once.
+ *
+ * To customize a specific client's report, run from the repo root:
+ *   npm run branch-report -- "<client name>" google
+ *
+ * This creates a standalone copy in src/components/reports/custom/
+ * that you can edit freely without affecting other clients.
+ */
+
+/**
  * AuraDisplaysGoogleReport — Ecommerce-focused Google Ads report.
  *
  * Fetches campaign, account-level daily, keyword, geo, age, and gender data
@@ -12,12 +26,12 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import ReportHeader, { DATE_RANGES, DEFAULT_RANGE_INDEX, computePriorPeriod, calcChange, fmt, fmtMoney, fmtPct } from '../ReportHeader';
-import ReportChart from '../ReportChart';
-import BreakdownTable from '../BreakdownTable';
-import ReportNotesTimeline from '../ReportNotesTimeline';
-import { SparklineKpiCard } from '../shared';
-import { ReportingClient } from '../types';
+import ReportHeader, { DATE_RANGES, DEFAULT_RANGE_INDEX, computePriorPeriod, calcChange, fmt, fmtMoney, fmtPct } from './_aura-displays-google/ReportHeader';
+import ReportChart from './_aura-displays-google/ReportChart';
+import BreakdownTable from './_aura-displays-google/BreakdownTable';
+import ReportNotesTimeline from './_aura-displays-google/ReportNotesTimeline';
+import { SparklineKpiCard } from './_aura-displays-google/shared';
+import { ReportingClient } from './_aura-displays-google/types';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
