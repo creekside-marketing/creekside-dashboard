@@ -1,6 +1,20 @@
 'use client';
 
 /**
+ * SHARED TEMPLATE — DO NOT EDIT DIRECTLY.
+ *
+ * This component renders the report for EVERY client with
+ * client_type=ecom and platform=meta that is on report_mode='default'.
+ * Editing this file will change the report for all those clients at once.
+ *
+ * To customize a specific client's report, run from the repo root:
+ *   npm run branch-report -- "<client name>" meta
+ *
+ * This creates a standalone copy in src/components/reports/custom/
+ * that you can edit freely without affecting other clients.
+ */
+
+/**
  * EcomMetaReport — Ecommerce Meta Ads report with sparklines, funnel,
  * and ad creative thumbnails.
  *

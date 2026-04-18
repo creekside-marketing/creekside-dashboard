@@ -8,5 +8,14 @@
 # API routes — contractors can edit
 /src/app/api/ @creekside-marketing/contractors
 
+# Shared report templates — edits affect every client on that template.
+# Require Peterson's review. Contractor edits to custom/ fall under the broader
+# reports/ rule above. Explicit paths used here instead of a glob because
+# *Report.tsx would over-match EcomReport.tsx, LeadGenReport.tsx, TabbedReport.tsx.
+/src/components/reports/LeadGenGoogleReport.tsx @peterson-rainey
+/src/components/reports/LeadGenMetaReport.tsx @peterson-rainey
+/src/components/reports/EcomGoogleReport.tsx @peterson-rainey
+/src/components/reports/EcomMetaReport.tsx @peterson-rainey
+
 # Internal token management — requires Peterson/Cade even though it's in reports/
 /src/components/reports/ReportLinkWidget.tsx @peterson-rainey @cademac

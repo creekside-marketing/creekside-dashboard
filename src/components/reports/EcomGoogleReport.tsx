@@ -1,6 +1,20 @@
 'use client';
 
 /**
+ * SHARED TEMPLATE — DO NOT EDIT DIRECTLY.
+ *
+ * This component renders the report for EVERY client with
+ * client_type=ecom and platform=google that is on report_mode='default'.
+ * Editing this file will change the report for all those clients at once.
+ *
+ * To customize a specific client's report, run from the repo root:
+ *   npm run branch-report -- "<client name>" google
+ *
+ * This creates a standalone copy in src/components/reports/custom/
+ * that you can edit freely without affecting other clients.
+ */
+
+/**
  * EcomGoogleReport — Ecommerce-focused Google Ads report.
  *
  * Fetches campaign, account-level daily, keyword, geo, age, and gender data

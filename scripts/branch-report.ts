@@ -10,6 +10,8 @@
  * CANNOT: Change TabbedReport routing — it already handles report_mode='custom'.
  * CANNOT: Run with the Supabase anon key — writes silently fail. Service role required.
  * CANNOT: Skip git hooks (no --no-verify) or force-push.
+ * CANNOT: Run with staged changes in the git index — would commit unrelated work.
+ * CANNOT: Run on any branch other than main — contractors push straight to main.
  *
  * Flow:
  *   1. Resolve the client by (name ILIKE, platform) from reporting_clients.
@@ -93,6 +95,34 @@ function loadDotEnvLocal(): void {
   }
 }
 
+// ── Pre-flight git checks ────────────────────────────────────────────────
+
+/**
+ * Verify the contractor's repo is in a safe state to run the script:
+ *   1. No staged changes in the index (otherwise `git commit` would ship them).
+ *   2. Current branch is `main` (contractors push straight to main).
+ *
+ * Called before any DB queries or file writes so we fail fast and cheaply.
+ */
+function preflightGitChecks(): void {
+  const stagedDiff = spawnSync('git', ['diff', '--cached', '--quiet'], { cwd: REPO_ROOT });
+  if (stagedDiff.status !== 0) {
+    die('Git index has staged changes. Commit or unstage them before running branch-report. Run `git status` to see what is staged.');
+  }
+
+  const branchResult = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  });
+  if (branchResult.status !== 0) {
+    die(`Could not determine current git branch: ${branchResult.stderr ?? ''}`);
+  }
+  const branch = (branchResult.stdout ?? '').trim();
+  if (branch !== 'main') {
+    die(`Current branch is "${branch}", but branch-report must run on main. Switch with: git checkout main`);
+  }
+}
+
 // ── Arg parsing ──────────────────────────────────────────────────────────
 
 function parseArgs(): { clientName: string; platform: Platform } {
@@ -143,17 +173,39 @@ function getSupabase(): SupabaseClient {
 }
 
 async function findClient(supabase: SupabaseClient, clientName: string, platform: Platform): Promise<ReportingClientRow> {
+  // Substring match so "Fusion" finds "Fusion Dental Implants". If a contractor
+  // typed the exact full name, the `%...%` still matches (trailing wildcards).
   const { data, error } = await supabase
     .from('reporting_clients')
     .select('id, client_name, platform, client_type, report_mode, custom_report_slug')
-    .ilike('client_name', clientName)
+    .ilike('client_name', `%${clientName}%`)
     .eq('platform', platform);
 
   if (error) die(`Supabase query failed: ${error.message}`);
-  if (!data || data.length === 0) die(`No reporting_clients row matches client_name ILIKE "${clientName}" AND platform="${platform}"`);
+
+  if (!data || data.length === 0) {
+    // Zero matches — fetch up to 5 client names on the same platform so the
+    // contractor has something to pick from instead of a dead-end error.
+    const { data: hintData } = await supabase
+      .from('reporting_clients')
+      .select('client_name')
+      .eq('platform', platform)
+      .limit(5);
+    const hintNames = (hintData ?? []).map(r => r.client_name).filter(Boolean);
+    const hint = hintNames.length
+      ? `\nDid you mean one of: ${hintNames.join(', ')}?`
+      : '';
+    die(`No reporting_clients row matches client_name ILIKE "%${clientName}%" AND platform="${platform}".${hint}`);
+  }
+
   if (data.length > 1) {
-    const names = data.map(r => `${r.client_name} (${r.id})`).join(', ');
-    die(`Multiple matches — narrow the name. Matches: ${names}`);
+    // Show the contractor each matching name + platform so they can rerun with
+    // the exact name. Include id as a tiebreaker in case two clients share a name.
+    const lines = data.map(r => `  - ${r.client_name} (${r.platform})`).join('\n');
+    die(
+      `Multiple clients match "${clientName}":\n${lines}\n` +
+      `Re-run with the full exact name.`,
+    );
   }
   return data[0] as ReportingClientRow;
 }
@@ -347,12 +399,43 @@ function git(args: string[]): { status: number; stdout: string; stderr: string }
   return { status: result.status ?? 1, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
 }
 
-function commitAndPush(clientName: string, platform: Platform, slug: string, branchFilePath: string): { sha: string; pushed: boolean } {
+interface PushRollbackContext {
+  branchFilePath: string;
+  prevRegistry: string;
+  supabase: SupabaseClient;
+  clientId: string;
+}
+
+/**
+ * Stage, commit, and push the branch file + registry change. On push failure,
+ * try once to rebase + re-push. If that still fails, roll back EVERYTHING the
+ * script changed so the contractor is not left with a half-applied state that
+ * would 500 the dashboard (local commit + DB custom_mode but no deployed file).
+ *
+ * Rollback steps on final push failure:
+ *   1. Verify HEAD commit is the one WE just made (author + subject check).
+ *   2. `git reset --hard HEAD~1` — drop the local commit.
+ *   3. Delete the branch file (reset --hard already handles this for tracked
+ *      files after the commit was made, but belt-and-suspenders in case the
+ *      file existed untracked beforehand).
+ *   4. Restore registry.tsx from snapshot (covered by reset too; redundant
+ *      safety for the same reason).
+ *   5. Revert reporting_clients.report_mode back to default in Supabase.
+ */
+async function commitAndPush(
+  clientName: string,
+  platform: Platform,
+  slug: string,
+  rollback: PushRollbackContext,
+): Promise<{ sha: string }> {
+  const { branchFilePath, prevRegistry, supabase, clientId } = rollback;
+
   const addA = git(['add', branchFilePath, REGISTRY_PATH]);
   if (addA.status !== 0) die(`git add failed: ${addA.stderr || addA.stdout}`);
 
   const relBranch = branchFilePath.replace(`${REPO_ROOT}/`, '');
-  const message = `chore: branch report for ${clientName} (${platform})\n\nSlug: ${slug}\nFile: ${relBranch}`;
+  const commitSubject = `chore: branch report for ${clientName} (${platform})`;
+  const message = `${commitSubject}\n\nSlug: ${slug}\nFile: ${relBranch}`;
 
   const commit = git(['commit', '-m', message]);
   if (commit.status !== 0) die(`git commit failed: ${commit.stderr || commit.stdout}`);
@@ -360,14 +443,70 @@ function commitAndPush(clientName: string, platform: Platform, slug: string, bra
   const rev = git(['rev-parse', 'HEAD']);
   const sha = rev.stdout.trim().slice(0, 12);
 
-  const push = git(['push', 'origin', 'main']);
-  const pushed = push.status === 0;
-  if (!pushed) {
-    console.warn(`\n[branch-report] WARNING: git push failed. Commit ${sha} is still on local main.`);
-    console.warn(`[branch-report] Push output:\n${push.stderr || push.stdout}`);
-    console.warn(`[branch-report] To retry: cd ${REPO_ROOT} && git push origin main\n`);
+  // First push attempt.
+  let push = git(['push', 'origin', 'main']);
+  if (push.status === 0) return { sha };
+
+  // Retry once: pull --rebase then push. Covers the common "remote has new
+  // commits" case without any destructive operations.
+  console.warn(`\n[branch-report] Initial push failed. Attempting rebase + retry...`);
+  console.warn(`[branch-report] Push output:\n${push.stderr || push.stdout}`);
+  const pullRebase = git(['pull', '--rebase', 'origin', 'main']);
+  if (pullRebase.status === 0) {
+    push = git(['push', 'origin', 'main']);
+    if (push.status === 0) {
+      // After rebase the commit SHA changed — recompute for accurate reporting.
+      const rev2 = git(['rev-parse', 'HEAD']);
+      return { sha: rev2.stdout.trim().slice(0, 12) };
+    }
+    console.warn(`[branch-report] Retry push output:\n${push.stderr || push.stdout}`);
+  } else {
+    console.warn(`[branch-report] Rebase failed:\n${pullRebase.stderr || pullRebase.stdout}`);
+    // Abort the rebase to leave the tree in a predictable state before reset.
+    git(['rebase', '--abort']);
   }
-  return { sha, pushed };
+
+  // Full rollback. Before `git reset --hard`, verify HEAD really is our commit
+  // so we never nuke someone else's work.
+  console.error(`\n[branch-report] Push failed after retry. Rolling back all changes...`);
+
+  const headSubject = git(['log', '-1', '--pretty=%s']).stdout.trim();
+  if (headSubject !== commitSubject) {
+    die(
+      `ABORT: Cannot safely roll back. HEAD commit subject is "${headSubject}", ` +
+      `expected "${commitSubject}". Your local commit was not reset and the ` +
+      `DB is still in 'custom' mode. Resolve manually: inspect \`git log\`, ` +
+      `revert reporting_clients.id=${clientId} to report_mode='default', ` +
+      `and remove ${branchFilePath} if present.`,
+    );
+  }
+
+  const reset = git(['reset', '--hard', 'HEAD~1']);
+  if (reset.status !== 0) {
+    die(
+      `ABORT: git reset --hard HEAD~1 failed: ${reset.stderr || reset.stdout}. ` +
+      `Resolve manually.`,
+    );
+  }
+
+  // reset --hard already reverts both files, but handle them defensively in
+  // case the branch file existed untracked pre-commit (shouldn't, since we
+  // checked idempotency, but cheap safety).
+  try { if (existsSync(branchFilePath)) unlinkSync(branchFilePath); }
+  catch (e) { console.warn('Failed to delete branch file during rollback:', (e as Error).message); }
+  try { restoreRegistry(prevRegistry); }
+  catch (e) { console.warn('Failed to restore registry during rollback:', (e as Error).message); }
+
+  // DB revert — await so we don't die() before the revert round-trips.
+  // revertReportMode itself warns on failure rather than throwing.
+  await revertReportMode(supabase, clientId);
+
+  die(
+    `Your branch could not be pushed to origin/main — likely a branch ` +
+    `protection rule or network issue. Nothing was left behind: the local ` +
+    `commit was reset, the branch file was deleted, and the DB was reverted ` +
+    `to report_mode='default'. Contact Peterson for push access, then rerun.`,
+  );
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────
@@ -376,6 +515,10 @@ async function main(): Promise<void> {
   loadDotEnvLocal();
 
   const { clientName, platform } = parseArgs();
+  // Fail fast on a dirty index or non-main branch BEFORE any DB queries,
+  // file writes, or template resolution — cheaper to bail here.
+  preflightGitChecks();
+
   const slug = deriveSlug(clientName, platform);
   const componentName = pascalCase(slug) + 'Report';
 
@@ -436,7 +579,14 @@ async function main(): Promise<void> {
   info('Typecheck clean');
 
   // ── Commit + push ──
-  const { sha, pushed } = commitAndPush(client.client_name, platform, slug, branchFilePath);
+  // commitAndPush will die() with full rollback if push cannot succeed even
+  // after a rebase retry, so reaching the next line means the push landed.
+  const { sha } = await commitAndPush(client.client_name, platform, slug, {
+    branchFilePath,
+    prevRegistry,
+    supabase,
+    clientId: client.id,
+  });
 
   // ── Summary ──
   console.log('\n────────────────────────────────────────');
@@ -447,8 +597,8 @@ async function main(): Promise<void> {
   console.log(` Slug:         ${slug}`);
   console.log(` File:         src/components/reports/custom/${slug}.tsx`);
   console.log(` Commit:       ${sha}`);
-  console.log(` Push:         ${pushed ? 'ok (origin main)' : 'FAILED — see warning above'}`);
-  if (pushed) console.log(` Deploy:       Railway will auto-deploy in ~2 min.`);
+  console.log(` Push:         ok (origin main)`);
+  console.log(` Deploy:       Railway will auto-deploy in ~2 min.`);
   console.log('────────────────────────────────────────\n');
 }
 

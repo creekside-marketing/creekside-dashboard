@@ -1,6 +1,20 @@
 'use client';
 
 /**
+ * SHARED TEMPLATE — DO NOT EDIT DIRECTLY.
+ *
+ * This component renders the report for EVERY client with
+ * client_type=lead_gen and platform=google that is on report_mode='default'.
+ * Editing this file will change the report for all those clients at once.
+ *
+ * To customize a specific client's report, run from the repo root:
+ *   npm run branch-report -- "<client name>" google
+ *
+ * This creates a standalone copy in src/components/reports/custom/
+ * that you can edit freely without affecting other clients.
+ */
+
+/**
  * LeadGenGoogleReport — Upgraded Lead Gen report for Google Ads clients.
  *
  * Replaces the original LeadGenReport with richer visualizations:

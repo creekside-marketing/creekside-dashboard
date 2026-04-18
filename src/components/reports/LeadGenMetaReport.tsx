@@ -1,6 +1,20 @@
 'use client';
 
 /**
+ * SHARED TEMPLATE — DO NOT EDIT DIRECTLY.
+ *
+ * This component renders the report for EVERY client with
+ * client_type=lead_gen and platform=meta that is on report_mode='default'.
+ * Editing this file will change the report for all those clients at once.
+ *
+ * To customize a specific client's report, run from the repo root:
+ *   npm run branch-report -- "<client name>" meta
+ *
+ * This creates a standalone copy in src/components/reports/custom/
+ * that you can edit freely without affecting other clients.
+ */
+
+/**
  * LeadGenMetaReport — Lead generation report for Meta Ads clients.
  *
  * Fetches campaign, account, ad, and demographic data from `/api/meta/insights`,
