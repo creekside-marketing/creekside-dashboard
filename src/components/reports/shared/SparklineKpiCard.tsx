@@ -29,6 +29,8 @@ interface SparklineKpiCardProps {
   sparklineData?: number[];
   /** Optional target value — rendered as a dashed reference line */
   target?: number;
+  /** Tailwind text color class for the value number. Defaults to text-slate-900. */
+  valueClassName?: string;
 }
 
 interface SparklinePoint {
@@ -46,6 +48,7 @@ export default function SparklineKpiCard({
   size = 'sm',
   sparklineData,
   target,
+  valueClassName = 'text-slate-900',
 }: SparklineKpiCardProps) {
   const isLarge = size === 'lg';
 
@@ -95,7 +98,7 @@ export default function SparklineKpiCard({
         {label}
       </p>
       <p
-        className={`font-bold text-slate-900 mt-1 tabular-nums ${
+        className={`font-bold ${valueClassName} mt-1 tabular-nums ${
           isLarge
             ? value.length > 12 ? 'text-xl' : value.length > 9 ? 'text-2xl' : 'text-3xl'
             : value.length > 10 ? 'text-base' : 'text-xl'

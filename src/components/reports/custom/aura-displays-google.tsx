@@ -187,19 +187,19 @@ export default function AuraDisplaysGoogleReport({ client, mode }: { client: Rep
       {!loading && !error && (<>
         {/* ── Executive Summary KPIs ──────────────────────────────────── */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-          <SparklineKpiCard label="Revenue" value={fmtMoney(totals.conversionValue)} change={kpi?.conversionValue.pct} changeDirection={kpi?.conversionValue.direction} changeSentiment="positive-up" size="lg" sparklineData={dailyData.map((d) => d.conversionValue)} />
-          <SparklineKpiCard label="ROAS" value={totals.roas > 0 ? `${totals.roas.toFixed(2)}x` : '--'} change={kpi?.roas.pct} changeDirection={kpi?.roas.direction} changeSentiment="positive-up" size="lg" sparklineData={dailyData.map((d) => d.roas)} target={4.0} />
-          <SparklineKpiCard label="Total Spend" value={fmtMoney(totals.cost)} change={kpi?.cost.pct} changeDirection={kpi?.cost.direction} changeSentiment="neutral" size="lg" sparklineData={dailyData.map((d) => d.cost)} />
-          <SparklineKpiCard label="Cost / Purchase" value={totals.conversions > 0 ? fmtMoney(totals.cpa) : '--'} change={kpi?.cpa.pct} changeDirection={kpi?.cpa.direction} changeSentiment="negative-up" size="lg" sparklineData={dailyData.map((d) => d.cpa)} />
-          <SparklineKpiCard label="AOV" value={totals.conversions > 0 ? fmtMoney(totals.aov) : '--'} change={kpi?.aov.pct} changeDirection={kpi?.aov.direction} changeSentiment="positive-up" size="lg" sparklineData={dailyData.map((d) => d.aov)} />
+          <SparklineKpiCard valueClassName="text-purple-600" label="Revenue" value={fmtMoney(totals.conversionValue)} change={kpi?.conversionValue.pct} changeDirection={kpi?.conversionValue.direction} changeSentiment="positive-up" size="lg" sparklineData={dailyData.map((d) => d.conversionValue)} />
+          <SparklineKpiCard valueClassName="text-purple-600" label="ROAS" value={totals.roas > 0 ? `${totals.roas.toFixed(2)}x` : '--'} change={kpi?.roas.pct} changeDirection={kpi?.roas.direction} changeSentiment="positive-up" size="lg" sparklineData={dailyData.map((d) => d.roas)} target={4.0} />
+          <SparklineKpiCard valueClassName="text-purple-600" label="Total Spend" value={fmtMoney(totals.cost)} change={kpi?.cost.pct} changeDirection={kpi?.cost.direction} changeSentiment="neutral" size="lg" sparklineData={dailyData.map((d) => d.cost)} />
+          <SparklineKpiCard valueClassName="text-purple-600" label="Cost / Purchase" value={totals.conversions > 0 ? fmtMoney(totals.cpa) : '--'} change={kpi?.cpa.pct} changeDirection={kpi?.cpa.direction} changeSentiment="negative-up" size="lg" sparklineData={dailyData.map((d) => d.cpa)} />
+          <SparklineKpiCard valueClassName="text-purple-600" label="AOV" value={totals.conversions > 0 ? fmtMoney(totals.aov) : '--'} change={kpi?.aov.pct} changeDirection={kpi?.aov.direction} changeSentiment="positive-up" size="lg" sparklineData={dailyData.map((d) => d.aov)} />
         </div>
 
         {/* ── Secondary KPIs ──────────────────────────────────────────── */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <SparklineKpiCard label="Purchases" value={fmt(totals.conversions)} change={kpi?.conversions.pct} changeDirection={kpi?.conversions.direction} changeSentiment="positive-up" size="sm" />
-          <SparklineKpiCard label="CTR" value={fmtPct(totals.ctr)} change={kpi?.ctr.pct} changeDirection={kpi?.ctr.direction} changeSentiment="positive-up" size="sm" />
-          <SparklineKpiCard label="Avg. CPC" value={fmtMoney(totals.cpc)} change={kpi?.cpc.pct} changeDirection={kpi?.cpc.direction} changeSentiment="negative-up" size="sm" />
-          <SparklineKpiCard label="Impressions" value={fmt(totals.impressions)} change={kpi?.impressions.pct} changeDirection={kpi?.impressions.direction} changeSentiment="positive-up" size="sm" />
+          <SparklineKpiCard valueClassName="text-purple-600" label="Purchases" value={fmt(totals.conversions)} change={kpi?.conversions.pct} changeDirection={kpi?.conversions.direction} changeSentiment="positive-up" size="sm" />
+          <SparklineKpiCard valueClassName="text-purple-600" label="CTR" value={fmtPct(totals.ctr)} change={kpi?.ctr.pct} changeDirection={kpi?.ctr.direction} changeSentiment="positive-up" size="sm" />
+          <SparklineKpiCard valueClassName="text-purple-600" label="Avg. CPC" value={fmtMoney(totals.cpc)} change={kpi?.cpc.pct} changeDirection={kpi?.cpc.direction} changeSentiment="negative-up" size="sm" />
+          <SparklineKpiCard valueClassName="text-purple-600" label="Impressions" value={fmt(totals.impressions)} change={kpi?.impressions.pct} changeDirection={kpi?.impressions.direction} changeSentiment="positive-up" size="sm" />
         </div>
 
         {/* ── Revenue vs Spend Chart ──────────────────────────────────── */}
@@ -212,7 +212,7 @@ export default function AuraDisplaysGoogleReport({ client, mode }: { client: Rep
 
         {/* ── Campaign Performance Table ──────────────────────────────── */}
         {campaigns.length > 0 && (
-          <BreakdownTable title="Campaign Performance" data={campaigns} columns={[
+          <BreakdownTable valueClassName="text-purple-600" title="Campaign Performance" data={campaigns} columns={[
             { key: 'name', label: 'Campaign' }, { key: 'type', label: 'Type' },
             { key: 'impressions', label: 'Impr.', align: 'right', format: numCol }, { key: 'clicks', label: 'Clicks', align: 'right', format: numCol },
             { key: 'ctr', label: 'CTR', align: 'right', format: pctCol }, { key: 'cost', label: 'Spend', align: 'right', format: moneyCol },
@@ -223,7 +223,7 @@ export default function AuraDisplaysGoogleReport({ client, mode }: { client: Rep
 
         {/* ── Top Keywords ────────────────────────────────────────────── */}
         {keywords.length > 0 && (
-          <BreakdownTable title="Top Keywords" data={keywords} columns={[
+          <BreakdownTable valueClassName="text-purple-600" title="Top Keywords" data={keywords} columns={[
             { key: 'keyword', label: 'Keyword' }, { key: 'impressions', label: 'Impr.', align: 'right', format: numCol },
             { key: 'clicks', label: 'Clicks', align: 'right', format: numCol }, { key: 'ctr', label: 'CTR', align: 'right', format: pctCol },
             { key: 'average_cpc', label: 'Avg. CPC', align: 'right', format: moneyCol }, { key: 'cost', label: 'Cost', align: 'right', format: moneyCol },
@@ -235,12 +235,12 @@ export default function AuraDisplaysGoogleReport({ client, mode }: { client: Rep
         {/* ── Demographics (2-col grid) ───────────────────────────────── */}
         {(ageData.length > 0 || genderData.length > 0) && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {ageData.length > 0 && <BreakdownTable title="Age Breakdown" data={ageData} columns={[
+            {ageData.length > 0 && <BreakdownTable valueClassName="text-purple-600" title="Age Breakdown" data={ageData} columns={[
               { key: 'age_range', label: 'Age' }, { key: 'impressions', label: 'Impr.', align: 'right', format: numCol },
               { key: 'clicks', label: 'Clicks', align: 'right', format: numCol }, { key: 'cost', label: 'Spend', align: 'right', format: moneyCol },
               { key: 'conversion_value', label: 'Revenue', align: 'right', format: moneyCol }, { key: 'conversions', label: 'Purchases', align: 'right', format: numCol },
             ]} />}
-            {genderData.length > 0 && <BreakdownTable title="Gender Breakdown" data={genderData} columns={[
+            {genderData.length > 0 && <BreakdownTable valueClassName="text-purple-600" title="Gender Breakdown" data={genderData} columns={[
               { key: 'gender', label: 'Gender' }, { key: 'impressions', label: 'Impr.', align: 'right', format: numCol },
               { key: 'clicks', label: 'Clicks', align: 'right', format: numCol }, { key: 'cost', label: 'Spend', align: 'right', format: moneyCol },
               { key: 'conversion_value', label: 'Revenue', align: 'right', format: moneyCol }, { key: 'conversions', label: 'Purchases', align: 'right', format: numCol },
@@ -250,7 +250,7 @@ export default function AuraDisplaysGoogleReport({ client, mode }: { client: Rep
 
         {/* ── Location ────────────────────────────────────────────────── */}
         {geoData.length > 0 && (
-          <BreakdownTable title="Location Breakdown" data={geoData} columns={[
+          <BreakdownTable valueClassName="text-purple-600" title="Location Breakdown" data={geoData} columns={[
             { key: 'city', label: 'City' }, { key: 'impressions', label: 'Impr.', align: 'right', format: numCol },
             { key: 'clicks', label: 'Clicks', align: 'right', format: numCol }, { key: 'ctr', label: 'CTR', align: 'right', format: pctCol },
             { key: 'cost', label: 'Spend', align: 'right', format: moneyCol }, { key: 'conversion_value', label: 'Revenue', align: 'right', format: moneyCol },
