@@ -8,11 +8,13 @@
  * CANNOT: Fall back to defaults — that logic lives in TabbedReport.
  *
  * == How to branch a client report ==
- * 1. Copy the default report (e.g. LeadGenGoogleReport.tsx) into this directory
- *    as [slug].tsx (e.g. integrity-naturopathics-meta.tsx)
- * 2. Add a dynamic import entry to the registry below
- * 3. UPDATE reporting_clients SET report_mode = 'custom', custom_report_slug = '[slug]' WHERE id = '[client-id]'
- * 4. Commit, push, deploy
+ * Run the CLI from the repo root:
+ *   npm run branch-report -- "<client name>" <google|meta>
+ *
+ * The script copies the right default template into this directory, renames
+ * the exported component, adds a registry entry below, flips report_mode to
+ * 'custom' in Supabase, typechecks, and commits + pushes to main.
+ * Idempotent: running it twice for the same (client, platform) is a no-op.
  *
  * == How to switch back to default ==
  * UPDATE reporting_clients SET report_mode = 'default' WHERE id = '[client-id]'
@@ -33,12 +35,13 @@ const Spinner = () => (
 );
 
 // ── Registry ──────────────────────────────────────────────────────────────
-// Add entries below when branching a client report.
-// Format: 'slug': dynamic(() => import('./slug'), { loading: Spinner })
+// Entries here are managed by `npm run branch-report` — prefer that over
+// hand-editing. Format: 'slug': dynamic(() => import('./slug'), { loading: Spinner })
 
 const registry: Record<string, ComponentType<ReportProps>> = {
-  // Example:
+  // Example (managed by npm run branch-report):
   // 'integrity-naturopathics-meta': dynamic(() => import('./integrity-naturopathics-meta'), { loading: Spinner }),
+  'aura-displays-google': dynamic(() => import('./aura-displays-google'), { loading: Spinner }),
 };
 
 export default registry;
