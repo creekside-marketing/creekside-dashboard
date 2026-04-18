@@ -17,8 +17,6 @@ interface BreakdownTableProps {
   columns: Column[];
   data: DataRow[];
   maxRows?: number;
-  /** Tailwind text color class for right-aligned (numeric) cells. Defaults to text-slate-700. */
-  valueClassName?: string;
 }
 
 function defaultFormat(value: unknown): string {
@@ -30,7 +28,7 @@ function defaultFormat(value: unknown): string {
   return String(value);
 }
 
-export default function BreakdownTable({ title, columns, data, maxRows = 10, valueClassName = 'text-slate-700' }: BreakdownTableProps) {
+export default function BreakdownTable({ title, columns, data, maxRows = 10 }: BreakdownTableProps) {
   const [sortKey, setSortKey] = useState<string>(columns.length > 1 ? columns[columns.length - 1].key : columns[0].key);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [expanded, setExpanded] = useState(false);
@@ -106,7 +104,7 @@ export default function BreakdownTable({ title, columns, data, maxRows = 10, val
                   <td
                     key={col.key}
                     className={`text-sm py-3 px-4 tabular-nums ${
-                      col.align === 'right' ? `text-right ${valueClassName}` : 'text-left text-slate-900 font-medium'
+                      col.align === 'right' ? 'text-right text-slate-700' : 'text-left text-slate-900 font-medium'
                     } ${idx === 0 && col.key === columns[0].key ? 'max-w-[300px] truncate' : ''}`}
                   >
                     {col.format ? col.format(row[col.key]) : defaultFormat(row[col.key])}
