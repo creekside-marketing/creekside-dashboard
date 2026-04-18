@@ -33,74 +33,49 @@ When editing reports, NEVER modify default report components in `src/components/
 
 ## Report Branching Workflow
 
-This is the process for creating per-client custom reports. When a contractor says "I want to edit [Client Name]'s report", follow these steps exactly.
+Per-client custom reports are created with the `branch-report` CLI. One command does everything: copies the right template, rewrites imports, registers the component, updates the DB, runs tsc, commits, and pushes to main.
 
-### Step 1: Identify the client and their current report type
+### Usage
 
-```sql
--- Run via Supabase MCP execute_sql
-SELECT id, client_name, platform, client_type, ad_account_id, report_mode, custom_report_slug
-FROM reporting_clients
-WHERE client_name ILIKE '%client name%';
+```bash
+npm run branch-report -- "<client name>" <google|meta>
 ```
 
-This tells you:
-- `client_type` + `platform` determines which default report to copy (e.g. `lead_gen` + `google` = `LeadGenGoogleReport.tsx`)
-- `report_mode` indicates whether they already have a custom report
-- If `report_mode` is already `'custom'`, the custom file already exists — just edit it directly
-
-### Step 2: Copy the default report
-
-Based on `client_type` + `platform`, copy the correct source file:
-
-| client_type | platform | Source file |
-|------------|----------|-------------|
-| lead_gen | google | `src/components/reports/LeadGenGoogleReport.tsx` |
-| lead_gen | meta | `src/components/reports/LeadGenMetaReport.tsx` |
-| ecom | google | `src/components/reports/EcomGoogleReport.tsx` |
-| ecom | meta | `src/components/reports/EcomMetaReport.tsx` |
-
-Copy it to: `src/components/reports/custom/[slug].tsx`
-
-The slug should be the client name lowercased, spaces replaced with hyphens, special characters removed, with the platform appended. Examples:
-- "Integrity Naturopathics" + meta = `integrity-naturopathics-meta`
-- "Perfect Parking" + google + segment "Asphalt" = `perfect-parking-asphalt-google`
-- "Bob's Plumbing" + google = `bobs-plumbing-google`
-
-### Step 3: Rename the exported component
-
-In the copied file, rename the default export function to something unique. Convention: `[ClientName][Platform]Report`.
-
-Example: `IntegrityNaturopathicsMetaReport`
-
-### Step 4: Register it
-
-Edit `src/components/reports/custom/registry.tsx`. Add a dynamic import entry:
-
-```tsx
-import dynamic from 'next/dynamic';
-// ... existing code ...
-
-const registry: Record<string, ComponentType<ReportProps>> = {
-  'integrity-naturopathics-meta': dynamic(() => import('./integrity-naturopathics-meta'), { loading: Spinner }),
-};
+Examples:
+```bash
+npm run branch-report -- "Aura Displays" google
+npm run branch-report -- "Fusion Dental Implants" meta
 ```
 
-### Step 5: Update the database
+### What it does
 
-```sql
-UPDATE reporting_clients
-SET report_mode = 'custom', custom_report_slug = 'integrity-naturopathics-meta'
-WHERE id = '[client-uuid]';
+1. Looks up the client in `reporting_clients` (substring ILIKE, platform-scoped). If zero or multiple matches, it prints suggestions and aborts.
+2. Derives slug: `<kebab-case-client-name>-<platform>` (e.g. `aura-displays-google`).
+3. Picks the right source template based on `client_type` + `platform`.
+4. Copies template to `src/components/reports/custom/<slug>.tsx`, renames the exported component to PascalCase, and rewrites `./X` imports to `../X`.
+5. Adds the registry entry to `src/components/reports/custom/registry.tsx`.
+6. Updates `reporting_clients` to `report_mode='custom'`, `custom_report_slug='<slug>'`.
+7. Runs `npx tsc --noEmit`. On failure, rolls back ALL changes (file, registry, DB) and exits.
+8. Commits with message `chore: branch report for <client> (<platform>)` and pushes to `origin/main`. Railway auto-deploys in ~2 min.
+
+### Idempotency
+
+Running the script twice for the same client+platform is a no-op. Never more than 1 branch per client+platform.
+
+### Safety features
+
+- **Pre-flight checks:** aborts if the git index has staged changes or if not on `main`.
+- **Full rollback on push failure:** tries `git pull --rebase` + retry once; if still failing, resets the local commit, deletes the branch file, restores the registry, and reverts the DB. Nothing left behind.
+- **Shared templates are CODEOWNERS-protected.** The 4 shared `*Report.tsx` files require Peterson review.
+- **Supabase service role required.** Script hard-errors if `SUPABASE_SERVICE_ROLE_KEY` is missing — no silent anon fallback.
+
+### First-time setup for contractors
+
+```bash
+cd /path/to/creekside-dashboard
+npm install                 # pulls tsx dev dep
+# .env.local must contain SUPABASE_SERVICE_ROLE_KEY + NEXT_PUBLIC_SUPABASE_URL
 ```
-
-### Step 6: Verify
-
-Run `npx tsc --noEmit` to check for type errors, then `npm run build` to verify the build passes.
-
-### Step 7: Commit and push
-
-The dashboard auto-deploys from GitHub via Railway. Push to `main` and the changes go live.
 
 ---
 
