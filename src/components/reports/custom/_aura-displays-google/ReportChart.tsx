@@ -71,7 +71,7 @@ export default function ReportChart({
           />
           <YAxis
             yAxisId="left"
-            tick={{ fontSize: 11, fill: '#F97316' }}
+            tick={{ fontSize: 11, fill: '#94a3b8' }}
             tickLine={false}
             axisLine={false}
             tickFormatter={formatY}
@@ -80,7 +80,7 @@ export default function ReportChart({
             <YAxis
               yAxisId="right"
               orientation="right"
-              tick={{ fontSize: 11, fill: '#F97316' }}
+              tick={{ fontSize: 11, fill: '#94a3b8' }}
               tickLine={false}
               axisLine={false}
               tickFormatter={formatYRight ?? formatY}
@@ -101,8 +101,7 @@ export default function ReportChart({
               const line = lines.find((l) => l.label === n || l.dataKey === n);
               const axis = line?.yAxisId ?? 'left';
               const fn = axis === 'right' && formatYRight ? formatYRight : formatY;
-              const formatted = fn ? fn(v) : v.toLocaleString();
-              return [<span style={{ color: '#F97316' }}>{formatted}</span>, n];
+              return fn ? [fn(v), n] : [v.toLocaleString(), n];
             }}
           />
           <Legend
