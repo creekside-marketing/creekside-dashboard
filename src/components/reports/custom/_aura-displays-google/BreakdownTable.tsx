@@ -99,13 +99,14 @@ export default function BreakdownTable({ title, columns, data, maxRows = 10 }: B
           <tbody>
             {displayed.map((row, idx) => (
               <tr key={idx} className="border-b border-slate-100 hover:bg-blue-50/50 transition-colors">
-                <td className="text-xs text-slate-400 py-3 px-4">{idx + 1}.</td>
+                <td className="text-xs py-3 px-4" style={{ color: '#F97316' }}>{idx + 1}.</td>
                 {columns.map((col) => (
                   <td
                     key={col.key}
                     className={`text-sm py-3 px-4 tabular-nums ${
-                      col.align === 'right' ? 'text-right text-slate-700' : 'text-left text-slate-900 font-medium'
+                      col.align === 'right' ? 'text-right' : 'text-left text-slate-900 font-medium'
                     } ${idx === 0 && col.key === columns[0].key ? 'max-w-[300px] truncate' : ''}`}
+                    style={col.align === 'right' ? { color: '#F97316' } : undefined}
                   >
                     {col.format ? col.format(row[col.key]) : defaultFormat(row[col.key])}
                   </td>
