@@ -1,10 +1,10 @@
 'use client';
 
 /**
- * ReportNotesTimeline — Bi-weekly report notes with pagination.
+ * ReportNotesTimeline — Report notes with create, archive, and pagination.
  *
- * Internal mode: Create new timestamped notes, view all past notes.
- * Public mode: View most recent note with prev/next navigation.
+ * Shows the "New Report" button, editor, timeline, and archive controls
+ * for all users (internal and public). Auth is enforced at the API layer.
  *
  * CANNOT: Delete notes — only archive (soft delete).
  */
@@ -24,19 +24,22 @@ interface Props {
   mode: 'internal' | 'public';
 }
 
+const NOTES_PER_PAGE = 5;
+
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
   });
 }
 
-export default function ReportNotesTimeline({ clientId, mode }: Props) {
+export default function ReportNotesTimeline({ clientId }: Props) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [showEditor, setShowEditor] = useState(false);
   const [newContent, setNewContent] = useState('');
   const [saving, setSaving] = useState(false);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [page, setPage] = useState(0);
+  const [saveError, setSaveError] = useState('');
 
   const fetchNotes = useCallback(async () => {
     try {
@@ -54,6 +57,7 @@ export default function ReportNotesTimeline({ clientId, mode }: Props) {
   const handleSave = async () => {
     if (!newContent.trim()) return;
     setSaving(true);
+    setSaveError('');
     try {
       const res = await fetch('/api/report-notes', {
         method: 'POST',
@@ -63,69 +67,35 @@ export default function ReportNotesTimeline({ clientId, mode }: Props) {
       if (res.ok) {
         setNewContent('');
         setShowEditor(false);
+        setPage(0);
         await fetchNotes();
+      } else {
+        setSaveError('Unable to save. Please try again.');
       }
-    } catch { /* silent */ }
+    } catch {
+      setSaveError('Unable to save. Please try again.');
+    }
     finally { setSaving(false); }
   };
 
   const handleArchive = async (noteId: string) => {
     try {
-      await fetch('/api/report-notes', {
+      const res = await fetch('/api/report-notes', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: noteId, archived: true }),
       });
-      await fetchNotes();
+      if (res.ok) {
+        await fetchNotes();
+      }
     } catch { /* silent */ }
   };
 
   if (loading) return null;
 
-  // -- Public mode: single note with prev/next pagination --
-  if (mode === 'public') {
-    if (notes.length === 0) {
-      return (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Notes</h2>
-          <p className="text-sm text-slate-400">No report notes available yet.</p>
-        </div>
-      );
-    }
-    const note = notes[currentIndex];
-    if (!note) return null;
+  const totalPages = Math.max(1, Math.ceil(notes.length / NOTES_PER_PAGE));
+  const pagedNotes = notes.slice(page * NOTES_PER_PAGE, (page + 1) * NOTES_PER_PAGE);
 
-    return (
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Notes</h2>
-          {notes.length > 1 && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setCurrentIndex(Math.min(currentIndex + 1, notes.length - 1))}
-                disabled={currentIndex >= notes.length - 1}
-                className="px-2 py-1 text-xs font-medium text-slate-500 hover:text-slate-700 disabled:text-slate-300 disabled:cursor-not-allowed transition-colors"
-              >
-                Older
-              </button>
-              <span className="text-xs text-slate-400">{currentIndex + 1} / {notes.length}</span>
-              <button
-                onClick={() => setCurrentIndex(Math.max(currentIndex - 1, 0))}
-                disabled={currentIndex <= 0}
-                className="px-2 py-1 text-xs font-medium text-slate-500 hover:text-slate-700 disabled:text-slate-300 disabled:cursor-not-allowed transition-colors"
-              >
-                Newer
-              </button>
-            </div>
-          )}
-        </div>
-        <div className="text-xs text-slate-400 mb-2">{formatDate(note.created_at)}</div>
-        <div className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{note.content}</div>
-      </div>
-    );
-  }
-
-  // -- Internal mode: editor + full list --
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
       <div className="flex items-center justify-between mb-4">
@@ -152,6 +122,9 @@ export default function ReportNotesTimeline({ clientId, mode }: Props) {
             rows={6}
             className="w-full border border-slate-200 rounded-xl p-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#2563eb] focus:border-transparent resize-y mb-3"
           />
+          {saveError && (
+            <p className="text-xs text-red-500 mb-2">{saveError}</p>
+          )}
           <div className="flex items-center gap-2">
             <button
               onClick={handleSave}
@@ -161,7 +134,7 @@ export default function ReportNotesTimeline({ clientId, mode }: Props) {
               {saving ? 'Saving...' : 'Save'}
             </button>
             <button
-              onClick={() => { setShowEditor(false); setNewContent(''); }}
+              onClick={() => { setShowEditor(false); setNewContent(''); setSaveError(''); }}
               className="px-4 py-2 rounded-lg text-sm font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
             >
               Cancel
@@ -170,27 +143,49 @@ export default function ReportNotesTimeline({ clientId, mode }: Props) {
         </div>
       )}
 
-      {notes.length === 0 ? (
+      {notes.length === 0 && !showEditor ? (
         <p className="text-sm text-slate-400">No report notes yet.</p>
-      ) : (
-        <div className="space-y-4">
-          {notes.map((note) => (
-            <div key={note.id} className="border-l-2 border-slate-200 pl-4">
-              <div className="flex items-center justify-between">
-                <div className="text-xs text-slate-400">{formatDate(note.created_at)}</div>
-                <button
-                  onClick={() => handleArchive(note.id)}
-                  className="text-xs text-slate-300 hover:text-red-400 transition-colors"
-                  title="Archive this note"
-                >
-                  Archive
-                </button>
+      ) : notes.length > 0 ? (
+        <>
+          <div className="space-y-4">
+            {pagedNotes.map((note) => (
+              <div key={note.id} className="border-l-2 border-slate-200 pl-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs text-slate-400">{formatDate(note.created_at)}</div>
+                  <button
+                    onClick={() => handleArchive(note.id)}
+                    className="text-xs text-slate-300 hover:text-red-400 transition-colors"
+                    title="Archive this note"
+                  >
+                    Archive
+                  </button>
+                </div>
+                <div className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed mt-1">{note.content}</div>
               </div>
-              <div className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed mt-1">{note.content}</div>
+            ))}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-3 mt-6 pt-4 border-t border-slate-100">
+              <button
+                onClick={() => setPage(Math.max(page - 1, 0))}
+                disabled={page <= 0}
+                className="px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 disabled:text-slate-300 disabled:cursor-not-allowed transition-colors"
+              >
+                Newer
+              </button>
+              <span className="text-xs text-slate-400">{page + 1} / {totalPages}</span>
+              <button
+                onClick={() => setPage(Math.min(page + 1, totalPages - 1))}
+                disabled={page >= totalPages - 1}
+                className="px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 disabled:text-slate-300 disabled:cursor-not-allowed transition-colors"
+              >
+                Older
+              </button>
             </div>
-          ))}
-        </div>
-      )}
+          )}
+        </>
+      ) : null}
     </div>
   );
 }

@@ -6,8 +6,10 @@
  * CANNOT: Access any authenticated routes or data beyond reporting_clients.
  */
 
+import { cookies } from 'next/headers';
 import { createServiceClient } from '@/lib/supabase';
 import ReportIndex from '@/components/reports/ReportIndex';
+import ReportGate from '@/components/reports/ReportGate';
 
 interface ReportingClient {
   id: string;
@@ -25,6 +27,13 @@ export const metadata = {
 export const dynamic = 'force-dynamic';
 
 export default async function ReportIndexPage() {
+  const cookieStore = await cookies();
+  const isAuthed = cookieStore.get('report_index_auth')?.value === 'true';
+
+  if (!isAuthed) {
+    return <ReportGate />;
+  }
+
   const supabase = createServiceClient();
 
   const { data: clients, error } = await supabase
