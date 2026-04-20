@@ -37,22 +37,38 @@ export default function ReportHeader({
   lastRefreshed,
   cooldownRemaining,
 }: ReportHeaderProps) {
-  const isMeta = platform?.toLowerCase() === 'meta';
+  const platformKey = platform?.toLowerCase();
+  const isOther = platformKey === 'other';
+  const isMeta = platformKey === 'meta';
   const cooldownMin = Math.floor(cooldownRemaining / 60000);
   const cooldownSec = Math.floor((cooldownRemaining % 60000) / 1000);
+
+  const badgeClasses = isOther
+    ? 'bg-red-100 text-red-800 ring-1 ring-inset ring-red-600/20'
+    : isMeta
+    ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-600/20'
+    : 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20';
+
+  const dotClasses = isOther
+    ? 'bg-red-500'
+    : isMeta
+    ? 'bg-blue-500'
+    : 'bg-emerald-500';
+
+  const badgeLabel = isOther
+    ? 'AI Agent'
+    : isMeta
+    ? 'Meta Ads'
+    : 'Google Ads';
 
   return (
     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div className="min-w-0">
         <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">{clientName}</h1>
-          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold ${
-            isMeta
-              ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-600/20'
-              : 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20'
-          }`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${isMeta ? 'bg-blue-500' : 'bg-emerald-500'}`} />
-            {isMeta ? 'Meta Ads' : 'Google Ads'}
+          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold ${badgeClasses}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${dotClasses}`} />
+            {badgeLabel}
           </span>
         </div>
         {lastRefreshed && (
