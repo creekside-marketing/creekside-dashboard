@@ -42,6 +42,7 @@ const registry: Record<string, ComponentType<ReportProps>> = {
   // Example (managed by npm run branch-report):
   // 'integrity-naturopathics-meta': dynamic(() => import('./integrity-naturopathics-meta'), { loading: Spinner }),
   'aura-displays-google': dynamic(() => import('./aura-displays-google'), { loading: Spinner }),
+  'chattanooga-skydiving-meta': dynamic(() => import('./chattanooga-skydiving-meta'), { loading: Spinner }),
 };
 
 export default registry;
