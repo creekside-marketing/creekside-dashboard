@@ -43,6 +43,7 @@ const registry: Record<string, ComponentType<ReportProps>> = {
   // 'integrity-naturopathics-meta': dynamic(() => import('./integrity-naturopathics-meta'), { loading: Spinner }),
   'aura-displays-google': dynamic(() => import('./aura-displays-google'), { loading: Spinner }),
   'chattanooga-skydiving-meta': dynamic(() => import('./chattanooga-skydiving-meta'), { loading: Spinner }),
+  'chattanooga-skydiving-other': dynamic(() => import('./chattanooga-skydiving-other'), { loading: Spinner }),
   'fusion-dental-implants-programmatic': dynamic(() => import('./fusion-dental-implants-programmatic'), { loading: Spinner }),
 };
 
