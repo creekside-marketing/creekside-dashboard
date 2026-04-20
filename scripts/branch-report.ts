@@ -3,7 +3,7 @@
  * branch-report.ts — Branch a client's report from the shared default template
  *                    into a standalone customizable file.
  *
- * Usage: npm run branch-report -- "<client name>" <google|meta>
+ * Usage: npm run branch-report -- "<client name>" <platform>
  *
  * CANNOT: Create more than one branch per (client, platform) — idempotency is mandatory.
  * CANNOT: Modify default report components under src/components/reports/*.tsx.
@@ -33,7 +33,8 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
-type Platform = 'google' | 'meta';
+type Platform = string;
+type KnownPlatform = 'google' | 'meta';
 type ClientType = 'lead_gen' | 'ecom';
 
 interface ReportingClientRow {
@@ -58,7 +59,7 @@ const CUSTOM_DIR = join(REPORTS_DIR, 'custom');
 const REGISTRY_PATH = join(CUSTOM_DIR, 'registry.tsx');
 const ENV_LOCAL = join(REPO_ROOT, '.env.local');
 
-const TEMPLATES: Record<`${ClientType}-${Platform}`, TemplateConfig> = {
+const TEMPLATES: Record<`${ClientType}-${KnownPlatform}`, TemplateConfig> = {
   'lead_gen-google': { filename: 'LeadGenGoogleReport.tsx', componentName: 'LeadGenGoogleReport' },
   'lead_gen-meta':   { filename: 'LeadGenMetaReport.tsx',   componentName: 'LeadGenMetaReport' },
   'ecom-google':     { filename: 'EcomGoogleReport.tsx',    componentName: 'EcomGoogleReport' },
@@ -132,13 +133,11 @@ function parseArgs(): { clientName: string; platform: Platform; force: boolean }
   const force = raw.includes('--force');
   const args = raw.filter(a => a !== '--force');
   if (args.length !== 2) {
-    die('Usage: npm run branch-report -- "<client name>" <google|meta> [--force]');
+    die('Usage: npm run branch-report -- "<client name>" <platform> [--force]');
   }
   const [clientName, platformRaw] = args;
   const platform = platformRaw.toLowerCase();
-  if (platform !== 'google' && platform !== 'meta') {
-    die(`Platform must be "google" or "meta" (got "${platformRaw}")`);
-  }
+  if (!platform.trim()) die('Platform cannot be empty');
   if (!clientName.trim()) die('Client name cannot be empty');
   return { clientName: clientName.trim(), platform, force };
 }
@@ -264,10 +263,15 @@ function branchFileExists(slug: string): boolean {
 
 function resolveTemplate(client: ReportingClientRow, platform: Platform): TemplateConfig {
   if (!client.client_type) die(`Client "${client.client_name}" has no client_type — cannot pick template`);
-  const key = `${client.client_type}-${platform}` as const;
+  const key = `${client.client_type}-${platform}` as `${ClientType}-${KnownPlatform}`;
   const tmpl = TEMPLATES[key];
-  if (!tmpl) die(`No template mapped for (${client.client_type}, ${platform})`);
-  return tmpl;
+  if (tmpl) return tmpl;
+  // Fallback: for non-standard platforms, use the google template for this client_type
+  const fallbackKey = `${client.client_type}-google` as `${ClientType}-${KnownPlatform}`;
+  const fallback = TEMPLATES[fallbackKey];
+  if (!fallback) die(`No template mapped for (${client.client_type}, ${platform}) and google fallback also missing`);
+  info(`  No dedicated template for "${platform}" — using ${fallback.filename} as base`);
+  return fallback;
 }
 
 /**
@@ -328,6 +332,7 @@ function deepBranchTemplate(
   template: TemplateConfig,
   slug: string,
   newComponentName: string,
+  platform: Platform,
 ): { mainFile: string; scopedDir: string } {
   const templateAbs = join(REPORTS_DIR, template.filename);
   if (!existsSync(templateAbs)) die(`Template not found: ${templateAbs}`);
@@ -417,7 +422,7 @@ function deepBranchTemplate(
       ` * Branched from ${template.filename} on ${today}.\n` +
       ` * Standalone per-client fork — upstream template changes do NOT auto-propagate.\n` +
       ` * To re-sync from the latest template, re-run:\n` +
-      ` *   npm run branch-report -- "<client>" ${/-google$/.test(slug) ? 'google' : 'meta'} --force\n` +
+      ` *   npm run branch-report -- "<client>" ${platform} --force\n` +
       ` */\n`;
 
     // Insert the header AFTER any 'use client' directive so directive remains
@@ -739,7 +744,7 @@ async function main(): Promise<void> {
   info(`Template: ${template.filename}`);
   info(`  → main: custom/${slug}.tsx (component ${componentName})`);
   info(`  → deps: custom/_${slug}/`);
-  const { mainFile, scopedDir } = deepBranchTemplate(template, slug, componentName);
+  const { mainFile, scopedDir } = deepBranchTemplate(template, slug, componentName, platform);
 
   // ── Registry ──
   const { previousContents: prevRegistry } = addRegistryEntry(slug);
