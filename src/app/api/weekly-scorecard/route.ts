@@ -8,27 +8,13 @@ export async function GET() {
     // Auto-generate current week's snapshot via DB function
     await supabase.rpc('generate_weekly_snapshot');
 
-    // Get current MRR from reporting_clients for goal tracking
+    // Get current MRR by summing each client's actual monthly_revenue
     const { data: clients } = await supabase
       .from('reporting_clients')
-      .select('client_name, platform, monthly_budget')
+      .select('monthly_revenue')
       .eq('status', 'active');
 
-    const clientBudgets: Record<string, { total: number; platforms: Set<string> }> = {};
-    for (const row of clients ?? []) {
-      if (!clientBudgets[row.client_name]) {
-        clientBudgets[row.client_name] = { total: 0, platforms: new Set() };
-      }
-      clientBudgets[row.client_name].total += row.monthly_budget ?? 0;
-      if (row.platform) {
-        clientBudgets[row.client_name].platforms.add(row.platform.toLowerCase());
-      }
-    }
-
-    let currentMRR = 0;
-    for (const info of Object.values(clientBudgets)) {
-      currentMRR += calcFee(info.total, info.platforms.size);
-    }
+    const currentMRR = (clients ?? []).reduce((sum, c) => sum + (c.monthly_revenue ?? 0), 0);
 
     // MRR Goal: $50K by 6/30/26
     const targetMRR = 50000;
@@ -83,31 +69,3 @@ export async function GET() {
   }
 }
 
-function calcFee(totalAdSpend: number, platformCount: number): number {
-  if (totalAdSpend <= 0) return 0;
-  let fee = 0;
-  let remaining = totalAdSpend;
-
-  const t1 = Math.min(remaining, 15000);
-  fee += t1 * 0.20;
-  remaining -= t1;
-
-  if (remaining > 0) {
-    const t2 = Math.min(remaining, 15000);
-    fee += t2 * 0.15;
-    remaining -= t2;
-  }
-
-  if (remaining > 0) {
-    const t3 = Math.min(remaining, 15000);
-    fee += t3 * 0.10;
-    remaining -= t3;
-  }
-
-  if (remaining > 0) {
-    fee += remaining * 0.05;
-  }
-
-  const minimum = platformCount >= 2 ? 2000 : 1000;
-  return Math.max(fee, minimum);
-}
