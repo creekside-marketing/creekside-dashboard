@@ -69,15 +69,23 @@ function formatInteger(value: number): string {
 }
 
 function PlatformBadge({ platform }: { platform: string }) {
-  const isMeta = platform?.toLowerCase() === 'meta';
-  return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold ${
-      isMeta
+  const lower = platform?.toLowerCase();
+  const isMeta = lower === 'meta';
+  const isOther = lower === 'other';
+  const isProgrammatic = lower === 'programmatic';
+  const badgeStyles = isOther
+    ? 'bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/20'
+    : isProgrammatic
+      ? 'bg-yellow-50 text-yellow-700 ring-1 ring-inset ring-yellow-600/20'
+      : isMeta
         ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-600/20'
-        : 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20'
-    }`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${isMeta ? 'bg-blue-500' : 'bg-emerald-500'}`} />
-      {isMeta ? 'Meta' : 'Google'}
+        : 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20';
+  const dotColor = isOther ? 'bg-red-500' : isProgrammatic ? 'bg-yellow-500' : isMeta ? 'bg-blue-500' : 'bg-emerald-500';
+  const label = isOther ? 'AI Agent' : isProgrammatic ? 'Programmatic Ads' : isMeta ? 'Meta' : 'Google';
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold ${badgeStyles}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
+      {label}
     </span>
   );
 }
@@ -1695,12 +1703,7 @@ export default function ClientTable() {
                           ) : null}
                         </td>
                         <td className="py-3 px-6">
-                          <span className={`inline-flex items-center gap-1 text-xs font-medium ${
-                            client.platform === 'meta' ? 'text-blue-600' : 'text-emerald-600'
-                          }`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${client.platform === 'meta' ? 'bg-blue-500' : 'bg-emerald-500'}`} />
-                            {client.platform === 'meta' ? 'Meta' : 'Google'}
-                          </span>
+                          <PlatformBadge platform={client.platform} />
                         </td>
                         <td className="py-3 px-6 text-right text-sm tabular-nums text-slate-700">
                           {rev > 0 ? `$${rev.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '--'}
