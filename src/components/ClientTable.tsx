@@ -1215,13 +1215,15 @@ export default function ClientTable() {
     const uniqueClients = new Set(activeFiltered.map(c => c.client_name)).size;
     const googleCount = activeFiltered.filter(c => c.platform === 'google').length;
     const metaCount = activeFiltered.filter(c => c.platform === 'meta').length;
+    const otherCount = activeFiltered.filter(c => c.platform !== 'google' && c.platform !== 'meta').length;
     const totalEstRevenue = activeFiltered.reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
     const googleRevenue = activeFiltered.filter(c => c.platform === 'google').reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
     const metaRevenue = activeFiltered.filter(c => c.platform === 'meta').reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
+    const otherRevenue = activeFiltered.filter(c => c.platform !== 'google' && c.platform !== 'meta').reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
     const totalOperatorCost = operatorCosts?.totals.operator_cost ?? 0;
     const profit = totalEstRevenue - totalOperatorCost;
     const marginPct = totalEstRevenue > 0 ? Math.round((profit / totalEstRevenue) * 10000) / 100 : 0;
-    return { uniqueClients, googleCount, metaCount, total: activeFiltered.length, totalEstRevenue, googleRevenue, metaRevenue, totalOperatorCost, profit, marginPct };
+    return { uniqueClients, googleCount, metaCount, otherCount, total: activeFiltered.length, totalEstRevenue, googleRevenue, metaRevenue, otherRevenue, totalOperatorCost, profit, marginPct };
   }, [filtered, calculatedRevenue, operatorCosts]);
 
   // ── Render helpers ──────────────────────────────────────────────────
@@ -1290,7 +1292,7 @@ export default function ClientTable() {
   return (
     <div className="space-y-6">
       {/* Summary Stats */}
-      <div className="grid grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-3 lg:grid-cols-7 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
           <p className="text-sm font-medium text-slate-500">Active Clients</p>
           <p className="text-2xl font-bold text-slate-900 mt-1">{stats.uniqueClients}</p>
@@ -1323,6 +1325,11 @@ export default function ClientTable() {
           <p className="text-sm font-medium text-slate-500">Meta Revenue</p>
           <p className="text-2xl font-bold text-blue-600 mt-1">{formatCurrency(stats.metaRevenue)}</p>
           <p className="text-xs text-slate-400 mt-0.5">{stats.metaCount} accounts</p>
+        </div>
+        <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
+          <p className="text-sm font-medium text-slate-500">Other Revenue</p>
+          <p className="text-2xl font-bold text-amber-600 mt-1">{formatCurrency(stats.otherRevenue)}</p>
+          <p className="text-xs text-slate-400 mt-0.5">{stats.otherCount} accounts</p>
         </div>
       </div>
 
@@ -1674,7 +1681,6 @@ export default function ClientTable() {
                   <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Proj. Cost (75%)</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Manager</th>
                   <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Budget</th>
-                  <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Spend</th>
                 </tr>
               </thead>
               <tbody>
@@ -1716,9 +1722,6 @@ export default function ClientTable() {
                         </td>
                         <td className="py-3 px-6 text-right text-sm tabular-nums text-slate-700">
                           {client.monthly_budget != null ? `$${Number(client.monthly_budget).toLocaleString()}` : '--'}
-                        </td>
-                        <td className="py-3 px-6 text-right text-sm tabular-nums text-slate-700">
-                          {liveSpend != null ? `$${liveSpend.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '--'}
                         </td>
                       </tr>
                     );
