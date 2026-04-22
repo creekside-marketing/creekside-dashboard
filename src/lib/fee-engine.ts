@@ -24,6 +24,7 @@ export interface FeeConfigFixed {
 export interface FeeConfigTiered {
   type: 'tiered';
   minimum?: number;
+  minimum_waiver_threshold?: number;
   tiers: Array<{ up_to: number | null; rate: number }>;
   scope: 'total' | 'per_platform';
 }
@@ -101,14 +102,18 @@ export function calculatePlatformRevenue(
     }
 
     case 'tiered': {
+      const waiverMet = feeConfig.minimum_waiver_threshold != null && thisPlatformSpend >= feeConfig.minimum_waiver_threshold;
+      const effectiveMin = waiverMet ? 0 : (feeConfig.minimum ?? 0);
       if (feeConfig.scope === 'per_platform') {
         const raw = calcTieredFee(thisPlatformSpend, feeConfig.tiers);
-        return Math.max(raw, feeConfig.minimum ?? 0);
+        return Math.max(raw, effectiveMin);
       }
       // scope === "total": calculate on combined spend, split proportionally
+      const totalWaiverMet = feeConfig.minimum_waiver_threshold != null && totalClientSpend >= feeConfig.minimum_waiver_threshold;
+      const totalEffectiveMin = totalWaiverMet ? 0 : (feeConfig.minimum ?? 0);
       const totalFee = Math.max(
         calcTieredFee(totalClientSpend, feeConfig.tiers),
-        feeConfig.minimum ?? 0,
+        totalEffectiveMin,
       );
       if (totalClientSpend <= 0) return 0;
       return totalFee * proportionalShare(thisPlatformSpend, totalClientSpend);
