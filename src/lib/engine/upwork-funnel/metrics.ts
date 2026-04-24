@@ -2,6 +2,7 @@ import type {
   UpworkJob,
   FunnelMetrics,
   MonthlyDataPoint,
+  WeeklyDataPoint,
   ScriptPerformanceRow,
   HoursAfterPostBucket,
   BreakdownRow,
@@ -157,6 +158,63 @@ export function computeHoursAfterPostBuckets(jobs: UpworkJob[]): HoursAfterPostB
       winRate: safeDiv(group.filter((j) => j.won).length, total),
     };
   });
+}
+
+/* ── Weekly trend ── */
+
+/**
+ * Groups jobs by ISO week (Monday start) and computes per-week counts
+ * and stage-to-stage conversion rates. Excludes the current incomplete week.
+ */
+export function computeWeeklyTrend(jobs: UpworkJob[]): WeeklyDataPoint[] {
+  const byWeek = new Map<string, UpworkJob[]>();
+
+  for (const job of jobs) {
+    if (!job.application_date) continue;
+    const d = new Date(job.application_date + 'T00:00:00');
+    const day = d.getDay();
+    const monday = new Date(d);
+    monday.setDate(d.getDate() - ((day + 6) % 7));
+    const key = monday.toISOString().slice(0, 10);
+    const arr = byWeek.get(key) ?? [];
+    arr.push(job);
+    byWeek.set(key, arr);
+  }
+
+  // Find current week's Monday to exclude incomplete week
+  const now = new Date();
+  const nowDay = now.getDay();
+  const currentMonday = new Date(now);
+  currentMonday.setDate(now.getDate() - ((nowDay + 6) % 7));
+  const currentWeekKey = currentMonday.toISOString().slice(0, 10);
+
+  return Array.from(byWeek.entries())
+    .filter(([weekOf]) => weekOf < currentWeekKey)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([weekOf, group]) => {
+      const d = new Date(weekOf + 'T00:00:00');
+      const m = d.getMonth() + 1;
+      const day = d.getDate();
+      const y = String(d.getFullYear()).slice(2);
+      const applied = group.length;
+      const viewed = group.filter((j) => j.viewed).length;
+      const messaged = group.filter((j) => j.messaged).length;
+      const salesCalls = group.filter((j) => j.sales_call).length;
+      const won = group.filter((j) => j.won).length;
+      return {
+        weekOf,
+        weekLabel: `${m}/${day}/${y}`,
+        applied,
+        viewed,
+        messaged,
+        salesCalls,
+        won,
+        viewRate: safeDiv(viewed, applied) * 100,
+        viewsToReplies: safeDiv(messaged, viewed) * 100,
+        repliesToCalls: safeDiv(salesCalls, messaged) * 100,
+        callsToClients: safeDiv(won, salesCalls) * 100,
+      };
+    });
 }
 
 /* ── Generic breakdown (source type, profile, business type, platform) ── */

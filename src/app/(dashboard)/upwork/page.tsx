@@ -12,7 +12,7 @@ import type {
   HoursAfterPostBucket, BreakdownRow,
 } from '@/lib/types/upwork-funnel';
 import {
-  applyFilters, computeFunnelMetrics, computeMonthlyTrend,
+  applyFilters, computeFunnelMetrics, computeMonthlyTrend, computeWeeklyTrend,
   computeScriptPerformance, computeHoursAfterPostBuckets, computeBreakdown,
 } from '@/lib/engine/upwork-funnel';
 
@@ -285,6 +285,8 @@ export default function UpworkFunnelPage() {
   const sourceTypeBreakdown = useMemo(() => computeBreakdown(sheetJobs, (j) => j.source_type ?? 'Unknown'), [sheetJobs]);
   const businessTypeBreakdown = useMemo(() => computeBreakdown(sheetJobs, (j) => j.business_type ?? 'Unknown'), [sheetJobs]);
   const platformBreakdown = useMemo(() => computeBreakdown(sheetJobs, (j) => j.platform ?? 'Unknown'), [sheetJobs]);
+  // Weekly trend uses sheetJobs (excludes synthetic lead- entries) to match spreadsheet data
+  const weeklyTrend = useMemo(() => computeWeeklyTrend(sheetJobs), [sheetJobs]);
 
   const weeklyComparison = useMemo(() => {
     const weeks = [getWeekRange(1), getWeekRange(2)];
@@ -471,6 +473,62 @@ export default function UpworkFunnelPage() {
           {upworkLeads.length > 0 && ` · ${upworkLeads.length} ClickUp leads`}
         </p>
       </div>
+
+      {/* Weekly Trend Charts */}
+      {weeklyTrend.length > 0 && (
+        <div className="space-y-6">
+          {/* Chart 1: Funnel & Drop-off Tracker (stage-to-stage %) */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <h3 className="text-sm font-semibold text-slate-900 mb-4">Upwork Funnel and Drop-off Tracker</h3>
+            <ResponsiveContainer width="100%" height={320}>
+              <ComposedChart data={weeklyTrend} margin={{ left: 0, right: 0, top: 0, bottom: 40 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="weekLabel" tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} angle={-45} textAnchor="end" height={60} interval={Math.max(0, Math.floor(weeklyTrend.length / 20))} />
+                <YAxis domain={[0, 100]} tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} />
+                <Tooltip contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: 12 }} formatter={(v) => `${Number(v).toFixed(1)}%`} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Line type="monotone" dataKey="viewRate" stroke="#3B82F6" strokeWidth={2} dot={false} name="Applications" />
+                <Line type="monotone" dataKey="viewsToReplies" stroke="#EF4444" strokeWidth={2} dot={false} name="Views to replies" />
+                <Line type="monotone" dataKey="repliesToCalls" stroke="#F59E0B" strokeWidth={2} dot={false} name="Replies to calls" />
+                <Line type="monotone" dataKey="callsToClients" stroke="#22C55E" strokeWidth={2} dot={false} name="Calls to clients" />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Chart 2: Jobs Applied To & Applications Viewed (raw counts) */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <h3 className="text-sm font-semibold text-slate-900 mb-4">Jobs Applied To & Applications Viewed</h3>
+            <ResponsiveContainer width="100%" height={280}>
+              <ComposedChart data={weeklyTrend} margin={{ left: 0, right: 0, top: 0, bottom: 40 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="weekLabel" tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} angle={-45} textAnchor="end" height={60} interval={Math.max(0, Math.floor(weeklyTrend.length / 20))} />
+                <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Line type="monotone" dataKey="applied" stroke="#3B82F6" strokeWidth={2} dot={false} name="Jobs applied to" />
+                <Line type="monotone" dataKey="viewed" stroke="#EF4444" strokeWidth={2} dot={false} name="Applications viewed" />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Chart 3: Replies Received & Calls Booked & Clients Won (raw counts) */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <h3 className="text-sm font-semibold text-slate-900 mb-4">Replies Received & Calls Booked & Clients Won</h3>
+            <ResponsiveContainer width="100%" height={280}>
+              <ComposedChart data={weeklyTrend} margin={{ left: 0, right: 0, top: 0, bottom: 40 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="weekLabel" tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} angle={-45} textAnchor="end" height={60} interval={Math.max(0, Math.floor(weeklyTrend.length / 20))} />
+                <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Line type="monotone" dataKey="messaged" stroke="#22C55E" strokeWidth={2} dot={false} name="Replies received" />
+                <Line type="monotone" dataKey="salesCalls" stroke="#FACC15" strokeWidth={2} dot={false} name="Calls booked" />
+                <Line type="monotone" dataKey="won" stroke="#F97316" strokeWidth={2} dot={false} name="Clients won" />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
 
       {/* Weekly Comparison */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">

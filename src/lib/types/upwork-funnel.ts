@@ -110,6 +110,20 @@ export interface BreakdownRow {
   winRate: number;
 }
 
+export interface WeeklyDataPoint {
+  weekOf: string;        // ISO date of Monday
+  weekLabel: string;     // e.g. "8/4/25"
+  applied: number;
+  viewed: number;
+  messaged: number;
+  salesCalls: number;
+  won: number;
+  viewRate: number;          // viewed / applied * 100
+  viewsToReplies: number;   // messaged / viewed * 100
+  repliesToCalls: number;   // salesCalls / messaged * 100
+  callsToClients: number;   // won / salesCalls * 100
+}
+
 export interface UpworkFunnelApiResponse {
   upworkJobs: UpworkJob[];
   upworkLeads: UpworkLead[];
