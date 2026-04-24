@@ -285,9 +285,9 @@ export default function UpworkFunnelPage() {
   const sourceTypeBreakdown = useMemo(() => computeBreakdown(sheetJobs, (j) => j.source_type ?? 'Unknown'), [sheetJobs]);
   const businessTypeBreakdown = useMemo(() => computeBreakdown(sheetJobs, (j) => j.business_type ?? 'Unknown'), [sheetJobs]);
   const platformBreakdown = useMemo(() => computeBreakdown(sheetJobs, (j) => j.platform ?? 'Unknown'), [sheetJobs]);
-  // Weekly trend uses sheetJobs (excludes synthetic lead- entries) to match spreadsheet data
+  // Weekly trend uses enrichedJobs (includes ClickUp leads) to match weekly comparison table
   // Slice to last 26 weeks (~6 months)
-  const weeklyTrend = useMemo(() => computeWeeklyTrend(sheetJobs).slice(-26), [sheetJobs]);
+  const weeklyTrend = useMemo(() => computeWeeklyTrend(enrichedJobs).slice(-26), [enrichedJobs]);
 
   const weeklyComparison = useMemo(() => {
     const weeks = [getWeekRange(1), getWeekRange(2)];
@@ -486,12 +486,19 @@ export default function UpworkFunnelPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="weekLabel" tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} angle={-45} textAnchor="end" height={60} interval={Math.max(0, Math.floor(weeklyTrend.length / 20))} />
                 <YAxis domain={[0, 100]} tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} />
-                <Tooltip contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: 12 }} labelFormatter={(l) => `Week of ${l}`} formatter={(v) => `${Number(v).toFixed(1)}%`} />
+                <Tooltip
+                  contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: 12 }}
+                  labelFormatter={(_l, payload) => {
+                    const wl = payload?.[0]?.payload?.weekLabel;
+                    return wl ? `Week of ${wl}` : '';
+                  }}
+                  formatter={(v) => `${Number(v).toFixed(1)}%`}
+                />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Line type="monotone" dataKey="viewRate" stroke="#3B82F6" strokeWidth={2} dot={false} name="Applications" />
-                <Line type="monotone" dataKey="viewsToReplies" stroke="#EF4444" strokeWidth={2} dot={false} name="Views to replies" />
-                <Line type="monotone" dataKey="repliesToCalls" stroke="#F59E0B" strokeWidth={2} dot={false} name="Replies to calls" />
-                <Line type="monotone" dataKey="callsToClients" stroke="#22C55E" strokeWidth={2} dot={false} name="Calls to clients" />
+                <Line type="monotone" dataKey="viewRate" stroke="#3B82F6" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="Applications" />
+                <Line type="monotone" dataKey="viewsToReplies" stroke="#EF4444" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="Views to replies" />
+                <Line type="monotone" dataKey="repliesToCalls" stroke="#F59E0B" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="Replies to calls" />
+                <Line type="monotone" dataKey="callsToClients" stroke="#22C55E" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="Calls to clients" />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -504,10 +511,16 @@ export default function UpworkFunnelPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="weekLabel" tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} angle={-45} textAnchor="end" height={60} interval={Math.max(0, Math.floor(weeklyTrend.length / 20))} />
                 <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: 12 }} labelFormatter={(l) => `Week of ${l}`} />
+                <Tooltip
+                  contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: 12 }}
+                  labelFormatter={(_l, payload) => {
+                    const wl = payload?.[0]?.payload?.weekLabel;
+                    return wl ? `Week of ${wl}` : '';
+                  }}
+                />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Line type="monotone" dataKey="applied" stroke="#3B82F6" strokeWidth={2} dot={false} name="Jobs applied to" />
-                <Line type="monotone" dataKey="viewed" stroke="#EF4444" strokeWidth={2} dot={false} name="Applications viewed" />
+                <Line type="monotone" dataKey="applied" stroke="#3B82F6" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="Jobs applied to" />
+                <Line type="monotone" dataKey="viewed" stroke="#EF4444" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="Applications viewed" />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -520,11 +533,17 @@ export default function UpworkFunnelPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="weekLabel" tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} angle={-45} textAnchor="end" height={60} interval={Math.max(0, Math.floor(weeklyTrend.length / 20))} />
                 <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: 12 }} labelFormatter={(l) => `Week of ${l}`} />
+                <Tooltip
+                  contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: 12 }}
+                  labelFormatter={(_l, payload) => {
+                    const wl = payload?.[0]?.payload?.weekLabel;
+                    return wl ? `Week of ${wl}` : '';
+                  }}
+                />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Line type="monotone" dataKey="messaged" stroke="#22C55E" strokeWidth={2} dot={false} name="Replies received" />
-                <Line type="monotone" dataKey="salesCalls" stroke="#FACC15" strokeWidth={2} dot={false} name="Calls booked" />
-                <Line type="monotone" dataKey="won" stroke="#F97316" strokeWidth={2} dot={false} name="Clients won" />
+                <Line type="monotone" dataKey="messaged" stroke="#22C55E" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="Replies received" />
+                <Line type="monotone" dataKey="salesCalls" stroke="#FACC15" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="Calls booked" />
+                <Line type="monotone" dataKey="won" stroke="#F97316" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="Clients won" />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
