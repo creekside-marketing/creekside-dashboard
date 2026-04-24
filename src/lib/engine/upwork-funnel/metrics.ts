@@ -18,6 +18,14 @@ function avg(values: number[]): number {
   return values.length === 0 ? 0 : values.reduce((a, b) => a + b, 0) / values.length;
 }
 
+/** Format a Date as YYYY-MM-DD in local time (avoids UTC shift from toISOString) */
+function localDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 /* ── Overall funnel ── */
 
 /**
@@ -175,7 +183,7 @@ export function computeWeeklyTrend(jobs: UpworkJob[]): WeeklyDataPoint[] {
     const day = d.getDay();
     const monday = new Date(d);
     monday.setDate(d.getDate() - ((day + 6) % 7));
-    const key = monday.toISOString().slice(0, 10);
+    const key = localDateStr(monday);
     const arr = byWeek.get(key) ?? [];
     arr.push(job);
     byWeek.set(key, arr);
@@ -186,7 +194,7 @@ export function computeWeeklyTrend(jobs: UpworkJob[]): WeeklyDataPoint[] {
   const nowDay = now.getDay();
   const currentMonday = new Date(now);
   currentMonday.setDate(now.getDate() - ((nowDay + 6) % 7));
-  const currentWeekKey = currentMonday.toISOString().slice(0, 10);
+  const currentWeekKey = localDateStr(currentMonday);
 
   return Array.from(byWeek.entries())
     .filter(([weekOf]) => weekOf < currentWeekKey)

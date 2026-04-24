@@ -28,7 +28,10 @@ function formatDate(d: string | null): string {
 }
 
 function toISODate(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 const CONNECT_COST = 0.15;
@@ -486,14 +489,18 @@ export default function UpworkFunnelPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="weekLabel" tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} angle={-45} textAnchor="end" height={60} interval={Math.max(0, Math.floor(weeklyTrend.length / 20))} />
                 <YAxis domain={[0, 100]} tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} />
-                <Tooltip
-                  contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: 12 }}
-                  labelFormatter={(_l, payload) => {
-                    const wl = payload?.[0]?.payload?.weekLabel;
-                    return wl ? `Week of ${wl}` : '';
-                  }}
-                  formatter={(v) => `${Number(v).toFixed(1)}%`}
-                />
+                <Tooltip content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null;
+                  const data = payload[0].payload;
+                  return (
+                    <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-3 text-xs">
+                      <p className="font-semibold text-slate-900 mb-1.5">Week of {data.weekLabel}</p>
+                      {payload.map((entry: any) => (
+                        <p key={entry.dataKey} style={{ color: entry.color }}>{entry.name}: {Number(entry.value).toFixed(1)}%</p>
+                      ))}
+                    </div>
+                  );
+                }} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 <Line type="monotone" dataKey="viewRate" stroke="#3B82F6" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="Applications" />
                 <Line type="monotone" dataKey="viewsToReplies" stroke="#EF4444" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="Views to replies" />
@@ -511,13 +518,18 @@ export default function UpworkFunnelPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="weekLabel" tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} angle={-45} textAnchor="end" height={60} interval={Math.max(0, Math.floor(weeklyTrend.length / 20))} />
                 <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <Tooltip
-                  contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: 12 }}
-                  labelFormatter={(_l, payload) => {
-                    const wl = payload?.[0]?.payload?.weekLabel;
-                    return wl ? `Week of ${wl}` : '';
-                  }}
-                />
+                <Tooltip content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null;
+                  const data = payload[0].payload;
+                  return (
+                    <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-3 text-xs">
+                      <p className="font-semibold text-slate-900 mb-1.5">Week of {data.weekLabel}</p>
+                      {payload.map((entry: any) => (
+                        <p key={entry.dataKey} style={{ color: entry.color }}>{entry.name}: {entry.value}</p>
+                      ))}
+                    </div>
+                  );
+                }} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 <Line type="monotone" dataKey="applied" stroke="#3B82F6" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="Jobs applied to" />
                 <Line type="monotone" dataKey="viewed" stroke="#EF4444" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="Applications viewed" />
@@ -533,13 +545,18 @@ export default function UpworkFunnelPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="weekLabel" tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} angle={-45} textAnchor="end" height={60} interval={Math.max(0, Math.floor(weeklyTrend.length / 20))} />
                 <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <Tooltip
-                  contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: 12 }}
-                  labelFormatter={(_l, payload) => {
-                    const wl = payload?.[0]?.payload?.weekLabel;
-                    return wl ? `Week of ${wl}` : '';
-                  }}
-                />
+                <Tooltip content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null;
+                  const data = payload[0].payload;
+                  return (
+                    <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-3 text-xs">
+                      <p className="font-semibold text-slate-900 mb-1.5">Week of {data.weekLabel}</p>
+                      {payload.map((entry: any) => (
+                        <p key={entry.dataKey} style={{ color: entry.color }}>{entry.name}: {entry.value}</p>
+                      ))}
+                    </div>
+                  );
+                }} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 <Line type="monotone" dataKey="messaged" stroke="#22C55E" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="Replies received" />
                 <Line type="monotone" dataKey="salesCalls" stroke="#FACC15" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="Calls booked" />
