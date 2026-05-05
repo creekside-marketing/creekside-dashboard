@@ -210,8 +210,8 @@ export default function FinanceDashboard() {
 
       <p className="text-xs text-slate-500">
         Last month figures pull from <code>accounting_entries</code> (Square + Google Sheet sync).
-        This month projections start as a copy of last month and can be overridden inline.
-        Projected revenue currently mirrors last month — wire to live client revenue in a follow-up PR.
+        Projected revenue auto-pulls from active non-retainer clients (same source as the Clients tab tile).
+        Expense projections start as a copy of last month and can be overridden inline.
       </p>
     </div>
   );
