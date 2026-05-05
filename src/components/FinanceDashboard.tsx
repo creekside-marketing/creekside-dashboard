@@ -22,6 +22,8 @@ type FinanceData = {
   this_month: {
     month_date: string;
     projected_revenue: number;
+    projected_revenue_computed: number;
+    projected_revenue_overridden: boolean;
     projected_expenses_by_category: Record<string, CategoryProjection>;
     projected_total_expenses: number;
     projected_profit: number;
@@ -74,8 +76,14 @@ export default function FinanceDashboard() {
 
   const saveEdit = async () => {
     if (!editingCategory || !data) return;
+    // Allow blank input → cancel edit (do not save)
+    if (editValue.trim() === '') {
+      setEditingCategory(null);
+      return;
+    }
     const amount = parseFloat(editValue);
     if (Number.isNaN(amount) || amount < 0) {
+      alert(`Invalid amount: "${editValue}". Enter a non-negative number.`);
       setEditingCategory(null);
       return;
     }
@@ -150,9 +158,10 @@ export default function FinanceDashboard() {
                     {isEditing ? (
                       <input
                         autoFocus
-                        type="number"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
                         value={editValue}
+                        onFocus={e => e.currentTarget.select()}
                         onChange={e => setEditValue(e.target.value)}
                         onBlur={saveEdit}
                         onKeyDown={e => {
@@ -195,7 +204,33 @@ export default function FinanceDashboard() {
             <tr className="border-t border-slate-200">
               <td className="px-6 py-3 text-sm text-slate-900">Revenue</td>
               <td className="px-6 py-3 text-right text-sm text-slate-900">{formatCurrency(last_month.revenue)}</td>
-              <td className="px-6 py-3 text-right text-sm text-slate-700">{formatCurrency(this_month.projected_revenue)}</td>
+              <td className="px-6 py-3 text-right text-sm">
+                {editingCategory === '__revenue__' ? (
+                  <input
+                    autoFocus
+                    type="text"
+                    inputMode="decimal"
+                    value={editValue}
+                    onFocus={e => e.currentTarget.select()}
+                    onChange={e => setEditValue(e.target.value)}
+                    onBlur={saveEdit}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') saveEdit();
+                      if (e.key === 'Escape') setEditingCategory(null);
+                    }}
+                    disabled={saving}
+                    className="w-32 px-2 py-1 border border-emerald-500 rounded text-right"
+                  />
+                ) : (
+                  <button
+                    onClick={() => startEdit('__revenue__', this_month.projected_revenue)}
+                    className={`px-2 py-1 rounded hover:bg-emerald-50 ${this_month.projected_revenue_overridden ? 'text-emerald-700 font-semibold' : 'text-slate-700'}`}
+                    title={this_month.projected_revenue_overridden ? `Manually overridden. Auto-computed: ${formatCurrency(this_month.projected_revenue_computed)}` : 'Auto-pulled from active non-retainer clients. Click to override.'}
+                  >
+                    {formatCurrency(this_month.projected_revenue)}
+                  </button>
+                )}
+              </td>
               <td className="px-6 py-3 text-right text-sm text-slate-400">—</td>
             </tr>
             <tr>
