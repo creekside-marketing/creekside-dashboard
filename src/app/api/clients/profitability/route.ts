@@ -51,8 +51,9 @@ export async function GET() {
     ] = await Promise.all([
       supabase
         .from('reporting_clients')
-        .select('client_id, client_name, platform, status')
-        .eq('status', 'active'),
+        .select('client_id, client_name, platform, status, client_category')
+        .eq('status', 'active')
+        .neq('client_category', 'retainer'),
       supabase
         .from('client_labor_allocations')
         .select('client_id, platform, monthly_amount'),
