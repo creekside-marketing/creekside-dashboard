@@ -1,21 +1,30 @@
 /**
  * GET /api/clients/profitability
  *
- * Returns per-client operating cost from the seeded allocation tables:
- *   - client_labor_allocations  (labor $ per client per team member)
- *   - client_bonuses            (expected monthly bonus accruals)
- *   - client_software_costs     (per-client software / SaaS / ad-tooling)
+ * Returns per-client per-platform operating cost from the seeded allocation tables:
+ *   - client_labor_allocations  (labor $ per client per team member, tagged by platform)
+ *   - client_bonuses            (expected monthly bonus accruals, tagged by platform)
+ *   - client_software_costs     (per-client software / SaaS / ad-tooling, optionally tagged)
  *
- * operator_cost = sum(labor) + sum(bonuses) + sum(software)
+ * Each cost row carries a `platform` tag (google / meta / programmatic / other / etc).
+ * Costs match the corresponding reporting_clients row by exact platform match.
+ * Untagged software costs (platform IS NULL) split evenly across all of the client's
+ * active platform rows — used for general tools like Slack that don't belong to one platform.
  *
- * Response shape (kept backward compatible — existing UI consumes operator_cost):
+ * operator_cost = labor + bonuses + software (per platform row)
+ *
+ * Response shape:
  *   {
- *     clients: { [client_name]: { operator_cost, labor_cost, bonus_cost, software_cost } },
+ *     clients: {
+ *       [client_name]: {
+ *         [platform]: { operator_cost, labor_cost, bonus_cost, software_cost }
+ *       }
+ *     },
  *     totals:  { operator_cost, labor_cost, bonus_cost, software_cost }
  *   }
  *
- * client_name keys map to reporting_clients.client_name (the dashboard's display key),
- * not the master clients.name. We resolve via clients.id -> reporting_clients.client_name.
+ * client_name keys map to reporting_clients.client_name. The nested platform key
+ * matches reporting_clients.platform for that row.
  *
  * CANNOT: write data, accept POST/PATCH/DELETE.
  */
@@ -23,11 +32,17 @@
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 
+type CostBucket = {
+  operator_cost: number;
+  labor_cost: number;
+  bonus_cost: number;
+  software_cost: number;
+};
+
 export async function GET() {
   try {
     const supabase = createServiceClient();
 
-    // Pull master clients with their reporting_clients display names + the three cost streams.
     const [
       reportingClientsResult,
       laborResult,
@@ -36,17 +51,17 @@ export async function GET() {
     ] = await Promise.all([
       supabase
         .from('reporting_clients')
-        .select('client_id, client_name, status')
+        .select('client_id, client_name, platform, status')
         .eq('status', 'active'),
       supabase
         .from('client_labor_allocations')
-        .select('client_id, monthly_amount'),
+        .select('client_id, platform, monthly_amount'),
       supabase
         .from('client_bonuses')
-        .select('client_id, expected_monthly_amount'),
+        .select('client_id, platform, expected_monthly_amount'),
       supabase
         .from('client_software_costs')
-        .select('client_id, monthly_amount'),
+        .select('client_id, platform, monthly_amount'),
     ]);
 
     const errors = [reportingClientsResult, laborResult, bonusesResult, softwareResult]
@@ -56,67 +71,77 @@ export async function GET() {
       return NextResponse.json({ error: errors.join('; ') }, { status: 500 });
     }
 
-    // Map master client_id -> set of reporting client_names that share it.
-    // (Multiple platform rows for the same master client all show the same operator_cost.)
-    const clientIdToNames: Record<string, Set<string>> = {};
+    // Map client_id -> { platforms: Set, names: Set } for grouping + untagged-cost splitting.
+    const clientPlatforms: Record<string, Set<string>> = {};
+    const clientNames: Record<string, string> = {};
     for (const row of reportingClientsResult.data ?? []) {
-      if (!row.client_id || !row.client_name) continue;
-      if (!clientIdToNames[row.client_id]) clientIdToNames[row.client_id] = new Set();
-      clientIdToNames[row.client_id].add(row.client_name);
+      if (!row.client_id || !row.client_name || !row.platform) continue;
+      if (!clientPlatforms[row.client_id]) clientPlatforms[row.client_id] = new Set();
+      clientPlatforms[row.client_id].add(row.platform);
+      clientNames[row.client_id] = row.client_name;
     }
 
-    // Aggregate each cost stream by client_id.
-    const laborByClient: Record<string, number> = {};
+    // Aggregate tagged costs by client_id::platform key.
+    const laborByKey: Record<string, number> = {};
     for (const row of laborResult.data ?? []) {
-      if (!row.client_id) continue;
-      laborByClient[row.client_id] = (laborByClient[row.client_id] ?? 0) + Number(row.monthly_amount ?? 0);
+      if (!row.client_id || !row.platform) continue;
+      const key = `${row.client_id}::${row.platform}`;
+      laborByKey[key] = (laborByKey[key] ?? 0) + Number(row.monthly_amount ?? 0);
     }
 
-    const bonusByClient: Record<string, number> = {};
+    const bonusByKey: Record<string, number> = {};
     for (const row of bonusesResult.data ?? []) {
-      if (!row.client_id) continue;
-      bonusByClient[row.client_id] = (bonusByClient[row.client_id] ?? 0) + Number(row.expected_monthly_amount ?? 0);
+      if (!row.client_id || !row.platform) continue;
+      const key = `${row.client_id}::${row.platform}`;
+      bonusByKey[key] = (bonusByKey[key] ?? 0) + Number(row.expected_monthly_amount ?? 0);
     }
 
-    const softwareByClient: Record<string, number> = {};
+    // Software: tagged costs go to specific platform; untagged splits across all platforms of the client.
+    const softwareByKey: Record<string, number> = {};
     for (const row of softwareResult.data ?? []) {
       if (!row.client_id) continue;
-      softwareByClient[row.client_id] = (softwareByClient[row.client_id] ?? 0) + Number(row.monthly_amount ?? 0);
+      const amount = Number(row.monthly_amount ?? 0);
+      if (row.platform) {
+        const key = `${row.client_id}::${row.platform}`;
+        softwareByKey[key] = (softwareByKey[key] ?? 0) + amount;
+      } else {
+        const platforms = clientPlatforms[row.client_id];
+        if (platforms && platforms.size > 0) {
+          const splitAmount = amount / platforms.size;
+          for (const p of platforms) {
+            const key = `${row.client_id}::${p}`;
+            softwareByKey[key] = (softwareByKey[key] ?? 0) + splitAmount;
+          }
+        }
+      }
     }
 
-    // Project onto reporting_clients.client_name keyspace.
-    const result: Record<string, {
-      operator_cost: number;
-      labor_cost: number;
-      bonus_cost: number;
-      software_cost: number;
-    }> = {};
-
+    // Build nested output: client_name -> platform -> CostBucket
+    const result: Record<string, Record<string, CostBucket>> = {};
     let totalLabor = 0;
     let totalBonus = 0;
     let totalSoftware = 0;
 
-    for (const [clientId, names] of Object.entries(clientIdToNames)) {
-      const labor = laborByClient[clientId] ?? 0;
-      const bonus = bonusByClient[clientId] ?? 0;
-      const software = softwareByClient[clientId] ?? 0;
-      const total = labor + bonus + software;
-
-      // Each platform row for this master client gets the same totals
-      // (the UI splits across grouped rows for display).
-      for (const name of names) {
-        result[name] = {
+    for (const [clientId, platforms] of Object.entries(clientPlatforms)) {
+      const clientName = clientNames[clientId];
+      if (!clientName) continue;
+      if (!result[clientName]) result[clientName] = {};
+      for (const platform of platforms) {
+        const key = `${clientId}::${platform}`;
+        const labor = laborByKey[key] ?? 0;
+        const bonus = bonusByKey[key] ?? 0;
+        const software = softwareByKey[key] ?? 0;
+        const total = labor + bonus + software;
+        result[clientName][platform] = {
           operator_cost: round2(total),
           labor_cost: round2(labor),
           bonus_cost: round2(bonus),
           software_cost: round2(software),
         };
+        totalLabor += labor;
+        totalBonus += bonus;
+        totalSoftware += software;
       }
-
-      // Totals counted once per master client (not once per platform row).
-      totalLabor += labor;
-      totalBonus += bonus;
-      totalSoftware += software;
     }
 
     return NextResponse.json({

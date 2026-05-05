@@ -850,7 +850,7 @@ export default function ClientTable() {
 
   // Operator cost data from API (labor + bonuses + software per client)
   const [operatorCosts, setOperatorCosts] = useState<{
-    clients: Record<string, { operator_cost: number; labor_cost?: number; bonus_cost?: number; software_cost?: number }>;
+    clients: Record<string, Record<string, { operator_cost: number; labor_cost?: number; bonus_cost?: number; software_cost?: number }>>;
     totals: { operator_cost: number; labor_cost?: number; bonus_cost?: number; software_cost?: number };
   } | null>(null);
 
@@ -1521,9 +1521,8 @@ export default function ClientTable() {
                         {/* Labor — per-row */}
                         <td className="py-4 px-6 text-right text-sm text-slate-600 tabular-nums">
                           {(() => {
-                            const costs = operatorCosts?.clients[client.client_name];
-                            const groupRows = group.rows.length;
-                            const value = (costs?.labor_cost ?? 0) / groupRows;
+                            const costs = operatorCosts?.clients[client.client_name]?.[client.platform];
+                            const value = costs?.labor_cost ?? 0;
                             if (value === 0) return <span className="text-slate-300">--</span>;
                             return value >= 1000
                               ? `$${(value / 1000).toFixed(1).replace(/\.0$/, '')}K`
@@ -1533,9 +1532,8 @@ export default function ClientTable() {
                         {/* Bonuses — per-row */}
                         <td className="py-4 px-6 text-right text-sm text-slate-600 tabular-nums">
                           {(() => {
-                            const costs = operatorCosts?.clients[client.client_name];
-                            const groupRows = group.rows.length;
-                            const value = (costs?.bonus_cost ?? 0) / groupRows;
+                            const costs = operatorCosts?.clients[client.client_name]?.[client.platform];
+                            const value = costs?.bonus_cost ?? 0;
                             if (value === 0) return <span className="text-slate-300">--</span>;
                             return value >= 1000
                               ? `$${(value / 1000).toFixed(1).replace(/\.0$/, '')}K`
@@ -1545,9 +1543,8 @@ export default function ClientTable() {
                         {/* Software — per-row */}
                         <td className="py-4 px-6 text-right text-sm text-slate-600 tabular-nums">
                           {(() => {
-                            const costs = operatorCosts?.clients[client.client_name];
-                            const groupRows = group.rows.length;
-                            const value = (costs?.software_cost ?? 0) / groupRows;
+                            const costs = operatorCosts?.clients[client.client_name]?.[client.platform];
+                            const value = costs?.software_cost ?? 0;
                             if (value === 0) return <span className="text-slate-300">--</span>;
                             return value >= 1000
                               ? `$${(value / 1000).toFixed(1).replace(/\.0$/, '')}K`
@@ -1557,12 +1554,11 @@ export default function ClientTable() {
                         {/* Profit — per-row (revenue - operating cost) */}
                         <td className="py-4 px-6 text-right text-sm font-semibold">
                           {(() => {
-                            const costs = operatorCosts?.clients[client.client_name];
+                            const costs = operatorCosts?.clients[client.client_name]?.[client.platform];
                             if (!costs) {
                               return <span className="text-slate-300">--</span>;
                             }
-                            const groupRows = group.rows.length;
-                            const rowCost = costs.operator_cost / groupRows;
+                            const rowCost = costs.operator_cost;
                             const rowRevenue = calculatedRevenue[client.id]?.value ?? 0;
                             const rowProfit = rowRevenue - rowCost;
                             const profitColor = rowProfit > 0 ? 'text-emerald-700' : rowProfit < 0 ? 'text-red-600' : 'text-slate-500';
