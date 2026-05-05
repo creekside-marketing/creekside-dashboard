@@ -1227,10 +1227,19 @@ export default function ClientTable() {
     const googleRevenue = activeFiltered.filter(c => c.platform === 'google').reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
     const metaRevenue = activeFiltered.filter(c => c.platform === 'meta').reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
     const otherRevenue = activeFiltered.filter(c => c.platform !== 'google' && c.platform !== 'meta').reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
+    // Per-platform operator cost: pulls per-row cost from operatorCosts[client_name][platform].
+    const costFor = (c: { client_name: string; platform: string }) =>
+      operatorCosts?.clients[c.client_name]?.[c.platform]?.operator_cost ?? 0;
+    const googleCost = activeFiltered.filter(c => c.platform === 'google').reduce((sum, c) => sum + costFor(c), 0);
+    const metaCost = activeFiltered.filter(c => c.platform === 'meta').reduce((sum, c) => sum + costFor(c), 0);
+    const otherCost = activeFiltered.filter(c => c.platform !== 'google' && c.platform !== 'meta').reduce((sum, c) => sum + costFor(c), 0);
+    const googleProfit = googleRevenue - googleCost;
+    const metaProfit = metaRevenue - metaCost;
+    const otherProfit = otherRevenue - otherCost;
     const totalOperatorCost = operatorCosts?.totals.operator_cost ?? 0;
     const profit = totalEstRevenue - totalOperatorCost;
     const marginPct = totalEstRevenue > 0 ? Math.round((profit / totalEstRevenue) * 10000) / 100 : 0;
-    return { uniqueClients, googleCount, metaCount, otherCount, total: activeFiltered.length, totalEstRevenue, googleRevenue, metaRevenue, otherRevenue, totalOperatorCost, profit, marginPct };
+    return { uniqueClients, googleCount, metaCount, otherCount, total: activeFiltered.length, totalEstRevenue, googleRevenue, metaRevenue, otherRevenue, googleProfit, metaProfit, otherProfit, totalOperatorCost, profit, marginPct };
   }, [filtered, calculatedRevenue, operatorCosts]);
 
   // ── Render helpers ──────────────────────────────────────────────────
@@ -1327,16 +1336,34 @@ export default function ClientTable() {
           <p className="text-sm font-medium text-slate-500">Google Revenue</p>
           <p className="text-2xl font-bold text-emerald-600 mt-1">{formatCurrency(stats.googleRevenue)}</p>
           <p className="text-xs text-slate-400 mt-0.5">{stats.googleCount} accounts</p>
+          <p className={`text-xs font-semibold mt-1 ${stats.googleProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+            Profit: {formatCurrency(stats.googleProfit)}
+            {stats.googleRevenue > 0 && (
+              <span className="text-slate-400 font-normal"> ({Math.round((stats.googleProfit / stats.googleRevenue) * 100)}%)</span>
+            )}
+          </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
           <p className="text-sm font-medium text-slate-500">Meta Revenue</p>
           <p className="text-2xl font-bold text-blue-600 mt-1">{formatCurrency(stats.metaRevenue)}</p>
           <p className="text-xs text-slate-400 mt-0.5">{stats.metaCount} accounts</p>
+          <p className={`text-xs font-semibold mt-1 ${stats.metaProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+            Profit: {formatCurrency(stats.metaProfit)}
+            {stats.metaRevenue > 0 && (
+              <span className="text-slate-400 font-normal"> ({Math.round((stats.metaProfit / stats.metaRevenue) * 100)}%)</span>
+            )}
+          </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
           <p className="text-sm font-medium text-slate-500">Other Revenue</p>
           <p className="text-2xl font-bold text-amber-600 mt-1">{formatCurrency(stats.otherRevenue)}</p>
           <p className="text-xs text-slate-400 mt-0.5">{stats.otherCount} accounts</p>
+          <p className={`text-xs font-semibold mt-1 ${stats.otherProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+            Profit: {formatCurrency(stats.otherProfit)}
+            {stats.otherRevenue > 0 && (
+              <span className="text-slate-400 font-normal"> ({Math.round((stats.otherProfit / stats.otherRevenue) * 100)}%)</span>
+            )}
+          </p>
         </div>
       </div>
 
