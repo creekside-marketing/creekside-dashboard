@@ -1404,7 +1404,6 @@ export default function ClientTable() {
                 <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Labor</th>
                 <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Bonuses</th>
                 <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Software</th>
-                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Proj. Cost</th>
                 <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Profit</th>
                 <SortHeader label="Priority" sortKey="priority" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <SortHeader label="Manager" sortKey="account_manager" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
@@ -1418,7 +1417,7 @@ export default function ClientTable() {
             <tbody>
               {activeGroups.length === 0 ? (
                 <tr>
-                  <td colSpan={15} className="text-center text-slate-400 py-16 text-sm">
+                  <td colSpan={14} className="text-center text-slate-400 py-16 text-sm">
                     No clients match the current filters.
                   </td>
                 </tr>
@@ -1553,20 +1552,6 @@ export default function ClientTable() {
                             return value >= 1000
                               ? `$${(value / 1000).toFixed(1).replace(/\.0$/, '')}K`
                               : `$${Math.round(value)}`;
-                          })()}
-                        </td>
-                        {/* Proj. Cost — per-row (sum of labor + bonuses + software) */}
-                        <td className="py-4 px-6 text-right text-sm font-medium text-slate-700 tabular-nums">
-                          {(() => {
-                            const costs = operatorCosts?.clients[client.client_name];
-                            if (!costs || costs.operator_cost === 0) {
-                              return <span className="text-slate-300">--</span>;
-                            }
-                            const groupRows = group.rows.length;
-                            const rowCost = costs.operator_cost / groupRows;
-                            return rowCost >= 1000
-                              ? `$${(rowCost / 1000).toFixed(1).replace(/\.0$/, '')}K`
-                              : `$${Math.round(rowCost)}`;
                           })()}
                         </td>
                         {/* Profit — per-row (revenue - operating cost) */}
