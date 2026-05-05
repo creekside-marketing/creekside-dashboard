@@ -22,6 +22,7 @@
 
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
+import { calculatePlatformRevenue, type FeeConfig } from '@/lib/fee-engine';
 
 export async function GET() {
   try {
@@ -115,9 +116,46 @@ export async function GET() {
       projectedTotalExpenses += projected;
     }
 
-    // 5. Projected revenue: default to last month's revenue (manually overridable later).
-    // For now we use last month's revenue as the projection; a future PR can pull from clients table.
-    const projectedRevenue = lastRevenue;
+    // 5. Projected revenue: pull from active non-retainer reporting_clients using fee_engine.
+    // Mirrors the Clients dashboard "Est. Monthly Revenue" tile (budget-based fallback path).
+    const { data: revenueRows, error: revErr } = await supabase
+      .from('reporting_clients')
+      .select('id, client_name, fee_config, monthly_budget, monthly_revenue, revenue_override, status, client_category')
+      .eq('status', 'active')
+      .neq('client_category', 'retainer');
+
+    if (revErr) {
+      return NextResponse.json({ error: revErr.message }, { status: 500 });
+    }
+
+    // Pre-compute per-client totals (sum of budgets, count of platform rows)
+    const totalBudgetByClient: Record<string, number> = {};
+    const platformCountByClient: Record<string, number> = {};
+    for (const row of revenueRows ?? []) {
+      const name = row.client_name;
+      totalBudgetByClient[name] = (totalBudgetByClient[name] ?? 0) + Number(row.monthly_budget ?? 0);
+      platformCountByClient[name] = (platformCountByClient[name] ?? 0) + 1;
+    }
+
+    let projectedRevenue = 0;
+    for (const row of revenueRows ?? []) {
+      const name = row.client_name;
+      const platformCount = platformCountByClient[name] ?? 1;
+      const totalBudget = totalBudgetByClient[name] ?? 0;
+      const thisBudget = Number(row.monthly_budget ?? 0);
+      const monthlyRev = row.monthly_revenue == null ? null : Number(row.monthly_revenue);
+
+      let value = 0;
+      if (row.revenue_override && monthlyRev != null) {
+        value = monthlyRev;
+      } else if (row.fee_config && thisBudget > 0) {
+        value = calculatePlatformRevenue(row.fee_config as FeeConfig, thisBudget, totalBudget, platformCount);
+      } else if (monthlyRev != null && monthlyRev > 0) {
+        value = monthlyRev;
+      }
+      projectedRevenue += value;
+    }
+
     const projectedProfit = projectedRevenue - projectedTotalExpenses;
     const projectedMargin = projectedRevenue > 0 ? (projectedProfit / projectedRevenue) * 100 : 0;
 
