@@ -80,7 +80,8 @@ export async function GET() {
       } else if (row.fee_config && row.monthly_budget != null && row.monthly_budget > 0) {
         // Calculate from fee_config using budget as spend
         const totalBudget = clientBudgets[row.client_name]?.total ?? Number(row.monthly_budget);
-        rowRevenue = calculatePlatformRevenue(row.fee_config, Number(row.monthly_budget), totalBudget);
+        const platformCount = clientBudgets[row.client_name]?.platforms.size ?? 1;
+        rowRevenue = calculatePlatformRevenue(row.fee_config, Number(row.monthly_budget), totalBudget, platformCount);
       } else if (row.monthly_revenue != null && Number(row.monthly_revenue) > 0) {
         // DB fallback
         rowRevenue = Number(row.monthly_revenue);

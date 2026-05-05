@@ -70,6 +70,7 @@ function toShortName(fullName: string): string {
 function getRowRevenue(
   row: ClientRow,
   totalBudgetByClient: Record<string, number>,
+  platformCountByClient: Record<string, number>,
 ): number {
   // 1. Manual override
   if (row.revenue_override && row.monthly_revenue != null) {
@@ -80,7 +81,8 @@ function getRowRevenue(
   if (row.fee_config && row.monthly_budget != null && Number(row.monthly_budget) > 0) {
     const budgetAsSpend = Number(row.monthly_budget);
     const totalClientSpend = totalBudgetByClient[row.client_name] ?? budgetAsSpend;
-    return calculatePlatformRevenue(row.fee_config, budgetAsSpend, totalClientSpend);
+    const platformCount = platformCountByClient[row.client_name] ?? 1;
+    return calculatePlatformRevenue(row.fee_config, budgetAsSpend, totalClientSpend, platformCount);
   }
 
   // 3. Raw monthly_revenue fallback
@@ -369,15 +371,24 @@ export default function TeamPage() {
     return map;
   }, [activeClients]);
 
+  // Pre-compute platform count per client (needed for per-platform minimum scaling)
+  const platformCountByClient = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const c of activeClients) {
+      map[c.client_name] = (map[c.client_name] ?? 0) + 1;
+    }
+    return map;
+  }, [activeClients]);
+
   // Calculate revenue per client (sum across platforms, using fee_config cascade)
   const clientRevenueByName = useMemo(() => {
     const map: Record<string, number> = {};
     for (const c of activeClients) {
-      const rev = getRowRevenue(c, totalBudgetByClient);
+      const rev = getRowRevenue(c, totalBudgetByClient, platformCountByClient);
       map[c.client_name] = (map[c.client_name] ?? 0) + rev;
     }
     return map;
-  }, [activeClients, totalBudgetByClient]);
+  }, [activeClients, totalBudgetByClient, platformCountByClient]);
 
   // Calculate revenue contribution per team member (from clients they manage)
   const memberRevenue = useMemo(() => {

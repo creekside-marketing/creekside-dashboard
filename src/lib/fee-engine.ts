@@ -40,12 +40,19 @@ export interface FeeConfigGreaterOf {
   rate: number;
 }
 
+export interface FeeConfigBasePlusPercentage {
+  type: 'base_plus_percentage';
+  base: number;
+  rate: number;
+}
+
 export type FeeConfig =
   | FeeConfigPercentage
   | FeeConfigFixed
   | FeeConfigTiered
   | FeeConfigFlat
-  | FeeConfigGreaterOf;
+  | FeeConfigGreaterOf
+  | FeeConfigBasePlusPercentage;
 
 // ── Internal helpers ───────────────────────────────────────────────────────
 
@@ -82,11 +89,16 @@ function proportionalShare(thisPlatformSpend: number, totalClientSpend: number):
  * For "fixed" and "tiered" with scope "total", the caller must provide
  * totalClientSpend (sum of spend across all platform rows for the same client).
  * For per-platform types, totalClientSpend is ignored.
+ *
+ * platformCount: number of active platform rows for this client. Used by "tiered"
+ * with scope "total" to scale the minimum and waiver threshold per platform.
+ * Defaults to 1 (backward-compatible).
  */
 export function calculatePlatformRevenue(
   feeConfig: FeeConfig,
   thisPlatformSpend: number,
   totalClientSpend: number,
+  platformCount: number = 1,
 ): number {
   switch (feeConfig.type) {
     case 'percentage': {
@@ -108,9 +120,11 @@ export function calculatePlatformRevenue(
         const raw = calcTieredFee(thisPlatformSpend, feeConfig.tiers);
         return Math.max(raw, effectiveMin);
       }
-      // scope === "total": calculate on combined spend, split proportionally
-      const totalWaiverMet = feeConfig.minimum_waiver_threshold != null && totalClientSpend >= feeConfig.minimum_waiver_threshold;
-      const totalEffectiveMin = totalWaiverMet ? 0 : (feeConfig.minimum ?? 0);
+      // scope === "total": calculate on combined spend, split proportionally.
+      // Scale minimum and waiver threshold by platformCount (e.g. $1K min × 2 platforms = $2K).
+      const scaledWaiverThreshold = (feeConfig.minimum_waiver_threshold ?? 0) * platformCount;
+      const totalWaiverMet = scaledWaiverThreshold > 0 && totalClientSpend >= scaledWaiverThreshold;
+      const totalEffectiveMin = totalWaiverMet ? 0 : ((feeConfig.minimum ?? 0) * platformCount);
       const totalFee = Math.max(
         calcTieredFee(totalClientSpend, feeConfig.tiers),
         totalEffectiveMin,
@@ -125,6 +139,10 @@ export function calculatePlatformRevenue(
 
     case 'greater_of': {
       return Math.max(feeConfig.flat, thisPlatformSpend * feeConfig.rate);
+    }
+
+    case 'base_plus_percentage': {
+      return feeConfig.base + (thisPlatformSpend * feeConfig.rate);
     }
 
     default:
@@ -165,6 +183,10 @@ export function describeFeeConfig(feeConfig: FeeConfig): string {
 
     case 'greater_of': {
       return `Greater of ${formatDollar(feeConfig.flat)} or ${(feeConfig.rate * 100).toFixed(0)}%`;
+    }
+
+    case 'base_plus_percentage': {
+      return `${formatDollar(feeConfig.base)} + ${(feeConfig.rate * 100).toFixed(0)}% of spend`;
     }
 
     default:

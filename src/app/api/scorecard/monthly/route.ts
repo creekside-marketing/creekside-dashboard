@@ -89,11 +89,13 @@ export async function GET() {
     const laborRows = (laborRes.data ?? []) as LaborRow[];
     const churnRows = (churnRes.data ?? []) as ReportingRow[];
 
-    // ── Revenue by Manager ──────────────────────────────────────────────
+    // ── Revenue by Manager ────────────────────────────────────────────��─
     // Estimated MRR from fee_config (current snapshot)
     const clientBudgets: Record<string, number> = {};
+    const clientPlatformCounts: Record<string, number> = {};
     for (const row of activeRows) {
       clientBudgets[row.client_name] = (clientBudgets[row.client_name] ?? 0) + (row.monthly_budget ?? 0);
+      clientPlatformCounts[row.client_name] = (clientPlatformCounts[row.client_name] ?? 0) + 1;
     }
 
     const managerEstimated: Record<string, { clients: Set<string>; estimatedMRR: number }> = {};
@@ -107,7 +109,8 @@ export async function GET() {
         rowRevenue = Number(row.monthly_revenue);
       } else if (row.fee_config && row.monthly_budget != null && row.monthly_budget > 0) {
         const totalBudget = clientBudgets[row.client_name] ?? Number(row.monthly_budget);
-        rowRevenue = calculatePlatformRevenue(row.fee_config, Number(row.monthly_budget), totalBudget);
+        const platformCount = clientPlatformCounts[row.client_name] ?? 1;
+        rowRevenue = calculatePlatformRevenue(row.fee_config, Number(row.monthly_budget), totalBudget, platformCount);
       } else if (row.monthly_revenue != null && Number(row.monthly_revenue) > 0) {
         rowRevenue = Number(row.monthly_revenue);
       }
@@ -165,7 +168,8 @@ export async function GET() {
         rowRevenue = Number(row.monthly_revenue);
       } else if (row.fee_config && row.monthly_budget != null && row.monthly_budget > 0) {
         const totalBudget = clientBudgets[row.client_name] ?? Number(row.monthly_budget);
-        rowRevenue = calculatePlatformRevenue(row.fee_config, Number(row.monthly_budget), totalBudget);
+        const platformCount = clientPlatformCounts[row.client_name] ?? 1;
+        rowRevenue = calculatePlatformRevenue(row.fee_config, Number(row.monthly_budget), totalBudget, platformCount);
       } else if (row.monthly_revenue != null) {
         rowRevenue = Number(row.monthly_revenue);
       }

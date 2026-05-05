@@ -1091,14 +1091,18 @@ export default function ClientTable() {
   const calculatedRevenue = useMemo(() => {
     const result: Record<string, { value: number | null; source: 'override' | 'calculated' | 'none' }> = {};
 
-    // Pre-compute total live spend per client_name (needed for "fixed" and "tiered" scope "total")
+    // Pre-compute total live spend and platform count per client_name
     const totalSpendByClient: Record<string, number> = {};
+    const platformCountByClient: Record<string, number> = {};
     for (const c of clients) {
       const spend = c.ad_account_id ? (liveData[c.ad_account_id]?.spend ?? 0) : 0;
       totalSpendByClient[c.client_name] = (totalSpendByClient[c.client_name] ?? 0) + spend;
+      platformCountByClient[c.client_name] = (platformCountByClient[c.client_name] ?? 0) + 1;
     }
 
     for (const c of clients) {
+      const platformCount = platformCountByClient[c.client_name] ?? 1;
+
       // 1. If revenue_override is true, use monthly_revenue as-is
       if (c.revenue_override && c.monthly_revenue != null) {
         result[c.id] = { value: c.monthly_revenue, source: 'override' };
@@ -1111,7 +1115,7 @@ export default function ClientTable() {
         if (!live.error) {
           const thisPlatformSpend = live.spend;
           const totalClientSpend = totalSpendByClient[c.client_name] ?? thisPlatformSpend;
-          const fee = calculatePlatformRevenue(c.fee_config, thisPlatformSpend, totalClientSpend);
+          const fee = calculatePlatformRevenue(c.fee_config, thisPlatformSpend, totalClientSpend, platformCount);
           result[c.id] = { value: fee, source: 'calculated' };
           continue;
         }
@@ -1123,7 +1127,7 @@ export default function ClientTable() {
         const totalBudgetByClient = clients
           .filter(cl => cl.client_name === c.client_name)
           .reduce((sum, cl) => sum + Number(cl.monthly_budget ?? 0), 0);
-        const fee = calculatePlatformRevenue(c.fee_config, budgetAsSpend, totalBudgetByClient);
+        const fee = calculatePlatformRevenue(c.fee_config, budgetAsSpend, totalBudgetByClient, platformCount);
         result[c.id] = { value: fee, source: 'calculated' };
         continue;
       }
