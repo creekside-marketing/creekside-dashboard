@@ -91,14 +91,25 @@ export async function GET() {
 
     const projectionsByCategory: Record<string, number> = {};
     const notesByCategory: Record<string, string> = {};
+    let revenueOverride: number | null = null;
     for (const row of projRows ?? []) {
+      if (row.category === '__revenue__') {
+        revenueOverride = Number(row.projected_amount ?? 0);
+        continue;
+      }
       projectionsByCategory[row.category] = Number(row.projected_amount ?? 0);
       if (row.notes) notesByCategory[row.category] = row.notes;
     }
 
     // 4. Compose this month's projected expenses (default = last month's actual).
+    // Always include "Miscellaneous" so ad-hoc expenses (e.g. travel) can be projected
+    // even if last month had none.
     const allCategories = Array.from(
-      new Set([...Object.keys(lastExpensesByCategory), ...Object.keys(projectionsByCategory)])
+      new Set([
+        ...Object.keys(lastExpensesByCategory),
+        ...Object.keys(projectionsByCategory),
+        'Miscellaneous',
+      ])
     ).sort();
 
     const projectedByCategory: Record<string, { last_actual: number; projected: number; overridden: boolean; notes?: string }> = {};
@@ -137,7 +148,7 @@ export async function GET() {
       platformCountByClient[name] = (platformCountByClient[name] ?? 0) + 1;
     }
 
-    let projectedRevenue = 0;
+    let computedRevenue = 0;
     for (const row of revenueRows ?? []) {
       const name = row.client_name;
       const platformCount = platformCountByClient[name] ?? 1;
@@ -153,9 +164,12 @@ export async function GET() {
       } else if (monthlyRev != null && monthlyRev > 0) {
         value = monthlyRev;
       }
-      projectedRevenue += value;
+      computedRevenue += value;
     }
 
+    // Manual override wins if set
+    const projectedRevenue = revenueOverride ?? computedRevenue;
+    const revenueOverridden = revenueOverride !== null;
     const projectedProfit = projectedRevenue - projectedTotalExpenses;
     const projectedMargin = projectedRevenue > 0 ? (projectedProfit / projectedRevenue) * 100 : 0;
 
@@ -173,6 +187,8 @@ export async function GET() {
       this_month: {
         month_date: thisMonthDate,
         projected_revenue: round2(projectedRevenue),
+        projected_revenue_computed: round2(computedRevenue),
+        projected_revenue_overridden: revenueOverridden,
         projected_expenses_by_category: projectedByCategory,
         projected_total_expenses: round2(projectedTotalExpenses),
         projected_profit: round2(projectedProfit),
