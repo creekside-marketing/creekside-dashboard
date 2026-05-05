@@ -1,123 +1,131 @@
 /**
  * GET /api/clients/profitability
  *
- * Calculates per-client profitability by matching operator costs to client revenue.
+ * Returns per-client operating cost from the seeded allocation tables:
+ *   - client_labor_allocations  (labor $ per client per team member)
+ *   - client_bonuses            (expected monthly bonus accruals)
+ *   - client_software_costs     (per-client software / SaaS / ad-tooling)
  *
- * Logic:
- *   1. Fetch active reporting_clients with monthly_revenue and platform_operator
- *   2. Fetch team_members with hourly_rate and estimated_hours_per_month
- *   3. For each operator, count distinct clients they serve
- *   4. Divide estimated_hours_per_month evenly across their clients
- *   5. operator_cost = hours_per_client * hourly_rate
- *   6. profit = revenue - operator_cost
- *   7. margin_pct = (profit / revenue) * 100
+ * operator_cost = sum(labor) + sum(bonuses) + sum(software)
  *
- * Response shape:
+ * Response shape (kept backward compatible — existing UI consumes operator_cost):
  *   {
- *     clients: { [client_name]: { revenue, operator_cost, profit, margin_pct } },
- *     totals: { revenue, operator_cost, profit, margin_pct }
+ *     clients: { [client_name]: { operator_cost, labor_cost, bonus_cost, software_cost } },
+ *     totals:  { operator_cost, labor_cost, bonus_cost, software_cost }
  *   }
  *
- * CANNOT: write data, accept POST/PATCH/DELETE, modify team_members or reporting_clients.
+ * client_name keys map to reporting_clients.client_name (the dashboard's display key),
+ * not the master clients.name. We resolve via clients.id -> reporting_clients.client_name.
+ *
+ * CANNOT: write data, accept POST/PATCH/DELETE.
  */
 
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 
-
 export async function GET() {
   try {
     const supabase = createServiceClient();
 
-    // Fetch reporting_clients and team_members in parallel
-    const [clientsResult, teamResult] = await Promise.all([
+    // Pull master clients with their reporting_clients display names + the three cost streams.
+    const [
+      reportingClientsResult,
+      laborResult,
+      bonusesResult,
+      softwareResult,
+    ] = await Promise.all([
       supabase
         .from('reporting_clients')
-        .select('client_name, monthly_revenue, monthly_budget, platform_operator, status')
-        .eq('status', 'active')
-        .not('client_name', 'in', '("Bottle.com","Comet Fuel","FirstUp Marketing","Full Circle Media","Suff Digital")'),
-      supabase
-        .from('team_members')
-        .select('name, role, hourly_rate, estimated_hours_per_month, status')
+        .select('client_id, client_name, status')
         .eq('status', 'active'),
+      supabase
+        .from('client_labor_allocations')
+        .select('client_id, monthly_amount'),
+      supabase
+        .from('client_bonuses')
+        .select('client_id, expected_monthly_amount'),
+      supabase
+        .from('client_software_costs')
+        .select('client_id, monthly_amount'),
     ]);
 
-    if (clientsResult.error) {
-      return NextResponse.json({ error: clientsResult.error.message }, { status: 500 });
-    }
-    if (teamResult.error) {
-      return NextResponse.json({ error: teamResult.error.message }, { status: 500 });
-    }
-
-    const clients = clientsResult.data ?? [];
-    const team = teamResult.data ?? [];
-
-    // Build operator lookup: short_name -> { hourly_rate, estimated_hours_per_month }
-    // Dashboard uses short names for platform_operator (e.g., "Peterson", "Cade", "Scott H.")
-    const DISPLAY_NAME_OVERRIDES: Record<string, string> = {
-      'Kenneth Cade MacLean': 'Cade',
-      'Peterson Rainey': 'Peterson',
-    };
-
-    function toShortName(fullName: string): string {
-      if (DISPLAY_NAME_OVERRIDES[fullName]) return DISPLAY_NAME_OVERRIDES[fullName];
-      const parts = fullName.trim().split(/\s+/);
-      if (parts.length <= 1) return fullName;
-      return `${parts[0]} ${parts[parts.length - 1][0]}.`;
+    const errors = [reportingClientsResult, laborResult, bonusesResult, softwareResult]
+      .map(r => r.error?.message)
+      .filter(Boolean);
+    if (errors.length) {
+      return NextResponse.json({ error: errors.join('; ') }, { status: 500 });
     }
 
-    const operatorMap: Record<string, { hourly_rate: number; estimated_hours: number }> = {};
-    for (const member of team) {
-      const shortName = toShortName(member.name);
-      if (member.hourly_rate != null && member.estimated_hours_per_month != null) {
-        operatorMap[shortName] = {
-          hourly_rate: Number(member.hourly_rate),
-          estimated_hours: Number(member.estimated_hours_per_month),
+    // Map master client_id -> set of reporting client_names that share it.
+    // (Multiple platform rows for the same master client all show the same operator_cost.)
+    const clientIdToNames: Record<string, Set<string>> = {};
+    for (const row of reportingClientsResult.data ?? []) {
+      if (!row.client_id || !row.client_name) continue;
+      if (!clientIdToNames[row.client_id]) clientIdToNames[row.client_id] = new Set();
+      clientIdToNames[row.client_id].add(row.client_name);
+    }
+
+    // Aggregate each cost stream by client_id.
+    const laborByClient: Record<string, number> = {};
+    for (const row of laborResult.data ?? []) {
+      if (!row.client_id) continue;
+      laborByClient[row.client_id] = (laborByClient[row.client_id] ?? 0) + Number(row.monthly_amount ?? 0);
+    }
+
+    const bonusByClient: Record<string, number> = {};
+    for (const row of bonusesResult.data ?? []) {
+      if (!row.client_id) continue;
+      bonusByClient[row.client_id] = (bonusByClient[row.client_id] ?? 0) + Number(row.expected_monthly_amount ?? 0);
+    }
+
+    const softwareByClient: Record<string, number> = {};
+    for (const row of softwareResult.data ?? []) {
+      if (!row.client_id) continue;
+      softwareByClient[row.client_id] = (softwareByClient[row.client_id] ?? 0) + Number(row.monthly_amount ?? 0);
+    }
+
+    // Project onto reporting_clients.client_name keyspace.
+    const result: Record<string, {
+      operator_cost: number;
+      labor_cost: number;
+      bonus_cost: number;
+      software_cost: number;
+    }> = {};
+
+    let totalLabor = 0;
+    let totalBonus = 0;
+    let totalSoftware = 0;
+
+    for (const [clientId, names] of Object.entries(clientIdToNames)) {
+      const labor = laborByClient[clientId] ?? 0;
+      const bonus = bonusByClient[clientId] ?? 0;
+      const software = softwareByClient[clientId] ?? 0;
+      const total = labor + bonus + software;
+
+      // Each platform row for this master client gets the same totals
+      // (the UI splits across grouped rows for display).
+      for (const name of names) {
+        result[name] = {
+          operator_cost: round2(total),
+          labor_cost: round2(labor),
+          bonus_cost: round2(bonus),
+          software_cost: round2(software),
         };
       }
-    }
 
-    // Aggregate operators per client
-    const clientOperators: Record<string, Set<string>> = {};
-    for (const row of clients) {
-      if (!clientOperators[row.client_name]) {
-        clientOperators[row.client_name] = new Set();
-      }
-      if (row.platform_operator) {
-        clientOperators[row.client_name].add(row.platform_operator);
-      }
-    }
-
-    // Count how many unique clients each operator serves
-    const operatorClientCount: Record<string, number> = {};
-    for (const ops of Object.values(clientOperators)) {
-      for (const op of ops) {
-        operatorClientCount[op] = (operatorClientCount[op] ?? 0) + 1;
-      }
-    }
-
-    // Calculate operator cost per client (revenue computed client-side from fee_config)
-    const result: Record<string, { operator_cost: number }> = {};
-    let totalCost = 0;
-
-    for (const [clientName, ops] of Object.entries(clientOperators)) {
-      let operatorCost = 0;
-      for (const opName of ops) {
-        const op = operatorMap[opName];
-        if (op && operatorClientCount[opName] > 0) {
-          const hoursForClient = op.estimated_hours / operatorClientCount[opName];
-          operatorCost += hoursForClient * op.hourly_rate;
-        }
-      }
-      operatorCost = Math.round(operatorCost * 100) / 100;
-      result[clientName] = { operator_cost: operatorCost };
-      totalCost += operatorCost;
+      // Totals counted once per master client (not once per platform row).
+      totalLabor += labor;
+      totalBonus += bonus;
+      totalSoftware += software;
     }
 
     return NextResponse.json({
       clients: result,
       totals: {
-        operator_cost: Math.round(totalCost * 100) / 100,
+        operator_cost: round2(totalLabor + totalBonus + totalSoftware),
+        labor_cost: round2(totalLabor),
+        bonus_cost: round2(totalBonus),
+        software_cost: round2(totalSoftware),
       },
     });
   } catch (err) {
@@ -126,4 +134,8 @@ export async function GET() {
       { status: 500 },
     );
   }
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
