@@ -23,6 +23,7 @@
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 import { calculatePlatformRevenue, type FeeConfig } from '@/lib/fee-engine';
+import { fetchLiveSpend } from '@/lib/live-spend-server';
 
 export async function GET() {
   try {
@@ -128,10 +129,11 @@ export async function GET() {
     }
 
     // 5. Projected revenue: pull from active non-retainer reporting_clients using fee_engine.
-    // Mirrors the Clients dashboard "Est. Monthly Revenue" tile (budget-based fallback path).
+    // Mirrors the Clients dashboard "Est. Monthly Revenue" tile EXACTLY by using live ad spend
+    // (last 30 days) when available, falling back to budget-based proxy otherwise.
     const { data: revenueRows, error: revErr } = await supabase
       .from('reporting_clients')
-      .select('id, client_name, fee_config, monthly_budget, monthly_revenue, revenue_override, status, client_category')
+      .select('id, client_name, platform, ad_account_id, fee_config, monthly_budget, monthly_revenue, revenue_override, status, client_category')
       .eq('status', 'active')
       .neq('client_category', 'retainer');
 
@@ -139,29 +141,48 @@ export async function GET() {
       return NextResponse.json({ error: revErr.message }, { status: 500 });
     }
 
-    // Pre-compute per-client totals (sum of budgets, count of platform rows)
-    const totalBudgetByClient: Record<string, number> = {};
+    // Fetch live spend for all visible ad accounts (Meta bulk + Google parallel).
+    const liveSpendMap = await fetchLiveSpend(
+      (revenueRows ?? [])
+        .filter(r => !!r.ad_account_id && !!r.platform)
+        .map(r => ({ ad_account_id: r.ad_account_id as string, platform: r.platform as string }))
+    );
+
+    // Pre-compute per-client totals using live spend where available, budget elsewhere.
     const platformCountByClient: Record<string, number> = {};
+    const totalSpendByClient: Record<string, number> = {};
+    const totalBudgetByClient: Record<string, number> = {};
     for (const row of revenueRows ?? []) {
       const name = row.client_name;
-      totalBudgetByClient[name] = (totalBudgetByClient[name] ?? 0) + Number(row.monthly_budget ?? 0);
       platformCountByClient[name] = (platformCountByClient[name] ?? 0) + 1;
+      const liveSpend = row.ad_account_id ? liveSpendMap.get(row.ad_account_id as string) : undefined;
+      const spendOrBudget = liveSpend ?? Number(row.monthly_budget ?? 0);
+      totalSpendByClient[name] = (totalSpendByClient[name] ?? 0) + spendOrBudget;
+      totalBudgetByClient[name] = (totalBudgetByClient[name] ?? 0) + Number(row.monthly_budget ?? 0);
     }
 
     let computedRevenue = 0;
     for (const row of revenueRows ?? []) {
       const name = row.client_name;
       const platformCount = platformCountByClient[name] ?? 1;
-      const totalBudget = totalBudgetByClient[name] ?? 0;
-      const thisBudget = Number(row.monthly_budget ?? 0);
+      const liveSpend = row.ad_account_id ? liveSpendMap.get(row.ad_account_id as string) : undefined;
       const monthlyRev = row.monthly_revenue == null ? null : Number(row.monthly_revenue);
 
       let value = 0;
       if (row.revenue_override && monthlyRev != null) {
+        // 1. Manual revenue override on the row
         value = monthlyRev;
-      } else if (row.fee_config && thisBudget > 0) {
+      } else if (row.fee_config && liveSpend !== undefined) {
+        // 2. Live spend × fee_engine — matches ClientTable exactly
+        const totalSpend = totalSpendByClient[name] ?? liveSpend;
+        value = calculatePlatformRevenue(row.fee_config as FeeConfig, liveSpend, totalSpend, platformCount);
+      } else if (row.fee_config && Number(row.monthly_budget ?? 0) > 0) {
+        // 3. Budget proxy fallback when live spend unavailable
+        const thisBudget = Number(row.monthly_budget ?? 0);
+        const totalBudget = totalBudgetByClient[name] ?? thisBudget;
         value = calculatePlatformRevenue(row.fee_config as FeeConfig, thisBudget, totalBudget, platformCount);
       } else if (monthlyRev != null && monthlyRev > 0) {
+        // 4. Static monthly_revenue
         value = monthlyRev;
       }
       computedRevenue += value;
