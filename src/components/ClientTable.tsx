@@ -1401,6 +1401,9 @@ export default function ClientTable() {
                 <SortHeader label="Client" sortKey="client_name" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Platform</th>
                 <SortHeader label="Est. Revenue" sortKey="est_revenue" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Labor</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Bonuses</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Software</th>
                 <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Proj. Cost</th>
                 <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Profit</th>
                 <SortHeader label="Priority" sortKey="priority" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
@@ -1415,7 +1418,7 @@ export default function ClientTable() {
             <tbody>
               {activeGroups.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="text-center text-slate-400 py-16 text-sm">
+                  <td colSpan={15} className="text-center text-slate-400 py-16 text-sm">
                     No clients match the current filters.
                   </td>
                 </tr>
@@ -1516,8 +1519,44 @@ export default function ClientTable() {
                             );
                           })()}
                         </td>
-                        {/* Proj. Cost — per-row */}
-                        <td className="py-4 px-6 text-right text-sm font-medium text-slate-500">
+                        {/* Labor — per-row */}
+                        <td className="py-4 px-6 text-right text-sm text-slate-600 tabular-nums">
+                          {(() => {
+                            const costs = operatorCosts?.clients[client.client_name];
+                            const groupRows = group.rows.length;
+                            const value = (costs?.labor_cost ?? 0) / groupRows;
+                            if (value === 0) return <span className="text-slate-300">--</span>;
+                            return value >= 1000
+                              ? `$${(value / 1000).toFixed(1).replace(/\.0$/, '')}K`
+                              : `$${Math.round(value)}`;
+                          })()}
+                        </td>
+                        {/* Bonuses — per-row */}
+                        <td className="py-4 px-6 text-right text-sm text-slate-600 tabular-nums">
+                          {(() => {
+                            const costs = operatorCosts?.clients[client.client_name];
+                            const groupRows = group.rows.length;
+                            const value = (costs?.bonus_cost ?? 0) / groupRows;
+                            if (value === 0) return <span className="text-slate-300">--</span>;
+                            return value >= 1000
+                              ? `$${(value / 1000).toFixed(1).replace(/\.0$/, '')}K`
+                              : `$${Math.round(value)}`;
+                          })()}
+                        </td>
+                        {/* Software — per-row */}
+                        <td className="py-4 px-6 text-right text-sm text-slate-600 tabular-nums">
+                          {(() => {
+                            const costs = operatorCosts?.clients[client.client_name];
+                            const groupRows = group.rows.length;
+                            const value = (costs?.software_cost ?? 0) / groupRows;
+                            if (value === 0) return <span className="text-slate-300">--</span>;
+                            return value >= 1000
+                              ? `$${(value / 1000).toFixed(1).replace(/\.0$/, '')}K`
+                              : `$${Math.round(value)}`;
+                          })()}
+                        </td>
+                        {/* Proj. Cost — per-row (sum of labor + bonuses + software) */}
+                        <td className="py-4 px-6 text-right text-sm font-medium text-slate-700 tabular-nums">
                           {(() => {
                             const costs = operatorCosts?.clients[client.client_name];
                             if (!costs || costs.operator_cost === 0) {
@@ -1525,15 +1564,9 @@ export default function ClientTable() {
                             }
                             const groupRows = group.rows.length;
                             const rowCost = costs.operator_cost / groupRows;
-                            const breakdown = `Labor: ${formatCurrency((costs.labor_cost ?? 0) / groupRows)} | Bonuses: ${formatCurrency((costs.bonus_cost ?? 0) / groupRows)} | Software: ${formatCurrency((costs.software_cost ?? 0) / groupRows)}`;
-                            const costStr = rowCost >= 1000
+                            return rowCost >= 1000
                               ? `$${(rowCost / 1000).toFixed(1).replace(/\.0$/, '')}K`
                               : `$${Math.round(rowCost)}`;
-                            return (
-                              <div title={breakdown}>
-                                <span className="text-slate-700">{costStr}</span>
-                              </div>
-                            );
                           })()}
                         </td>
                         {/* Profit — per-row (revenue - operating cost) */}
