@@ -848,10 +848,10 @@ export default function ClientTable() {
   // Last contact data per client
   const [lastContact, setLastContact] = useState<Record<string, { last_contact_date: string; days_ago: number; source: string }>>({});
 
-  // Operator cost data from API (revenue/profit computed client-side)
+  // Operator cost data from API (labor + bonuses + software per client)
   const [operatorCosts, setOperatorCosts] = useState<{
-    clients: Record<string, { operator_cost: number }>;
-    totals: { operator_cost: number };
+    clients: Record<string, { operator_cost: number; labor_cost?: number; bonus_cost?: number; software_cost?: number }>;
+    totals: { operator_cost: number; labor_cost?: number; bonus_cost?: number; software_cost?: number };
   } | null>(null);
 
   useEffect(() => {
@@ -1402,6 +1402,7 @@ export default function ClientTable() {
                 <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Platform</th>
                 <SortHeader label="Est. Revenue" sortKey="est_revenue" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Proj. Cost</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Profit</th>
                 <SortHeader label="Priority" sortKey="priority" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <SortHeader label="Manager" sortKey="account_manager" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <SortHeader label="Operator" sortKey="platform_operator" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
@@ -1414,7 +1415,7 @@ export default function ClientTable() {
             <tbody>
               {activeGroups.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="text-center text-slate-400 py-16 text-sm">
+                  <td colSpan={12} className="text-center text-slate-400 py-16 text-sm">
                     No clients match the current filters.
                   </td>
                 </tr>
@@ -1524,15 +1525,36 @@ export default function ClientTable() {
                             }
                             const groupRows = group.rows.length;
                             const rowCost = costs.operator_cost / groupRows;
-                            const rowRevenue = calculatedRevenue[client.id]?.value ?? 0;
-                            const rowProfit = rowRevenue - rowCost;
+                            const breakdown = `Labor: ${formatCurrency((costs.labor_cost ?? 0) / groupRows)} | Bonuses: ${formatCurrency((costs.bonus_cost ?? 0) / groupRows)} | Software: ${formatCurrency((costs.software_cost ?? 0) / groupRows)}`;
                             const costStr = rowCost >= 1000
                               ? `$${(rowCost / 1000).toFixed(1).replace(/\.0$/, '')}K`
                               : `$${Math.round(rowCost)}`;
                             return (
-                              <div title={`Cost: ${formatCurrency(rowCost)} | Profit: ${formatCurrency(rowProfit)}`}>
+                              <div title={breakdown}>
                                 <span className="text-slate-700">{costStr}</span>
                               </div>
+                            );
+                          })()}
+                        </td>
+                        {/* Profit — per-row (revenue - operating cost) */}
+                        <td className="py-4 px-6 text-right text-sm font-semibold">
+                          {(() => {
+                            const costs = operatorCosts?.clients[client.client_name];
+                            if (!costs) {
+                              return <span className="text-slate-300">--</span>;
+                            }
+                            const groupRows = group.rows.length;
+                            const rowCost = costs.operator_cost / groupRows;
+                            const rowRevenue = calculatedRevenue[client.id]?.value ?? 0;
+                            const rowProfit = rowRevenue - rowCost;
+                            const profitColor = rowProfit > 0 ? 'text-emerald-700' : rowProfit < 0 ? 'text-red-600' : 'text-slate-500';
+                            const profitStr = Math.abs(rowProfit) >= 1000
+                              ? `${rowProfit < 0 ? '-' : ''}$${(Math.abs(rowProfit) / 1000).toFixed(1).replace(/\.0$/, '')}K`
+                              : `${rowProfit < 0 ? '-' : ''}$${Math.round(Math.abs(rowProfit))}`;
+                            return (
+                              <span className={profitColor} title={`Revenue: ${formatCurrency(rowRevenue)} | Cost: ${formatCurrency(rowCost)} | Profit: ${formatCurrency(rowProfit)}`}>
+                                {profitStr}
+                              </span>
                             );
                           })()}
                         </td>
