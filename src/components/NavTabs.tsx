@@ -7,6 +7,7 @@ const tabs = [
   { label: 'Clients', href: '/' },
   { label: 'Team', href: '/team' },
   { label: 'Scorecard', href: '/scorecard' },
+  { label: 'Finance', href: '/finance' },
   { label: 'Archive', href: '/archive' },
   { label: 'Billing', href: '/billing' },
   { label: 'Upwork', href: '/upwork' },
