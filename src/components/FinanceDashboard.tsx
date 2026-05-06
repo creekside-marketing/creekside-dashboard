@@ -341,8 +341,8 @@ export default function FinanceDashboard() {
               delta={deltaPctNullable(acq.current_window.cac, acq.prior_window.cac)}
             />
             <Tile
-              label="Cost of New MRR"
-              value={acq.current_window.cost_of_new_mrr !== null ? formatCurrency(acq.current_window.cost_of_new_mrr) : '—'}
+              label="Cost of New MRR (per $1)"
+              value={acq.current_window.cost_of_new_mrr !== null ? `$${acq.current_window.cost_of_new_mrr.toFixed(2)}` : '—'}
               valueColor={cacColor(acq.current_window.cost_of_new_mrr, acq.prior_window.cost_of_new_mrr)}
               delta={deltaPctNullable(acq.current_window.cost_of_new_mrr, acq.prior_window.cost_of_new_mrr)}
             />
