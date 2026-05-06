@@ -9,7 +9,6 @@ export const PARTNER_NAMES = new Set([
   'Bottle.com',
   'Comet Fuel',
   'FirstUp Marketing',
-  'Full Circle Media',
   'Suff Digital',
 ]);
 

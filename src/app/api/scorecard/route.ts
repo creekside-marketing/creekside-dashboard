@@ -3,7 +3,7 @@ import { createServiceClient } from '@/lib/supabase';
 import { calculatePlatformRevenue } from '@/lib/fee-engine';
 import type { FeeConfig } from '@/lib/fee-engine';
 
-const PARTNER_NAMES = new Set(['Bottle.com', 'Comet Fuel', 'FirstUp Marketing', 'Full Circle Media', 'Suff Digital']);
+const PARTNER_NAMES = new Set(['Bottle.com', 'Comet Fuel', 'FirstUp Marketing', 'Suff Digital']);
 
 interface ClientRow {
   id: string;

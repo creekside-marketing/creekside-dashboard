@@ -53,7 +53,6 @@ const PARTNER_NAMES = new Set([
   'Bottle.com',
   'Comet Fuel',
   'FirstUp Marketing',
-  'Full Circle Media',
   'Suff Digital',
 ]);
 
@@ -259,7 +258,7 @@ function InlineCurrencyInput({
       const res = await fetch('/api/clients', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: clientId, [field]: numValue, ...extraPatchFields }),
+        body: JSON.stringify({ id: clientId, [field]: numValue, ...(numValue != null ? extraPatchFields : {}) }),
       });
       if (res.ok) {
         onSaved(clientId, field, numValue as unknown as string);
