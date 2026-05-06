@@ -37,7 +37,7 @@ function monthLabel(isoDate: string): string {
   return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 
-type NewClient = { name: string; first_payment_date: string; monthly_mrr: number };
+type NewClient = { name: string; first_payment_date: string; monthly_mrr: number; mrr_source: 'manual' | 'auto' | 'none' };
 type WindowMetrics = {
   start: string;
   end: string;
@@ -396,10 +396,19 @@ export default function FinanceDashboard() {
                           ) : (
                             <button
                               onClick={() => startMrrEdit(key, client.monthly_mrr)}
-                              className={`px-2 py-1 rounded hover:bg-emerald-50 ${client.monthly_mrr > 0 ? 'text-emerald-700 font-semibold' : 'text-slate-400'}`}
-                              title="Click to set this client's monthly MRR"
+                              className={`px-2 py-1 rounded hover:bg-emerald-50 ${
+                                client.mrr_source === 'manual' ? 'text-emerald-700 font-semibold'
+                                : client.mrr_source === 'auto' ? 'text-blue-600'
+                                : 'text-slate-400'
+                              }`}
+                              title={
+                                client.mrr_source === 'manual' ? 'Manually entered. Click to change.'
+                                : client.mrr_source === 'auto' ? 'Auto-suggested from matched client record. Click to override.'
+                                : 'No matching client found. Click to set manually.'
+                              }
                             >
                               {client.monthly_mrr > 0 ? formatCurrency(client.monthly_mrr) : '—'}
+                              {client.mrr_source === 'auto' && <span className="text-xs text-slate-400 ml-1">(auto)</span>}
                             </button>
                           )}
                         </td>
