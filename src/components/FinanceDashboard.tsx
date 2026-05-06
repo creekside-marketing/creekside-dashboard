@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { formatCurrency } from '@/lib/utils/formatters';
+import FinanceTrendCharts from './FinanceTrendCharts';
 
 type CategoryProjection = {
   last_actual: number;
@@ -433,6 +434,8 @@ export default function FinanceDashboard() {
           </p>
         </div>
       )}
+
+      <FinanceTrendCharts />
     </div>
   );
 }
