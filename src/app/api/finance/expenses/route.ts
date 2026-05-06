@@ -103,14 +103,8 @@ export async function GET() {
     }
 
     // 4. Compose this month's projected expenses (default = last month's actual).
-    // Always include "Miscellaneous" so ad-hoc expenses (e.g. travel) can be projected
-    // even if last month had none.
     const allCategories = Array.from(
-      new Set([
-        ...Object.keys(lastExpensesByCategory),
-        ...Object.keys(projectionsByCategory),
-        'Miscellaneous',
-      ])
+      new Set([...Object.keys(lastExpensesByCategory), ...Object.keys(projectionsByCategory)])
     ).sort();
 
     const projectedByCategory: Record<string, { last_actual: number; projected: number; overridden: boolean; notes?: string }> = {};
