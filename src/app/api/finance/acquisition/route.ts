@@ -69,7 +69,7 @@ function normalizeName(name: string): string {
 type WindowMetrics = {
   marketing_spend: number;
   new_client_count: number;
-  new_clients: Array<{ name: string; first_payment_date: string; monthly_mrr: number }>;
+  new_clients: Array<{ name: string; first_payment_date: string; monthly_mrr: number; mrr_source: 'manual' | 'auto' | 'none' }>;
   new_mrr_total: number;
   cac: number | null;
   cost_of_new_mrr: number | null;
@@ -144,6 +144,35 @@ export async function GET() {
       mrrByKey[key] = Number(row.monthly_mrr ?? 0);
     }
 
+    // Auto-suggest MRR by matching payment names to clients (via primary_contact_name + display_names),
+    // then summing reporting_clients.monthly_revenue for that client. Manual mrrByKey wins.
+    const { data: clientsRows } = await supabase
+      .from('clients')
+      .select('id, name, primary_contact_name, display_names');
+    const { data: reportingRevRows } = await supabase
+      .from('reporting_clients')
+      .select('client_id, monthly_revenue, status')
+      .eq('status', 'active');
+    const revenueByClientId: Record<string, number> = {};
+    for (const r of reportingRevRows ?? []) {
+      if (!r.client_id) continue;
+      revenueByClientId[r.client_id] = (revenueByClientId[r.client_id] ?? 0) + Number(r.monthly_revenue ?? 0);
+    }
+    // Build normalized-name → suggested MRR (sum across all matching clients)
+    const suggestedMrrByNormName: Record<string, number> = {};
+    for (const c of clientsRows ?? []) {
+      const candidates: string[] = [];
+      if (c.primary_contact_name) candidates.push(c.primary_contact_name);
+      if (Array.isArray(c.display_names)) candidates.push(...(c.display_names as string[]));
+      const clientRev = revenueByClientId[c.id] ?? 0;
+      if (clientRev <= 0) continue;
+      for (const cand of candidates) {
+        const norm = normalizeName(cand);
+        if (!norm) continue;
+        suggestedMrrByNormName[norm] = (suggestedMrrByNormName[norm] ?? 0) + clientRev;
+      }
+    }
+
     // Helper to compute window metrics
     const buildWindow = (windowStart: string, windowEnd: string): WindowMetrics => {
       // Marketing spend in window
@@ -163,14 +192,24 @@ export async function GET() {
       }
 
       // New clients in window (first ever payment falls in window, case-insensitive)
-      const newClients: Array<{ name: string; first_payment_date: string; monthly_mrr: number }> = [];
+      const newClients: Array<{ name: string; first_payment_date: string; monthly_mrr: number; mrr_source: 'manual' | 'auto' | 'none' }> = [];
       for (const [norm, info] of Object.entries(firstPaymentByNormName)) {
         if (info.date >= windowStart && info.date <= windowEnd) {
           const key = `${norm}::${info.date}`;
+          const manual = mrrByKey[key];
+          const suggested = suggestedMrrByNormName[norm];
+          let mrr = 0;
+          let source: 'manual' | 'auto' | 'none' = 'none';
+          if (manual !== undefined) {
+            mrr = manual; source = 'manual';
+          } else if (suggested !== undefined && suggested > 0) {
+            mrr = suggested; source = 'auto';
+          }
           newClients.push({
             name: info.displayName,
             first_payment_date: info.date,
-            monthly_mrr: mrrByKey[key] ?? 0,
+            monthly_mrr: mrr,
+            mrr_source: source,
           });
         }
       }
