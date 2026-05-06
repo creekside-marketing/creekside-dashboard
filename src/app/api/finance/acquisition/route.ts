@@ -27,6 +27,18 @@ const MARKETING_EXCLUDE_NAMES = ['ZIPRECRUITER', 'ONLINEJOBSPH'];
 // Names to INCLUDE as marketing spend even though Labor-categorized (Queenie's contractor payment)
 const QUEENIE_NAME_PATTERNS = ['lovely queen del rosario', 'queenie', 'queen del rosario'];
 
+// Income-name patterns that are NOT new clients (interest, fees, refunds, internal transfers)
+const NEW_CLIENT_EXCLUDE_PATTERNS = [
+  'interest',
+  'savings',
+  'tax refund',
+  'refund',
+  'transfer',
+  'square fee',
+  'paypal fee',
+  'reversal',
+];
+
 function isExcludedMarketing(name: string | null | undefined): boolean {
   if (!name) return false;
   const upper = name.toUpperCase();
@@ -37,6 +49,21 @@ function isQueenie(name: string | null | undefined): boolean {
   if (!name) return false;
   const lower = name.toLowerCase();
   return QUEENIE_NAME_PATTERNS.some(p => lower.includes(p));
+}
+
+function isNonClientIncome(name: string | null | undefined): boolean {
+  if (!name) return true;
+  const lower = name.toLowerCase();
+  return NEW_CLIENT_EXCLUDE_PATTERNS.some(p => lower.includes(p));
+}
+
+/** Normalize a payer name for grouping (case-insensitive, whitespace-trimmed, common annotations stripped). */
+function normalizeName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\s*\(.*?\)\s*/g, ' ') // strip "(Feb inv)" etc
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 type WindowMetrics = {
@@ -82,13 +109,23 @@ export async function GET() {
       return NextResponse.json({ error: fpErr.message }, { status: 500 });
     }
 
-    // Compute first payment date per name
-    const firstPaymentByName: Record<string, string> = {};
+    // Compute first payment date per CASE-INSENSITIVE normalized name.
+    // Track display name (first/most-formal version seen) for showing in UI.
+    const firstPaymentByNormName: Record<string, { date: string; displayName: string }> = {};
     for (const row of firstPayments ?? []) {
       const name = row.name as string;
+      if (!name || isNonClientIncome(name)) continue;
+      const norm = normalizeName(name);
+      if (!norm) continue;
       const date = row.transaction_date as string;
-      if (!firstPaymentByName[name] || date < firstPaymentByName[name]) {
-        firstPaymentByName[name] = date;
+      const existing = firstPaymentByNormName[norm];
+      if (!existing || date < existing.date) {
+        // Prefer titlecased display name (with capitals) over lowercase variants
+        const isMoreFormal = !existing || /[A-Z]/.test(name);
+        firstPaymentByNormName[norm] = {
+          date,
+          displayName: isMoreFormal ? name : existing.displayName,
+        };
       }
     }
 
@@ -103,7 +140,7 @@ export async function GET() {
 
     const mrrByKey: Record<string, number> = {};
     for (const row of mrrRows ?? []) {
-      const key = `${row.client_name}::${row.first_payment_date}`;
+      const key = `${normalizeName(row.client_name)}::${row.first_payment_date}`;
       mrrByKey[key] = Number(row.monthly_mrr ?? 0);
     }
 
@@ -125,14 +162,14 @@ export async function GET() {
         }
       }
 
-      // New clients in window (first payment falls in window)
+      // New clients in window (first ever payment falls in window, case-insensitive)
       const newClients: Array<{ name: string; first_payment_date: string; monthly_mrr: number }> = [];
-      for (const [name, date] of Object.entries(firstPaymentByName)) {
-        if (date >= windowStart && date <= windowEnd) {
-          const key = `${name}::${date}`;
+      for (const [norm, info] of Object.entries(firstPaymentByNormName)) {
+        if (info.date >= windowStart && info.date <= windowEnd) {
+          const key = `${norm}::${info.date}`;
           newClients.push({
-            name,
-            first_payment_date: date,
+            name: info.displayName,
+            first_payment_date: info.date,
             monthly_mrr: mrrByKey[key] ?? 0,
           });
         }
