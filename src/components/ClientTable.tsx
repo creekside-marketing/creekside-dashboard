@@ -258,7 +258,7 @@ function InlineCurrencyInput({
       const res = await fetch('/api/clients', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: clientId, [field]: numValue, ...(numValue != null ? extraPatchFields : {}) }),
+        body: JSON.stringify({ id: clientId, [field]: numValue, ...(numValue != null ? extraPatchFields : { revenue_override: false }) }),
       });
       if (res.ok) {
         onSaved(clientId, field, numValue as unknown as string);
