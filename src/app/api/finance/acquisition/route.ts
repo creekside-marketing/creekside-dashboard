@@ -20,6 +20,7 @@
 
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
+import { computeRevenueByClientId } from '@/lib/client-revenue';
 
 // Names to EXCLUDE from marketing spend (one-time hires / tools that don't drive ongoing acquisition)
 const MARKETING_EXCLUDE_NAMES = ['ZIPRECRUITER', 'ONLINEJOBSPH'];
@@ -144,33 +145,39 @@ export async function GET() {
       mrrByKey[key] = Number(row.monthly_mrr ?? 0);
     }
 
-    // Auto-suggest MRR by matching payment names to clients (via primary_contact_name + display_names),
-    // then summing reporting_clients.monthly_revenue for that client. Manual mrrByKey wins.
+    // Auto-suggest MRR by matching payment names → client_id (via primary_contact_name +
+    // display_names) → full per-client revenue computed using the same fee_engine + live
+    // spend logic as the Clients dashboard. Sums across all clients sharing the contact.
+    // Manual mrrByKey wins.
     const { data: clientsRows } = await supabase
       .from('clients')
       .select('id, name, primary_contact_name, display_names');
-    const { data: reportingRevRows } = await supabase
-      .from('reporting_clients')
-      .select('client_id, monthly_revenue, status')
-      .eq('status', 'active');
-    const revenueByClientId: Record<string, number> = {};
-    for (const r of reportingRevRows ?? []) {
-      if (!r.client_id) continue;
-      revenueByClientId[r.client_id] = (revenueByClientId[r.client_id] ?? 0) + Number(r.monthly_revenue ?? 0);
-    }
-    // Build normalized-name → suggested MRR (sum across all matching clients)
-    const suggestedMrrByNormName: Record<string, number> = {};
+    const revenueByClientId = await computeRevenueByClientId(supabase);
+
+    // Build normalized-name → set of matching client_ids. Dedup so a name
+    // that appears in BOTH primary_contact_name and display_names of the
+    // same client doesn't get counted twice.
+    const clientIdsByNormName: Record<string, Set<string>> = {};
     for (const c of clientsRows ?? []) {
-      const candidates: string[] = [];
-      if (c.primary_contact_name) candidates.push(c.primary_contact_name);
-      if (Array.isArray(c.display_names)) candidates.push(...(c.display_names as string[]));
-      const clientRev = revenueByClientId[c.id] ?? 0;
-      if (clientRev <= 0) continue;
-      for (const cand of candidates) {
-        const norm = normalizeName(cand);
-        if (!norm) continue;
-        suggestedMrrByNormName[norm] = (suggestedMrrByNormName[norm] ?? 0) + clientRev;
+      const candidates = new Set<string>();
+      if (c.primary_contact_name) candidates.add(normalizeName(c.primary_contact_name));
+      if (Array.isArray(c.display_names)) {
+        for (const dn of c.display_names as string[]) candidates.add(normalizeName(dn));
       }
+      candidates.delete('');
+      for (const norm of candidates) {
+        if (!clientIdsByNormName[norm]) clientIdsByNormName[norm] = new Set();
+        clientIdsByNormName[norm].add(c.id);
+      }
+    }
+    // Sum revenue across each name's matched clients
+    const suggestedMrrByNormName: Record<string, number> = {};
+    for (const [norm, ids] of Object.entries(clientIdsByNormName)) {
+      let total = 0;
+      for (const id of ids) {
+        total += revenueByClientId[id] ?? 0;
+      }
+      if (total > 0) suggestedMrrByNormName[norm] = total;
     }
 
     // Helper to compute window metrics
