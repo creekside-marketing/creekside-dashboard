@@ -37,26 +37,54 @@ function monthLabel(isoDate: string): string {
   return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 
+type NewClient = { name: string; first_payment_date: string; monthly_mrr: number };
+type WindowMetrics = {
+  start: string;
+  end: string;
+  marketing_spend: number;
+  new_client_count: number;
+  new_clients: NewClient[];
+  new_mrr_total: number;
+  cac: number | null;
+  cost_of_new_mrr: number | null;
+};
+type AcquisitionData = {
+  current_window: WindowMetrics;
+  prior_window: WindowMetrics;
+};
+
 export default function FinanceDashboard() {
   const [data, setData] = useState<FinanceData | null>(null);
+  const [acq, setAcq] = useState<AcquisitionData | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<string>('');
   const [saving, setSaving] = useState(false);
+  const [editingMrrKey, setEditingMrrKey] = useState<string | null>(null);
+  const [mrrEditValue, setMrrEditValue] = useState<string>('');
+  const [mrrSaving, setMrrSaving] = useState(false);
 
   const load = () => {
     setLoading(true);
-    fetch('/api/finance/expenses')
-      .then(r => r.json())
-      .then((d: FinanceData | { error: string }) => {
-        if ('error' in d) {
-          setErr(d.error);
+    Promise.all([
+      fetch('/api/finance/expenses').then(r => r.json()),
+      fetch('/api/finance/acquisition').then(r => r.json()),
+    ])
+      .then(([expData, acqData]) => {
+        if (expData?.error) {
+          setErr(expData.error);
           setData(null);
         } else {
-          setData(d);
-          setErr(null);
+          setData(expData);
         }
+        if (acqData?.error) {
+          // Non-fatal: show expense data even if acquisition fails
+          setAcq(null);
+        } else {
+          setAcq(acqData);
+        }
+        setErr(null);
         setLoading(false);
       })
       .catch(e => {
@@ -68,6 +96,46 @@ export default function FinanceDashboard() {
   useEffect(() => {
     load();
   }, []);
+
+  const startMrrEdit = (key: string, current: number) => {
+    setEditingMrrKey(key);
+    setMrrEditValue(String(current));
+  };
+
+  const saveMrrEdit = async (clientName: string, firstPaymentDate: string) => {
+    if (!editingMrrKey) return;
+    if (mrrEditValue.trim() === '') {
+      setEditingMrrKey(null);
+      return;
+    }
+    const amount = parseFloat(mrrEditValue);
+    if (Number.isNaN(amount) || amount < 0) {
+      alert(`Invalid MRR: "${mrrEditValue}". Enter a non-negative number.`);
+      setEditingMrrKey(null);
+      return;
+    }
+    setMrrSaving(true);
+    try {
+      const res = await fetch('/api/finance/acquisition/mrr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_name: clientName,
+          first_payment_date: firstPaymentDate,
+          monthly_mrr: amount,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) {
+        alert(`Save failed: ${json.error ?? res.statusText}`);
+      } else {
+        load();
+      }
+    } finally {
+      setMrrSaving(false);
+      setEditingMrrKey(null);
+    }
+  };
 
   const startEdit = (cat: string, current: number) => {
     setEditingCategory(cat);
@@ -248,15 +316,153 @@ export default function FinanceDashboard() {
         Projected revenue auto-pulls from active non-retainer clients (same source as the Clients tab tile).
         Expense projections start as a copy of last month and can be overridden inline.
       </p>
+
+      {/* Customer acquisition section */}
+      {acq && (
+        <div className="space-y-4 pt-4">
+          <h2 className="text-base font-semibold text-slate-900">Customer Acquisition (rolling 30 days)</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Tile
+              label="Marketing spend (last 30d)"
+              value={formatCurrency(acq.current_window.marketing_spend)}
+              valueColor="text-slate-900"
+              delta={deltaPct(acq.current_window.marketing_spend, acq.prior_window.marketing_spend)}
+            />
+            <Tile
+              label="New clients (last 30d)"
+              value={String(acq.current_window.new_client_count)}
+              valueColor="text-slate-900"
+              delta={deltaAbs(acq.current_window.new_client_count, acq.prior_window.new_client_count)}
+            />
+            <Tile
+              label="CAC (cost per new client)"
+              value={acq.current_window.cac !== null ? formatCurrency(acq.current_window.cac) : '—'}
+              valueColor={cacColor(acq.current_window.cac, acq.prior_window.cac)}
+              delta={deltaPctNullable(acq.current_window.cac, acq.prior_window.cac)}
+            />
+            <Tile
+              label="Cost of New MRR"
+              value={acq.current_window.cost_of_new_mrr !== null ? formatCurrency(acq.current_window.cost_of_new_mrr) : '—'}
+              valueColor={cacColor(acq.current_window.cost_of_new_mrr, acq.prior_window.cost_of_new_mrr)}
+              delta={deltaPctNullable(acq.current_window.cost_of_new_mrr, acq.prior_window.cost_of_new_mrr)}
+            />
+          </div>
+
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-slate-900">
+                New clients in last 30 days ({acq.current_window.new_client_count})
+              </h3>
+              <span className="text-xs text-slate-500">
+                Click an MRR cell to set what the client is paying us per month.
+              </span>
+            </div>
+            {acq.current_window.new_clients.length === 0 ? (
+              <p className="px-6 py-6 text-sm text-slate-500">No new clients in the window.</p>
+            ) : (
+              <table className="w-full">
+                <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
+                  <tr>
+                    <th className="px-6 py-3 text-left">Name (per Square)</th>
+                    <th className="px-6 py-3 text-left">First payment</th>
+                    <th className="px-6 py-3 text-right">Monthly MRR</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {acq.current_window.new_clients.map(client => {
+                    const key = `${client.name}::${client.first_payment_date}`;
+                    const isEditing = editingMrrKey === key;
+                    return (
+                      <tr key={key} className="hover:bg-slate-50">
+                        <td className="px-6 py-3 text-sm font-medium text-slate-900">{client.name}</td>
+                        <td className="px-6 py-3 text-sm text-slate-600">{client.first_payment_date}</td>
+                        <td className="px-6 py-3 text-right text-sm">
+                          {isEditing ? (
+                            <input
+                              autoFocus
+                              type="text"
+                              inputMode="decimal"
+                              value={mrrEditValue}
+                              onFocus={e => e.currentTarget.select()}
+                              onChange={e => setMrrEditValue(e.target.value)}
+                              onBlur={() => saveMrrEdit(client.name, client.first_payment_date)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') saveMrrEdit(client.name, client.first_payment_date);
+                                if (e.key === 'Escape') setEditingMrrKey(null);
+                              }}
+                              disabled={mrrSaving}
+                              className="w-32 px-2 py-1 border border-emerald-500 rounded text-right"
+                            />
+                          ) : (
+                            <button
+                              onClick={() => startMrrEdit(key, client.monthly_mrr)}
+                              className={`px-2 py-1 rounded hover:bg-emerald-50 ${client.monthly_mrr > 0 ? 'text-emerald-700 font-semibold' : 'text-slate-400'}`}
+                              title="Click to set this client's monthly MRR"
+                            >
+                              {client.monthly_mrr > 0 ? formatCurrency(client.monthly_mrr) : '—'}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot className="bg-slate-50 font-semibold">
+                  <tr>
+                    <td className="px-6 py-3 text-sm text-slate-900" colSpan={2}>Total New MRR (last 30d)</td>
+                    <td className="px-6 py-3 text-right text-sm text-slate-900">{formatCurrency(acq.current_window.new_mrr_total)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </div>
+
+          <p className="text-xs text-slate-500">
+            Marketing spend = Marketing category (excludes ZipRecruiter, ONLINEJOBSPH) + Queenie&apos;s Labor entries.
+            New client = first ever income payment in the last 30 days. Each row&apos;s MRR is what you set manually
+            from their contract — auto-detection only knows the first payment amount, not the recurring retainer.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
 
-function Tile({ label, value, valueColor }: { label: string; value: string; valueColor: string }) {
+function deltaPct(current: number, prior: number): { text: string; positive: boolean } | null {
+  if (prior === 0) return null;
+  const pct = ((current - prior) / prior) * 100;
+  return { text: `${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% vs prior 30d`, positive: pct >= 0 };
+}
+
+function deltaAbs(current: number, prior: number): { text: string; positive: boolean } | null {
+  const diff = current - prior;
+  if (diff === 0) return null;
+  return { text: `${diff > 0 ? '+' : ''}${diff} vs prior 30d`, positive: diff >= 0 };
+}
+
+function deltaPctNullable(current: number | null, prior: number | null): { text: string; positive: boolean } | null {
+  if (current === null || prior === null || prior === 0) return null;
+  const pct = ((current - prior) / prior) * 100;
+  // For CAC / Cost of New MRR, lower is better, so invert "positive"
+  return { text: `${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% vs prior 30d`, positive: pct < 0 };
+}
+
+function cacColor(current: number | null, prior: number | null): string {
+  if (current === null) return 'text-slate-400';
+  if (prior === null || prior === 0) return 'text-slate-900';
+  return current <= prior ? 'text-emerald-600' : 'text-red-600';
+}
+
+function Tile({ label, value, valueColor, delta }: { label: string; value: string; valueColor: string; delta?: { text: string; positive: boolean } | null }) {
   return (
     <div className="bg-white rounded-xl border border-slate-200 px-5 py-4">
       <p className="text-xs font-medium text-slate-500">{label}</p>
       <p className={`text-2xl font-bold mt-1 ${valueColor}`}>{value}</p>
+      {delta && (
+        <p className={`text-xs mt-1 ${delta.positive ? 'text-emerald-700' : 'text-red-600'}`}>
+          {delta.text}
+        </p>
+      )}
     </div>
   );
 }
