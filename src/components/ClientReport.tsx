@@ -313,11 +313,11 @@ function PlatformBadge({ platform }: { platform: string }) {
       : isEmail
         ? 'bg-purple-50 text-purple-700 ring-1 ring-inset ring-purple-600/20'
         : isChatGPT
-          ? 'bg-teal-50 text-teal-700 ring-1 ring-inset ring-teal-600/20'
+          ? 'bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-600/20'
           : isMeta
             ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-600/20'
             : 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20';
-  const dotColor = isOther ? 'bg-red-500' : isProgrammatic ? 'bg-yellow-500' : isEmail ? 'bg-purple-500' : isChatGPT ? 'bg-teal-500' : isMeta ? 'bg-blue-500' : 'bg-emerald-500';
+  const dotColor = isOther ? 'bg-red-500' : isProgrammatic ? 'bg-yellow-500' : isEmail ? 'bg-purple-500' : isChatGPT ? 'bg-orange-500' : isMeta ? 'bg-blue-500' : 'bg-emerald-500';
   const label = isOther ? 'AI Agent' : isProgrammatic ? 'Programmatic Ads' : isEmail ? 'Email' : isChatGPT ? 'ChatGPT Ads' : isMeta ? 'Meta' : 'Google';
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold ${badgeStyles}`}>
