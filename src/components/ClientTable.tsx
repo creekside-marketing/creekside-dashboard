@@ -1224,24 +1224,28 @@ export default function ClientTable() {
     const uniqueClients = new Set(activeFiltered.map(c => c.client_name)).size;
     const googleCount = activeFiltered.filter(c => c.platform === 'google').length;
     const metaCount = activeFiltered.filter(c => c.platform === 'meta').length;
-    const otherCount = activeFiltered.filter(c => c.platform !== 'google' && c.platform !== 'meta').length;
+    const chatgptCount = activeFiltered.filter(c => c.platform === 'chatgpt').length;
+    const otherCount = activeFiltered.filter(c => c.platform !== 'google' && c.platform !== 'meta' && c.platform !== 'chatgpt').length;
     const totalEstRevenue = activeFiltered.reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
     const googleRevenue = activeFiltered.filter(c => c.platform === 'google').reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
     const metaRevenue = activeFiltered.filter(c => c.platform === 'meta').reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
-    const otherRevenue = activeFiltered.filter(c => c.platform !== 'google' && c.platform !== 'meta').reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
+    const chatgptRevenue = activeFiltered.filter(c => c.platform === 'chatgpt').reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
+    const otherRevenue = activeFiltered.filter(c => c.platform !== 'google' && c.platform !== 'meta' && c.platform !== 'chatgpt').reduce((sum, c) => sum + (calculatedRevenue[c.id]?.value ?? 0), 0);
     // Per-platform operator cost: pulls per-row cost from operatorCosts[client_name][platform].
     const costFor = (c: { client_name: string; platform: string }) =>
       operatorCosts?.clients[c.client_name]?.[c.platform]?.operator_cost ?? 0;
     const googleCost = activeFiltered.filter(c => c.platform === 'google').reduce((sum, c) => sum + costFor(c), 0);
     const metaCost = activeFiltered.filter(c => c.platform === 'meta').reduce((sum, c) => sum + costFor(c), 0);
-    const otherCost = activeFiltered.filter(c => c.platform !== 'google' && c.platform !== 'meta').reduce((sum, c) => sum + costFor(c), 0);
+    const chatgptCost = activeFiltered.filter(c => c.platform === 'chatgpt').reduce((sum, c) => sum + costFor(c), 0);
+    const otherCost = activeFiltered.filter(c => c.platform !== 'google' && c.platform !== 'meta' && c.platform !== 'chatgpt').reduce((sum, c) => sum + costFor(c), 0);
     const googleProfit = googleRevenue - googleCost;
     const metaProfit = metaRevenue - metaCost;
+    const chatgptProfit = chatgptRevenue - chatgptCost;
     const otherProfit = otherRevenue - otherCost;
     const totalOperatorCost = operatorCosts?.totals.operator_cost ?? 0;
     const profit = totalEstRevenue - totalOperatorCost;
     const marginPct = totalEstRevenue > 0 ? Math.round((profit / totalEstRevenue) * 10000) / 100 : 0;
-    return { uniqueClients, googleCount, metaCount, otherCount, total: activeFiltered.length, totalEstRevenue, googleRevenue, metaRevenue, otherRevenue, googleProfit, metaProfit, otherProfit, totalOperatorCost, profit, marginPct };
+    return { uniqueClients, googleCount, metaCount, chatgptCount, otherCount, total: activeFiltered.length, totalEstRevenue, googleRevenue, metaRevenue, chatgptRevenue, otherRevenue, googleProfit, metaProfit, chatgptProfit, otherProfit, totalOperatorCost, profit, marginPct };
   }, [filtered, calculatedRevenue, operatorCosts]);
 
   // ── Render helpers ──────────────────────────────────────────────────
@@ -1310,7 +1314,7 @@ export default function ClientTable() {
   return (
     <div className="space-y-6">
       {/* Summary Stats */}
-      <div className="grid grid-cols-3 lg:grid-cols-7 gap-4">
+      <div className="grid grid-cols-4 lg:grid-cols-8 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
           <p className="text-sm font-medium text-slate-500">Active Clients</p>
           <p className="text-2xl font-bold text-slate-900 mt-1">{stats.uniqueClients}</p>
@@ -1353,6 +1357,17 @@ export default function ClientTable() {
             Profit: {formatCurrency(stats.metaProfit)}
             {stats.metaRevenue > 0 && (
               <span className="text-slate-400 font-normal"> ({Math.round((stats.metaProfit / stats.metaRevenue) * 100)}%)</span>
+            )}
+          </p>
+        </div>
+        <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
+          <p className="text-sm font-medium text-slate-500">ChatGPT Revenue</p>
+          <p className="text-2xl font-bold text-orange-600 mt-1">{formatCurrency(stats.chatgptRevenue)}</p>
+          <p className="text-xs text-slate-400 mt-0.5">{stats.chatgptCount} accounts</p>
+          <p className={`text-xs font-semibold mt-1 ${stats.chatgptProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+            Profit: {formatCurrency(stats.chatgptProfit)}
+            {stats.chatgptRevenue > 0 && (
+              <span className="text-slate-400 font-normal"> ({Math.round((stats.chatgptProfit / stats.chatgptRevenue) * 100)}%)</span>
             )}
           </p>
         </div>
