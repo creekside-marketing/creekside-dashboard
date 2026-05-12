@@ -189,8 +189,12 @@ export default function AuraDisplaysGoogleReport({ client, mode }: { client: Rep
       if (pRes.ok) {
         try {
           const pr = (await pRes.json()).data ?? [];
-          const pt = computeTotals((Array.isArray(pr) ? pr : []).map(normalizeEcomGoogleCampaign));
-          setKpi({ conversionValue: calcChange(t.conversionValue, pt.conversionValue), roas: calcChange(t.roas, pt.roas), roasByConvTime: calcChange(t.roasByConvTime, pt.roasByConvTime), cost: calcChange(t.cost, pt.cost), cpa: calcChange(t.cpa, pt.cpa), aov: calcChange(t.aov, pt.aov), conversions: calcChange(t.conversions, pt.conversions), ctr: calcChange(t.ctr, pt.ctr), cpc: calcChange(t.cpc, pt.cpc), impressions: calcChange(t.impressions, pt.impressions) });
+          const priorCampaigns = (Array.isArray(pr) ? pr : []).map(normalizeEcomGoogleCampaign);
+          const pt = computeTotals(priorCampaigns);
+          // Non-branded subset (matches the "UNBRANDED" filter used in the Non-Branded Performance section)
+          const ptNonBranded = computeTotals(priorCampaigns.filter((c: EcomCampaign) => c.name.toUpperCase().includes('UNBRANDED')));
+          const tNonBranded = computeTotals(norm.filter((c: EcomCampaign) => c.name.toUpperCase().includes('UNBRANDED')));
+          setKpi({ conversionValue: calcChange(t.conversionValue, pt.conversionValue), roas: calcChange(t.roas, pt.roas), roasByConvTime: calcChange(t.roasByConvTime, pt.roasByConvTime), roasByConvTimeNonBranded: calcChange(tNonBranded.roasByConvTime, ptNonBranded.roasByConvTime), cost: calcChange(t.cost, pt.cost), cpa: calcChange(t.cpa, pt.cpa), aov: calcChange(t.aov, pt.aov), conversions: calcChange(t.conversions, pt.conversions), ctr: calcChange(t.ctr, pt.ctr), cpc: calcChange(t.cpc, pt.cpc), impressions: calcChange(t.impressions, pt.impressions) });
         } catch { setKpi(null); }
       }
 
@@ -233,32 +237,37 @@ export default function AuraDisplaysGoogleReport({ client, mode }: { client: Rep
           <SparklineKpiCard label="Impressions" value={fmt(totals.impressions)} change={kpi?.impressions.pct} changeDirection={kpi?.impressions.direction} changeSentiment="positive-up" size="sm" />
         </div>
 
-        {/* ── ROAS (By Conv. Time) ─ Manual calc ──────────────────────── */}
-        <div className="rounded-xl border border-orange-200 bg-gradient-to-br from-orange-50 to-amber-50 p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-orange-900">
-                ROAS (By Conv. Time)
-              </h2>
-              <p className="mt-0.5 text-xs text-orange-700">
-                Conversion Value (By conv. time) ÷ Cost
-              </p>
-            </div>
-            {kpi?.roasByConvTime && (
-              <div className={`text-sm font-medium ${kpi.roasByConvTime.direction === 'up' ? 'text-emerald-700' : kpi.roasByConvTime.direction === 'down' ? 'text-red-600' : 'text-slate-500'}`}>
-                {kpi.roasByConvTime.direction === 'up' ? '↑' : kpi.roasByConvTime.direction === 'down' ? '↓' : '·'} {kpi.roasByConvTime.pct}
+        {/* ── ROAS (By Conv. Time) ─ Manual calc, non-branded only ─────── */}
+        {(() => {
+          const nb = computeTotals(campaigns.filter((c) => c.name.toUpperCase().includes('UNBRANDED')));
+          return (
+            <div className="rounded-xl border border-orange-200 bg-gradient-to-br from-orange-50 to-amber-50 p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-xs font-semibold uppercase tracking-wider text-orange-900">
+                    ROAS (By Conv. Time) — Non-Branded
+                  </h2>
+                  <p className="mt-0.5 text-xs text-orange-700">
+                    Conversion Value (By conv. time) ÷ Cost. Excludes the branded campaign.
+                  </p>
+                </div>
+                {kpi?.roasByConvTimeNonBranded && (
+                  <div className={`text-sm font-medium ${kpi.roasByConvTimeNonBranded.direction === 'up' ? 'text-emerald-700' : kpi.roasByConvTimeNonBranded.direction === 'down' ? 'text-red-600' : 'text-slate-500'}`}>
+                    {kpi.roasByConvTimeNonBranded.direction === 'up' ? '↑' : kpi.roasByConvTimeNonBranded.direction === 'down' ? '↓' : '·'} {kpi.roasByConvTimeNonBranded.pct}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          <div className="mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-2">
-            <span className="text-4xl font-bold text-orange-700">
-              {totals.cost > 0 ? `${totals.roasByConvTime.toFixed(2)}x` : '--'}
-            </span>
-            <span className="text-sm text-orange-800">
-              {fmtMoney(totals.conversionValueByConvTime)} revenue (by conv. time) ÷ {fmtMoney(totals.cost)} spend
-            </span>
-          </div>
-        </div>
+              <div className="mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-2">
+                <span className="text-4xl font-bold text-orange-700">
+                  {nb.cost > 0 ? `${nb.roasByConvTime.toFixed(2)}x` : '--'}
+                </span>
+                <span className="text-sm text-orange-800">
+                  {fmtMoney(nb.conversionValueByConvTime)} revenue (by conv. time) ÷ {fmtMoney(nb.cost)} spend
+                </span>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── Revenue vs Spend Chart ──────────────────────────────────── */}
         {dailyData.length > 0 && (<>
