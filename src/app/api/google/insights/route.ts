@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
           metrics.cost_micros,
           metrics.conversions,
           metrics.conversions_value,
+          metrics.conversions_value_by_conversion_date,
           metrics.cost_per_conversion,
           segments.date
         FROM customer
@@ -57,6 +58,7 @@ export async function GET(request: NextRequest) {
         cost: Number(row.metrics.cost_micros) / 1_000_000,
         conversions: row.metrics.conversions,
         conversion_value: Number(row.metrics.conversions_value ?? 0),
+        conversion_value_by_conv_time: Number(row.metrics.conversions_value_by_conversion_date ?? 0),
         cost_per_conversion: Number(row.metrics.cost_per_conversion) / 1_000_000,
       }));
 
@@ -313,6 +315,7 @@ export async function GET(request: NextRequest) {
         metrics.cost_micros,
         metrics.conversions,
         metrics.conversions_value,
+        metrics.conversions_value_by_conversion_date,
         metrics.cost_per_conversion
       FROM campaign
       WHERE ${dateFilter}
@@ -338,6 +341,7 @@ export async function GET(request: NextRequest) {
       cost: Number(row.metrics.cost_micros) / 1_000_000,
       conversions: row.metrics.conversions,
       conversion_value: Number(row.metrics.conversions_value ?? 0),
+      conversion_value_by_conv_time: Number(row.metrics.conversions_value_by_conversion_date ?? 0),
       cost_per_conversion: Number(row.metrics.cost_per_conversion) / 1_000_000,
     }));
 

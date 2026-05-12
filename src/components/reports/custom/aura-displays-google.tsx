@@ -45,18 +45,21 @@ import { ReportingClient } from './_aura-displays-google/types';
 interface EcomCampaign {
   name: string; status: string; type?: string;
   impressions: number; clicks: number; ctr: number; cpc: number; cost: number;
-  conversions: number; conversionValue: number; roas: number; cpa: number; aov: number;
+  conversions: number; conversionValue: number; conversionValueByConvTime: number;
+  roas: number; roasByConvTime: number; cpa: number; aov: number;
 }
 
 interface EcomTotals {
   impressions: number; clicks: number; ctr: number; cpc: number; cost: number;
-  conversions: number; conversionValue: number; roas: number; cpa: number; aov: number;
+  conversions: number; conversionValue: number; conversionValueByConvTime: number;
+  roas: number; roasByConvTime: number; cpa: number; aov: number;
 }
 
 interface DailyRow {
   [key: string]: unknown;
   date: string; impressions: number; clicks: number; cost: number;
-  conversions: number; conversionValue: number; roas: number; cpa: number; aov: number;
+  conversions: number; conversionValue: number; conversionValueByConvTime: number;
+  roas: number; roasByConvTime: number; cpa: number; aov: number;
 }
 
 type KpiChange = { pct: string; direction: 'up' | 'down' | 'flat' };
@@ -68,10 +71,14 @@ function normalizeEcomGoogleCampaign(row: any): EcomCampaign {
   const impressions = Number(row.impressions ?? 0), clicks = Number(row.clicks ?? 0);
   const cost = Number(row.cost ?? 0), conversions = Number(row.conversions ?? 0);
   const conversionValue = Number(row.conversion_value ?? row.conversions_value ?? 0);
+  const conversionValueByConvTime = Number(row.conversion_value_by_conv_time ?? row.conversions_value_by_conversion_date ?? 0);
   return {
     name: row.campaign_name ?? 'Unknown Campaign', status: row.status ?? 'unknown',
-    type: row.channel_type ?? undefined, impressions, clicks, cost, conversions, conversionValue,
-    roas: cost > 0 ? conversionValue / cost : 0, cpa: conversions > 0 ? cost / conversions : 0,
+    type: row.channel_type ?? undefined, impressions, clicks, cost, conversions,
+    conversionValue, conversionValueByConvTime,
+    roas: cost > 0 ? conversionValue / cost : 0,
+    roasByConvTime: cost > 0 ? conversionValueByConvTime / cost : 0,
+    cpa: conversions > 0 ? cost / conversions : 0,
     aov: conversions > 0 ? conversionValue / conversions : 0,
     ctr: impressions > 0 ? clicks / impressions : 0, cpc: clicks > 0 ? cost / clicks : 0,
   };
@@ -82,18 +89,20 @@ function computeTotals(campaigns: EcomCampaign[]): EcomTotals {
     impressions: a.impressions + c.impressions, clicks: a.clicks + c.clicks,
     cost: a.cost + c.cost, conversions: a.conversions + c.conversions,
     conversionValue: a.conversionValue + c.conversionValue,
-    ctr: 0, cpc: 0, roas: 0, cpa: 0, aov: 0,
-  }), { impressions: 0, clicks: 0, cost: 0, conversions: 0, conversionValue: 0, ctr: 0, cpc: 0, roas: 0, cpa: 0, aov: 0 });
+    conversionValueByConvTime: a.conversionValueByConvTime + c.conversionValueByConvTime,
+    ctr: 0, cpc: 0, roas: 0, roasByConvTime: 0, cpa: 0, aov: 0,
+  }), { impressions: 0, clicks: 0, cost: 0, conversions: 0, conversionValue: 0, conversionValueByConvTime: 0, ctr: 0, cpc: 0, roas: 0, roasByConvTime: 0, cpa: 0, aov: 0 });
   t.ctr = t.impressions > 0 ? t.clicks / t.impressions : 0;
   t.cpc = t.clicks > 0 ? t.cost / t.clicks : 0;
   t.roas = t.cost > 0 ? t.conversionValue / t.cost : 0;
+  t.roasByConvTime = t.cost > 0 ? t.conversionValueByConvTime / t.cost : 0;
   t.cpa = t.conversions > 0 ? t.cost / t.conversions : 0;
   t.aov = t.conversions > 0 ? t.conversionValue / t.conversions : 0;
   return t;
 }
 
 const COOLDOWN_MS = 5 * 60 * 1000;
-const ZERO: EcomTotals = { impressions: 0, clicks: 0, ctr: 0, cpc: 0, cost: 0, conversions: 0, conversionValue: 0, roas: 0, cpa: 0, aov: 0 };
+const ZERO: EcomTotals = { impressions: 0, clicks: 0, ctr: 0, cpc: 0, cost: 0, conversions: 0, conversionValue: 0, conversionValueByConvTime: 0, roas: 0, roasByConvTime: 0, cpa: 0, aov: 0 };
 
 // ── Formatters ───────────────────────────────────────────────────────────
 
@@ -169,7 +178,8 @@ export default function AuraDisplaysGoogleReport({ client, mode }: { client: Rep
             setDailyData(rows.map((r: Record<string, unknown>) => {
               const c = Number(r.cost ?? 0), cv = Number(r.conversions ?? 0);
               const v = Number(r.conversion_value ?? r.conversions_value ?? 0);
-              return { date: String(r.date ?? ''), impressions: Number(r.impressions ?? 0), clicks: Number(r.clicks ?? 0), cost: c, conversions: cv, conversionValue: v, roas: c > 0 ? v / c : 0, cpa: cv > 0 ? c / cv : 0, aov: cv > 0 ? v / cv : 0 };
+              const vct = Number(r.conversion_value_by_conv_time ?? r.conversions_value_by_conversion_date ?? 0);
+              return { date: String(r.date ?? ''), impressions: Number(r.impressions ?? 0), clicks: Number(r.clicks ?? 0), cost: c, conversions: cv, conversionValue: v, conversionValueByConvTime: vct, roas: c > 0 ? v / c : 0, roasByConvTime: c > 0 ? vct / c : 0, cpa: cv > 0 ? c / cv : 0, aov: cv > 0 ? v / cv : 0 };
             }).sort((a, b) => a.date.localeCompare(b.date)));
           }
         } catch { /* optional */ }
@@ -180,7 +190,7 @@ export default function AuraDisplaysGoogleReport({ client, mode }: { client: Rep
         try {
           const pr = (await pRes.json()).data ?? [];
           const pt = computeTotals((Array.isArray(pr) ? pr : []).map(normalizeEcomGoogleCampaign));
-          setKpi({ conversionValue: calcChange(t.conversionValue, pt.conversionValue), roas: calcChange(t.roas, pt.roas), cost: calcChange(t.cost, pt.cost), cpa: calcChange(t.cpa, pt.cpa), aov: calcChange(t.aov, pt.aov), conversions: calcChange(t.conversions, pt.conversions), ctr: calcChange(t.ctr, pt.ctr), cpc: calcChange(t.cpc, pt.cpc), impressions: calcChange(t.impressions, pt.impressions) });
+          setKpi({ conversionValue: calcChange(t.conversionValue, pt.conversionValue), roas: calcChange(t.roas, pt.roas), roasByConvTime: calcChange(t.roasByConvTime, pt.roasByConvTime), cost: calcChange(t.cost, pt.cost), cpa: calcChange(t.cpa, pt.cpa), aov: calcChange(t.aov, pt.aov), conversions: calcChange(t.conversions, pt.conversions), ctr: calcChange(t.ctr, pt.ctr), cpc: calcChange(t.cpc, pt.cpc), impressions: calcChange(t.impressions, pt.impressions) });
         } catch { setKpi(null); }
       }
 
@@ -223,6 +233,33 @@ export default function AuraDisplaysGoogleReport({ client, mode }: { client: Rep
           <SparklineKpiCard label="Impressions" value={fmt(totals.impressions)} change={kpi?.impressions.pct} changeDirection={kpi?.impressions.direction} changeSentiment="positive-up" size="sm" />
         </div>
 
+        {/* ── ROAS (By Conv. Time) ─ Manual calc ──────────────────────── */}
+        <div className="rounded-xl border border-orange-200 bg-gradient-to-br from-orange-50 to-amber-50 p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-orange-900">
+                ROAS (By Conv. Time)
+              </h2>
+              <p className="mt-0.5 text-xs text-orange-700">
+                Conversion Value (By conv. time) ÷ Cost
+              </p>
+            </div>
+            {kpi?.roasByConvTime && (
+              <div className={`text-sm font-medium ${kpi.roasByConvTime.direction === 'up' ? 'text-emerald-700' : kpi.roasByConvTime.direction === 'down' ? 'text-red-600' : 'text-slate-500'}`}>
+                {kpi.roasByConvTime.direction === 'up' ? '↑' : kpi.roasByConvTime.direction === 'down' ? '↓' : '·'} {kpi.roasByConvTime.pct}
+              </div>
+            )}
+          </div>
+          <div className="mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-2">
+            <span className="text-4xl font-bold text-orange-700">
+              {totals.cost > 0 ? `${totals.roasByConvTime.toFixed(2)}x` : '--'}
+            </span>
+            <span className="text-sm text-orange-800">
+              {fmtMoney(totals.conversionValueByConvTime)} revenue (by conv. time) ÷ {fmtMoney(totals.cost)} spend
+            </span>
+          </div>
+        </div>
+
         {/* ── Revenue vs Spend Chart ──────────────────────────────────── */}
         {dailyData.length > 0 && (<>
           <ReportChart title="Revenue vs Spend" data={dailyData} xKey="date" lines={[{ dataKey: 'cost', label: 'Spend', color: '#93C5FD', type: 'bar', yAxisId: 'left' }, { dataKey: 'conversionValue', label: 'Revenue', color: '#F59E0B', yAxisId: 'right' }]} formatY={(v) => `$${v.toLocaleString()}`} formatYRight={(v) => `$${v.toLocaleString()}`} />
@@ -240,6 +277,22 @@ export default function AuraDisplaysGoogleReport({ client, mode }: { client: Rep
             { key: 'conversionValue', label: 'Revenue', align: 'right', format: moneyCol }, { key: 'roas', label: 'ROAS', align: 'right', format: roasCol },
             { key: 'cpa', label: 'CPA', align: 'right', format: moneyCol }, { key: 'aov', label: 'AOV', align: 'right', format: moneyCol },
           ]} />
+        )}
+
+        {/* ── Non-Branded Performance ─────────────────────────────────── */}
+        {campaigns.filter((c) => c.name.toUpperCase().includes('UNBRANDED')).length > 0 && (
+          <BreakdownTable
+            title="Non-Branded Performance"
+            data={campaigns.filter((c) => c.name.toUpperCase().includes('UNBRANDED'))}
+            columns={[
+              { key: 'name', label: 'Campaign' }, { key: 'type', label: 'Type' },
+              { key: 'impressions', label: 'Impr.', align: 'right', format: numCol }, { key: 'clicks', label: 'Clicks', align: 'right', format: numCol },
+              { key: 'ctr', label: 'CTR', align: 'right', format: pctCol }, { key: 'cost', label: 'Spend', align: 'right', format: moneyCol },
+              { key: 'conversionValue', label: 'Revenue', align: 'right', format: moneyCol }, { key: 'roas', label: 'ROAS', align: 'right', format: roasCol },
+              { key: 'roasByConvTime', label: 'ROAS (Conv. Time)', align: 'right', format: roasCol },
+              { key: 'cpa', label: 'CPA', align: 'right', format: moneyCol }, { key: 'aov', label: 'AOV', align: 'right', format: moneyCol },
+            ]}
+          />
         )}
 
         {/* ── Top Keywords ────────────────────────────────────────────── */}
