@@ -23,6 +23,7 @@ interface Client {
   goal_type: string | null;
   goal_target: number | null;
   client_category: string | null;
+  notes: string | null;
   [key: string]: unknown;
 }
 
@@ -1199,13 +1200,20 @@ export default function ClientTable() {
     return groups;
   }, [sorted]);
 
+  // Split groups by row-level client_category so a single client with mixed
+  // categories (e.g. Dominnik: AI Agent=active, Meta=retainer) renders the
+  // active rows in the top table and the retainer rows in the bottom table.
   const activeGroups = useMemo(() =>
-    grouped.filter(g => g.rows.every(r => (r.client_category ?? 'active') !== 'retainer')),
+    grouped
+      .map(g => ({ ...g, rows: g.rows.filter(r => (r.client_category ?? 'active') !== 'retainer') }))
+      .filter(g => g.rows.length > 0),
     [grouped]
   );
 
   const retainerGroups = useMemo(() =>
-    grouped.filter(g => g.rows.some(r => r.client_category === 'retainer')),
+    grouped
+      .map(g => ({ ...g, rows: g.rows.filter(r => r.client_category === 'retainer') }))
+      .filter(g => g.rows.length > 0),
     [grouped]
   );
 
@@ -1753,12 +1761,21 @@ export default function ClientTable() {
 
       {/* Retainer Clients Section */}
       {retainerGroups.length > 0 && (() => {
+        // Per-row cost: parse `[cost:N]` token from notes for explicit overrides,
+        // otherwise default to 75% of revenue. Profit is always revenue - cost.
+        const rowCost = (client: Client, rev: number) => {
+          const m = client.notes?.match(/\[cost:(\d+(?:\.\d+)?)\]/);
+          return m ? parseFloat(m[1]) : rev * 0.75;
+        };
         const retainerRevenue = retainerGroups.reduce(
           (sum, g) => sum + g.rows.reduce((s, r) => s + (calculatedRevenue[r.id]?.value ?? 0), 0),
           0,
         );
-        const retainerCost = retainerRevenue * 0.75;
-        const retainerProfit = retainerRevenue * 0.25;
+        const retainerCost = retainerGroups.reduce(
+          (sum, g) => sum + g.rows.reduce((s, r) => s + rowCost(r, calculatedRevenue[r.id]?.value ?? 0), 0),
+          0,
+        );
+        const retainerProfit = retainerRevenue - retainerCost;
         return (
         <div className="mt-8">
           <div className="flex items-center gap-3 mb-4 px-2">
@@ -1766,21 +1783,21 @@ export default function ClientTable() {
             <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">White Label</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-            <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+            <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
               <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Est. Revenue</div>
               <div className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
                 ${retainerRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
-              <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Proj. Cost (75%)</div>
+            <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+              <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Proj. Cost</div>
               <div className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
                 ${retainerCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </div>
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 px-4 py-3">
-              <div className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wider">Profit (25%)</div>
-              <div className="mt-1 text-lg font-semibold tabular-nums text-emerald-700">
+            <div className="rounded-lg border border-emerald-300 bg-white px-4 py-3 shadow-sm">
+              <div className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wider">Profit</div>
+              <div className="mt-1 text-lg font-bold tabular-nums text-emerald-700">
                 ${retainerProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </div>
@@ -1792,8 +1809,8 @@ export default function ClientTable() {
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Client</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Platform</th>
                   <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Est. Revenue</th>
-                  <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Proj. Cost (75%)</th>
-                  <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Profit (25%)</th>
+                  <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Proj. Cost</th>
+                  <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Profit</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Manager</th>
                   <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Budget</th>
                 </tr>
@@ -1803,8 +1820,8 @@ export default function ClientTable() {
                   group.rows.map((client, rowIdx) => {
                     const isFirstInGroup = rowIdx === 0;
                     const rev = calculatedRevenue[client.id]?.value ?? 0;
-                    const projCost = rev * 0.75;
-                    const profit = rev * 0.25;
+                    const projCost = rowCost(client, rev);
+                    const profit = rev - projCost;
                     const accountId = client.ad_account_id;
                     const liveSpend = accountId && liveData[accountId] && !liveData[accountId].error ? liveData[accountId].spend : null;
 
