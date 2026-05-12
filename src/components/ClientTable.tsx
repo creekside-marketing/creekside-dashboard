@@ -1752,11 +1752,38 @@ export default function ClientTable() {
       </div>
 
       {/* Retainer Clients Section */}
-      {retainerGroups.length > 0 && (
+      {retainerGroups.length > 0 && (() => {
+        const retainerRevenue = retainerGroups.reduce(
+          (sum, g) => sum + g.rows.reduce((s, r) => s + (calculatedRevenue[r.id]?.value ?? 0), 0),
+          0,
+        );
+        const retainerCost = retainerRevenue * 0.75;
+        const retainerProfit = retainerRevenue * 0.25;
+        return (
         <div className="mt-8">
           <div className="flex items-center gap-3 mb-4 px-2">
             <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Retainer Clients</h2>
             <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">White Label</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+            <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+              <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Est. Revenue</div>
+              <div className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
+                ${retainerRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+              <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Proj. Cost (75%)</div>
+              <div className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
+                ${retainerCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 px-4 py-3">
+              <div className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wider">Profit (25%)</div>
+              <div className="mt-1 text-lg font-semibold tabular-nums text-emerald-700">
+                ${retainerProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
           </div>
           <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">
             <table className="w-full bg-white">
@@ -1766,6 +1793,7 @@ export default function ClientTable() {
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Platform</th>
                   <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Est. Revenue</th>
                   <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Proj. Cost (75%)</th>
+                  <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Profit (25%)</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Manager</th>
                   <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Budget</th>
                 </tr>
@@ -1776,6 +1804,7 @@ export default function ClientTable() {
                     const isFirstInGroup = rowIdx === 0;
                     const rev = calculatedRevenue[client.id]?.value ?? 0;
                     const projCost = rev * 0.75;
+                    const profit = rev * 0.25;
                     const accountId = client.ad_account_id;
                     const liveSpend = accountId && liveData[accountId] && !liveData[accountId].error ? liveData[accountId].spend : null;
 
@@ -1804,6 +1833,9 @@ export default function ClientTable() {
                         <td className="py-3 px-6 text-right text-sm tabular-nums text-slate-700">
                           {rev > 0 ? `$${projCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '--'}
                         </td>
+                        <td className="py-3 px-6 text-right text-sm tabular-nums text-emerald-700 font-medium">
+                          {rev > 0 ? `$${profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '--'}
+                        </td>
                         <td className="py-3 px-6 text-sm text-slate-700">
                           {isFirstInGroup ? (client.account_manager ?? '--') : null}
                         </td>
@@ -1818,7 +1850,8 @@ export default function ClientTable() {
             </table>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Conversion breakdown tooltip — rendered outside table overflow */}
       {tooltip && (
