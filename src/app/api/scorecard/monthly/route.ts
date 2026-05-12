@@ -13,6 +13,13 @@ import { PARTNER_NAMES, OPERATOR_MAP } from '@/lib/scorecard-constants';
  * CANNOT: write data, modify tables, or access non-financial data.
  */
 
+function normalizeManagerName(name: string): string {
+  const n = name.trim().toLowerCase();
+  if (n === 'peterson rainey' || n === 'peterson-rainey') return 'Peterson';
+  if (n === 'cade maclean') return 'Cade';
+  return name.trim().replace(/^\w/, c => c.toUpperCase());
+}
+
 interface ReportingRow {
   client_name: string;
   platform: string;
@@ -100,7 +107,8 @@ export async function GET() {
 
     const managerEstimated: Record<string, { clients: Set<string>; estimatedMRR: number }> = {};
     for (const row of activeRows) {
-      const mgr = row.account_manager ?? 'Unassigned';
+      const rawMgr = row.account_manager ?? 'Unassigned';
+      const mgr = normalizeManagerName(rawMgr);
       if (!managerEstimated[mgr]) managerEstimated[mgr] = { clients: new Set(), estimatedMRR: 0 };
       managerEstimated[mgr].clients.add(row.client_name);
 
@@ -122,7 +130,7 @@ export async function GET() {
     const clientIdToManager: Record<string, string> = {};
     for (const row of activeRows) {
       if (row.client_id && row.account_manager) {
-        clientIdToManager[row.client_id] = row.account_manager;
+        clientIdToManager[row.client_id] = normalizeManagerName(row.account_manager);
       }
     }
 
@@ -230,7 +238,7 @@ export async function GET() {
           date: r.churned_date,
           revenueLost: Math.round(totalRevenueLost),
           reason: r.churn_reason ?? null,
-          manager: r.account_manager ?? 'Unknown',
+          manager: normalizeManagerName(r.account_manager ?? 'Unknown'),
           platform: allRows.map((cr) => cr.platform).join(', '),
         };
       });

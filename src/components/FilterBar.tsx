@@ -1,14 +1,16 @@
 'use client';
 
+import { useState, useRef, useEffect } from 'react';
+
 interface FilterBarProps {
   platforms: string[];
   managers: string[];
   selectedPlatform: string;
-  selectedManager: string;
+  selectedManagers: string[];
   selectedPriority: string;
   selectedContact: string;
   onPlatformChange: (value: string) => void;
-  onManagerChange: (value: string) => void;
+  onManagerChange: (value: string[]) => void;
   onPriorityChange: (value: string) => void;
   onContactChange: (value: string) => void;
 }
@@ -17,10 +19,10 @@ export default function FilterBar({
   platforms,
   managers,
   selectedPlatform,
-  selectedManager,
-  selectedPriority,
+  selectedManagers,
   onPlatformChange,
   onManagerChange,
+  selectedPriority,
   onPriorityChange,
   selectedContact,
   onContactChange,
@@ -29,10 +31,38 @@ export default function FilterBar({
   const priorityOptions = ['All', 'High', 'Medium', 'Low'];
   const contactOptions: { label: string; value: string; dot?: string }[] = [
     { label: 'All', value: '' },
-    { label: '0–14d', value: 'green', dot: 'bg-emerald-500' },
-    { label: '14–30d', value: 'yellow', dot: 'bg-yellow-500' },
+    { label: '0\u201314d', value: 'green', dot: 'bg-emerald-500' },
+    { label: '14\u201330d', value: 'yellow', dot: 'bg-yellow-500' },
     { label: '30d+', value: 'red', dot: 'bg-red-500' },
   ];
+
+  const [managerOpen, setManagerOpen] = useState(false);
+  const managerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (managerRef.current && !managerRef.current.contains(e.target as Node)) {
+        setManagerOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const toggleManager = (m: string) => {
+    if (selectedManagers.includes(m)) {
+      onManagerChange(selectedManagers.filter(v => v !== m));
+    } else {
+      onManagerChange([...selectedManagers, m]);
+    }
+  };
+
+  const managerLabel =
+    selectedManagers.length === 0
+      ? 'All'
+      : selectedManagers.length === 1
+        ? selectedManagers[0]
+        : `${selectedManagers.length} selected`;
 
   const pillBase = 'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer';
   const pillActive = 'bg-[var(--creekside-navy)] text-white shadow-sm';
@@ -82,20 +112,62 @@ export default function FilterBar({
         </div>
       </div>
 
-      {/* Manager */}
+      {/* Manager (multi-select dropdown) */}
       <div className="flex items-center gap-2">
         <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Manager</span>
-        <select
-          value={selectedManager}
-          onChange={(e) => onManagerChange(e.target.value)}
-          className="text-sm font-medium border border-slate-200 rounded-lg px-4 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)] focus:border-transparent appearance-none pr-8 cursor-pointer"
-          style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394A3B8' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' }}
-        >
-          <option value="">All</option>
-          {managers.map((m) => (
-            <option key={m} value={m}>{m}</option>
-          ))}
-        </select>
+        <div className="relative" ref={managerRef}>
+          <button
+            onClick={() => setManagerOpen(o => !o)}
+            className={`text-sm font-medium border rounded-lg px-4 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[var(--creekside-blue)] focus:border-transparent cursor-pointer flex items-center gap-2 min-w-[120px] ${
+              selectedManagers.length > 0 ? 'border-[var(--creekside-blue)]' : 'border-slate-200'
+            }`}
+          >
+            <span className="flex-1 text-left">{managerLabel}</span>
+            <svg width="12" height="12" viewBox="0 0 12 12" className={`text-slate-400 transition-transform ${managerOpen ? 'rotate-180' : ''}`}>
+              <path fill="currentColor" d="M6 8L1 3h10z" />
+            </svg>
+          </button>
+
+          {managerOpen && (
+            <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 min-w-[180px] py-1">
+              {/* Clear all */}
+              <button
+                onClick={() => onManagerChange([])}
+                className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 flex items-center gap-2 ${
+                  selectedManagers.length === 0 ? 'font-semibold text-[var(--creekside-navy)]' : 'text-slate-600'
+                }`}
+              >
+                <span className="w-4 h-4 flex items-center justify-center">
+                  {selectedManagers.length === 0 && (
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 7l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  )}
+                </span>
+                All
+              </button>
+              <div className="border-t border-slate-100 my-1" />
+              {managers.map((m) => (
+                <button
+                  key={m}
+                  onClick={() => toggleManager(m)}
+                  className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 flex items-center gap-2 ${
+                    selectedManagers.includes(m) ? 'font-semibold text-[var(--creekside-navy)]' : 'text-slate-600'
+                  }`}
+                >
+                  <span className={`w-4 h-4 rounded border flex items-center justify-center text-white ${
+                    selectedManagers.includes(m)
+                      ? 'bg-[var(--creekside-navy)] border-[var(--creekside-navy)]'
+                      : 'border-slate-300'
+                  }`}>
+                    {selectedManagers.includes(m) && (
+                      <svg width="10" height="10" viewBox="0 0 14 14" fill="none"><path d="M3 7l3 3 5-5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    )}
+                  </span>
+                  {m}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Last Contact */}

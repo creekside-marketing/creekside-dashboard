@@ -798,7 +798,7 @@ export default function ClientTable() {
   const [error, setError] = useState<string | null>(null);
 
   const [selectedPlatform, setSelectedPlatform] = useState('');
-  const [selectedManager, setSelectedManager] = useState('');
+  const [selectedManagers, setSelectedManagers] = useState<string[]>([]);
   const [selectedPriority, setSelectedPriority] = useState('');
   const [selectedContact, setSelectedContact] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('client_name');
@@ -1067,14 +1067,21 @@ export default function ClientTable() {
   // ── Derived data ────────────────────────────────────────────────────
 
   const platforms = useMemo(() => [...new Set(clients.map(c => c.platform).filter(Boolean))].sort(), [clients]);
-  const managers = useMemo(() => [...new Set(clients.map(c => c.account_manager).filter(Boolean))] as string[], [clients]);
+  const normalizeManager = (name: string): string => {
+    const n = name.trim().toLowerCase();
+    if (n === 'peterson rainey' || n === 'peterson-rainey') return 'Peterson';
+    if (n === 'cade maclean') return 'Cade';
+    // Capitalize first letter for others
+    return name.trim().replace(/^\w/, c => c.toUpperCase());
+  };
+  const managers = useMemo(() => [...new Set(clients.map(c => c.account_manager).filter(Boolean).map(m => normalizeManager(m!)))].sort() as string[], [clients]);
 
   const filtered = useMemo(() => {
     return clients.filter(c => {
       // Hide partners — they are not clients
       if (PARTNER_NAMES.has(c.client_name)) return false;
       if (selectedPlatform && c.platform?.toLowerCase() !== selectedPlatform.toLowerCase()) return false;
-      if (selectedManager && c.account_manager !== selectedManager) return false;
+      if (selectedManagers.length > 0 && (!c.account_manager || !selectedManagers.includes(normalizeManager(c.account_manager)))) return false;
       if (selectedPriority && c.priority?.toLowerCase() !== selectedPriority.toLowerCase()) return false;
       if (selectedContact) {
         const contact = c.client_id ? lastContact[c.client_id as string] : null;
@@ -1087,7 +1094,7 @@ export default function ClientTable() {
       if (c.status?.toLowerCase() === 'churned') return false;
       return true;
     });
-  }, [clients, selectedPlatform, selectedManager, selectedPriority, selectedContact, lastContact]);
+  }, [clients, selectedPlatform, selectedManagers, selectedPriority, selectedContact, lastContact]);
 
   // ── Per-row revenue calculation using fee_config + live spend ────────
   // Returns { value: number | null, source: 'override' | 'calculated' | 'none' } keyed by row id
@@ -1250,7 +1257,7 @@ export default function ClientTable() {
     const metaProfit = metaRevenue - metaCost;
     const chatgptProfit = chatgptRevenue - chatgptCost;
     const otherProfit = otherRevenue - otherCost;
-    const totalOperatorCost = operatorCosts?.totals.operator_cost ?? 0;
+    const totalOperatorCost = activeFiltered.reduce((sum, c) => sum + costFor(c), 0);
     const profit = totalEstRevenue - totalOperatorCost;
     const marginPct = totalEstRevenue > 0 ? Math.round((profit / totalEstRevenue) * 10000) / 100 : 0;
     return { uniqueClients, googleCount, metaCount, chatgptCount, otherCount, total: activeFiltered.length, totalEstRevenue, googleRevenue, metaRevenue, chatgptRevenue, otherRevenue, googleProfit, metaProfit, chatgptProfit, otherProfit, totalOperatorCost, profit, marginPct };
@@ -1422,11 +1429,11 @@ export default function ClientTable() {
         platforms={platforms}
         managers={managers}
         selectedPlatform={selectedPlatform}
-        selectedManager={selectedManager}
+        selectedManagers={selectedManagers}
         selectedPriority={selectedPriority}
         selectedContact={selectedContact}
         onPlatformChange={setSelectedPlatform}
-        onManagerChange={setSelectedManager}
+        onManagerChange={setSelectedManagers}
         onPriorityChange={setSelectedPriority}
         onContactChange={setSelectedContact}
       />
