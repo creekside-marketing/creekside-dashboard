@@ -68,8 +68,14 @@ const EMPTY_METRICS: FunnelMetrics = {
   avgCompetingProposals: 0, avgHoursAfterPost: 0,
 };
 
+const DEFAULT_6MO_START = (() => {
+  const d = new Date();
+  d.setDate(d.getDate() - 180);
+  return toISODate(d);
+})();
+
 const INITIAL_FILTERS: UpworkFunnelFilters = {
-  dateRange: { start: null, end: null },
+  dateRange: { start: DEFAULT_6MO_START, end: null },
   scriptUsed: [], sourceType: [], businessType: [], profileUsed: [], platform: [],
 };
 
@@ -78,6 +84,7 @@ const FUNNEL_COLORS = ['#14B8A6', '#3B82F6', '#F59E0B', '#8B5CF6', '#10B981'];
 const DATE_PRESETS = [
   { label: 'Last 30d', days: 30 },
   { label: 'Last 90d', days: 90 },
+  { label: 'Last 6mo', days: 180 },
   { label: 'YTD', days: -1 },
   { label: 'All', days: 0 },
 ] as const;
@@ -293,7 +300,7 @@ export default function UpworkFunnelPage() {
   const weeklyTrend = useMemo(() => computeWeeklyTrend(enrichedJobs).slice(-26), [enrichedJobs]);
 
   const weeklyComparison = useMemo(() => {
-    const weeks = [getWeekRange(1), getWeekRange(2)];
+    const weeks = [getWeekRange(2), getWeekRange(3), getWeekRange(4)];
     const safeDiv = (a: number, b: number) => (b === 0 ? 0 : a / b);
 
     const compute = (range: { start: string; end: string }) => {
@@ -313,9 +320,9 @@ export default function UpworkFunnelPage() {
       };
     };
 
-    // Last 10 weeks average (weeks 1-10 ago, excluding current incomplete week)
-    const last10Start = getWeekRange(10).start;
-    const last10End = getWeekRange(1).end;
+    // Last 10 weeks average starting from 2 weeks ago (weeks 2-11 ago)
+    const last10Start = getWeekRange(11).start;
+    const last10End = getWeekRange(2).end;
     const last10Jobs = enrichedJobs.filter((j) => j.application_date && j.application_date >= last10Start && j.application_date <= last10End);
     const l10Applied = last10Jobs.length;
     const l10Viewed = last10Jobs.filter((j) => j.viewed).length;
@@ -338,9 +345,10 @@ export default function UpworkFunnelPage() {
     };
 
     return {
-      thisWeek: { ...compute(weeks[0]), label: 'Last Week' },
-      lastWeek: { ...compute(weeks[1]), label: '2 Weeks Ago' },
-      last10Avg: { ...last10Avg, label: 'Last 10 Wks (avg)' },
+      twoWeeksAgo: { ...compute(weeks[0]), label: '2 Weeks Ago' },
+      threeWeeksAgo: { ...compute(weeks[1]), label: '3 Weeks Ago' },
+      fourWeeksAgo: { ...compute(weeks[2]), label: '4 Weeks Ago' },
+      last10Avg: { ...last10Avg, label: '10 Wk Avg' },
     };
   }, [enrichedJobs]);
 
@@ -573,8 +581,9 @@ export default function UpworkFunnelPage() {
           <thead>
             <tr className="bg-slate-50 text-slate-500 uppercase tracking-wider">
               <th className="text-left py-2.5 px-4 font-semibold"></th>
-              <th className="text-right py-2.5 px-4 font-semibold">{weeklyComparison.thisWeek.label}</th>
-              <th className="text-right py-2.5 px-4 font-semibold">{weeklyComparison.lastWeek.label}</th>
+              <th className="text-right py-2.5 px-4 font-semibold">{weeklyComparison.twoWeeksAgo.label}</th>
+              <th className="text-right py-2.5 px-4 font-semibold">{weeklyComparison.threeWeeksAgo.label}</th>
+              <th className="text-right py-2.5 px-4 font-semibold">{weeklyComparison.fourWeeksAgo.label}</th>
               <th className="text-right py-2.5 px-4 font-semibold">{weeklyComparison.last10Avg.label}</th>
             </tr>
           </thead>
@@ -587,29 +596,31 @@ export default function UpworkFunnelPage() {
               { label: 'Clients Won', key: 'won', inverse: false },
               { label: 'Spend', key: 'connects', inverse: true },
             ].map(({ label, key, inverse }) => {
-              const tw = weeklyComparison.thisWeek[key as keyof typeof weeklyComparison.thisWeek] as number;
-              const lw = weeklyComparison.lastWeek[key as keyof typeof weeklyComparison.lastWeek] as number;
+              const w2 = weeklyComparison.twoWeeksAgo[key as keyof typeof weeklyComparison.twoWeeksAgo] as number;
+              const w3 = weeklyComparison.threeWeeksAgo[key as keyof typeof weeklyComparison.threeWeeksAgo] as number;
+              const w4 = weeklyComparison.fourWeeksAgo[key as keyof typeof weeklyComparison.fourWeeksAgo] as number;
               const avg = weeklyComparison.last10Avg[key as keyof typeof weeklyComparison.last10Avg] as number;
               const fmt = key === 'connects'
                 ? (v: number) => dollars(v)
                 : (v: number, isAvg?: boolean) => isAvg ? v.toFixed(1) : v.toLocaleString();
-              const twAbove = inverse ? tw < avg : tw > avg;
-              const twBelow = inverse ? tw > avg : tw < avg;
+              const w2Above = inverse ? w2 < avg : w2 > avg;
+              const w2Below = inverse ? w2 > avg : w2 < avg;
               return (
                 <tr key={key} className="border-t border-slate-100">
                   <td className="py-2 px-4 font-medium text-slate-900">{label}</td>
                   <td className="py-2 px-4 text-right font-semibold">
-                    <span className={twAbove ? 'text-emerald-600' : twBelow ? 'text-red-500' : 'text-slate-900'}>
-                      {twAbove ? '\u25B2 ' : twBelow ? '\u25BC ' : ''}{fmt(tw)}
+                    <span className={w2Above ? 'text-emerald-600' : w2Below ? 'text-red-500' : 'text-slate-900'}>
+                      {w2Above ? '\u25B2 ' : w2Below ? '\u25BC ' : ''}{fmt(w2)}
                     </span>
                   </td>
-                  <td className="py-2 px-4 text-right text-slate-700">{fmt(lw)}</td>
+                  <td className="py-2 px-4 text-right text-slate-700">{fmt(w3)}</td>
+                  <td className="py-2 px-4 text-right text-slate-700">{fmt(w4)}</td>
                   <td className="py-2 px-4 text-right text-slate-500">{fmt(avg, true)}</td>
                 </tr>
               );
             })}
             <tr className="border-t-2 border-slate-200">
-              <td colSpan={4} className="py-1.5"></td>
+              <td colSpan={5} className="py-1.5"></td>
             </tr>
             {[
               { label: 'View Rate', key: 'viewRate' },
@@ -617,20 +628,22 @@ export default function UpworkFunnelPage() {
               { label: 'Replies → Calls', key: 'callToReplyRate' },
               { label: 'Calls → Clients', key: 'winToCallRate' },
             ].map(({ label, key }) => {
-              const tw = weeklyComparison.thisWeek[key as keyof typeof weeklyComparison.thisWeek] as number;
-              const lw = weeklyComparison.lastWeek[key as keyof typeof weeklyComparison.lastWeek] as number;
+              const w2 = weeklyComparison.twoWeeksAgo[key as keyof typeof weeklyComparison.twoWeeksAgo] as number;
+              const w3 = weeklyComparison.threeWeeksAgo[key as keyof typeof weeklyComparison.threeWeeksAgo] as number;
+              const w4 = weeklyComparison.fourWeeksAgo[key as keyof typeof weeklyComparison.fourWeeksAgo] as number;
               const avg = weeklyComparison.last10Avg[key as keyof typeof weeklyComparison.last10Avg] as number;
-              const twAbove = tw > avg;
-              const twBelow = tw < avg;
+              const w2Above = w2 > avg;
+              const w2Below = w2 < avg;
               return (
                 <tr key={key} className="border-t border-slate-100">
                   <td className="py-2 px-4 font-medium text-slate-900">{label}</td>
                   <td className="py-2 px-4 text-right font-semibold">
-                    <span className={twAbove ? 'text-emerald-600' : twBelow ? 'text-red-500' : 'text-slate-900'}>
-                      {twAbove ? '\u25B2 ' : twBelow ? '\u25BC ' : ''}{pct(tw)}
+                    <span className={w2Above ? 'text-emerald-600' : w2Below ? 'text-red-500' : 'text-slate-900'}>
+                      {w2Above ? '\u25B2 ' : w2Below ? '\u25BC ' : ''}{pct(w2)}
                     </span>
                   </td>
-                  <td className="py-2 px-4 text-right text-slate-700">{pct(lw)}</td>
+                  <td className="py-2 px-4 text-right text-slate-700">{pct(w3)}</td>
+                  <td className="py-2 px-4 text-right text-slate-700">{pct(w4)}</td>
                   <td className="py-2 px-4 text-right text-slate-500">{pct(avg)}</td>
                 </tr>
               );
