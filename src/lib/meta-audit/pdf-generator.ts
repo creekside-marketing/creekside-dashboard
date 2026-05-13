@@ -351,7 +351,7 @@ export function generateAuditPdf(output: AuditOutput): Buffer {
   // ===== Performance Snapshot =====
   newPage(s, accountName, auditTitle);
   h1(s, 'Performance Snapshot: Last 30 Days');
-  if (insights) {
+  if (insights && insights.impressions > 0) {
     table(
       s,
       ['Metric', 'Value'],
@@ -373,6 +373,38 @@ export function generateAuditPdf(output: AuditOutput): Buffer {
       accountName,
       auditTitle
     );
+
+    // Performance commentary
+    const roasText = insights.roas >= 1
+      ? `ROAS of ${insights.roas.toFixed(2)} is above breakeven.`
+      : `ROAS of ${insights.roas.toFixed(2)} is below breakeven. Either LTV is expected to make up the difference, or unit economics need review.`;
+    const learningPhase = insights.purchases < 50 * 4.3
+      ? `At ${(insights.purchases / 4.3).toFixed(1)} purchases per week, the account is below Meta's 50/week learning-phase exit threshold.`
+      : `At ${(insights.purchases / 4.3).toFixed(1)} purchases per week, the account is past learning phase.`;
+    body(s, `${roasText} ${learningPhase}`, accountName, auditTitle);
+  } else {
+    body(
+      s,
+      `This account had no Meta Ads activity in the last 30 days. Lifetime spend on the account is $${Number(account.amount_spent || 0).toLocaleString()}, so it has historical data but is currently paused or dormant.`,
+      accountName,
+      auditTitle
+    );
+    body(
+      s,
+      'The structural findings in the previous sections (pixel health, audience architecture, campaign structure, attribution setup) apply regardless of campaign activity. Performance-based items (CPA, ROAS, frequency, ad fatigue) cannot be evaluated until campaigns are live again.',
+      accountName,
+      auditTitle
+    );
+    if (data.campaigns.length > 0) {
+      const paused = data.campaigns.filter((c) => c.status === 'PAUSED').length;
+      const active = data.campaigns.filter((c) => c.status === 'ACTIVE').length;
+      muted(
+        s,
+        `Account state: ${active} active campaign(s), ${paused} paused campaign(s).`,
+        accountName,
+        auditTitle
+      );
+    }
   }
 
   if (findings.topWinningAd) {
