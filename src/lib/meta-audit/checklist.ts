@@ -10,6 +10,7 @@ import type {
   SectionScore,
   Severity,
 } from './types';
+import { isUnrestricted, decodeLocales } from './locales';
 
 const SECTIONS = [
   'Account & Pixel Health',
@@ -208,6 +209,65 @@ const SPECS: ItemSpec[] = [
     },
   },
 
+  // Section 2 (additional)
+  {
+    id: '2.2',
+    section: 'Campaign Structure',
+    question: 'Campaign Budget Optimization (CBO) used',
+    severity: 'MEDIUM',
+    evaluate: (d) => {
+      const active = d.campaigns.filter((c) => c.status === 'ACTIVE');
+      if (!active.length) return { result: 'DATA_GAP', evidence: 'No active campaigns.' };
+      const cbo = active.filter((c) => Number(c.daily_budget || 0) > 0 || Number(c.lifetime_budget || 0) > 0);
+      const adsetBudget = active.length - cbo.length;
+      return cbo.length >= active.length / 2
+        ? {
+            result: 'PASS',
+            evidence: `${cbo.length}/${active.length} active campaigns use Campaign Budget Optimization. ${adsetBudget} use ad-set-level budgets.`,
+          }
+        : {
+            result: 'FAIL',
+            evidence: `Only ${cbo.length}/${active.length} active campaigns use Campaign Budget Optimization. The rest set budgets at the ad-set level, which prevents Meta's algorithm from reallocating spend to winning ad sets automatically.`,
+            recommendation: 'Switch budgets to campaign level (CBO). Meta will route spend to the best-performing ad set within each campaign without manual rebalancing.',
+          };
+    },
+  },
+  {
+    id: '2.5',
+    section: 'Campaign Structure',
+    question: 'Full-funnel structure present (cold + retargeting)',
+    severity: 'HIGH',
+    easySell: true,
+    evaluate: (d) => {
+      const active = d.adsets.filter((a) => a.status === 'ACTIVE');
+      if (!active.length) return { result: 'DATA_GAP', evidence: 'No active ad sets.' };
+      const retargeting = active.filter((a) =>
+        a.targeting?.custom_audiences?.some((aud) =>
+          /retarget|engaged|website|visitor|view|cart|wv|wf|engagement/i.test(aud.name)
+        )
+      );
+      const cold = active.length - retargeting.length;
+      if (retargeting.length === 0) {
+        return {
+          result: 'FAIL',
+          evidence: `All ${active.length} active ad sets are cold prospecting. There is no dedicated retargeting funnel running, which means people who visit the website without buying are not being followed up with paid ads.`,
+          recommendation: 'Launch a dedicated retargeting campaign targeting Website Visitors 180d + FB/IG Engaged 365d, excluding 30-day purchasers. Use testimonial-led creative.',
+        };
+      }
+      if (cold === 0) {
+        return {
+          result: 'FAIL',
+          evidence: `All ${active.length} active ad sets are retargeting. No cold prospecting is running, which means the account is only reaching people who already engaged. New customer acquisition is paused.`,
+          recommendation: 'Launch a cold prospecting campaign using lookalike + interest targeting to feed the top of the funnel.',
+        };
+      }
+      return {
+        result: 'PASS',
+        evidence: `${cold} cold prospecting ad set(s) and ${retargeting.length} retargeting ad set(s) active. Full funnel is present.`,
+      };
+    },
+  },
+
   // Section 3: Audience Strategy
   {
     id: '3.1',
@@ -271,6 +331,135 @@ const SPECS: ItemSpec[] = [
             evidence: `Only ${withExclusion.length}/${active.length} active ad sets exclude existing customers.`,
             recommendation: 'Add the customer list as an exclusion on every cold ad set.',
           };
+    },
+  },
+  {
+    id: '3.4',
+    section: 'Audience Strategy',
+    question: 'Retargeting audiences are being used in active ad sets',
+    severity: 'CRITICAL',
+    easySell: true,
+    evaluate: (d) => {
+      const active = d.adsets.filter((a) => a.status === 'ACTIVE');
+      if (!active.length) return { result: 'DATA_GAP', evidence: 'No active ad sets.' };
+      const usingRetargeting = active.filter((a) =>
+        a.targeting?.custom_audiences?.some((aud) =>
+          /retarget|engaged|website|visitor|view|cart|wv|wf|engagement|180|90/i.test(aud.name)
+        )
+      );
+      return usingRetargeting.length > 0
+        ? {
+            result: 'PASS',
+            evidence: `${usingRetargeting.length}/${active.length} active ad sets target retargeting/warm audiences.`,
+          }
+        : {
+            result: 'FAIL',
+            evidence: `No active ad sets use retargeting audiences. Custom audiences exist in the account but aren't being applied to ad sets, which means website visitors and engaged users are not being re-targeted.`,
+            recommendation: 'Add Website Visitor 180d, IG Engaged 365d, or similar custom audiences to at least one active ad set as a dedicated retargeting layer.',
+          };
+    },
+  },
+  {
+    id: '3.5',
+    section: 'Audience Strategy',
+    question: 'Audience size appropriate for daily budget',
+    severity: 'MEDIUM',
+    evaluate: (d) => {
+      const tooSmall = d.audiences.filter(
+        (a) => a.delivery_status && /too small/i.test(a.delivery_status.description || '')
+      );
+      const tooSmallActive = tooSmall.length;
+      if (tooSmallActive === 0) {
+        return { result: 'PASS', evidence: 'No audiences flagged as too small.' };
+      }
+      return {
+        result: 'FAIL',
+        evidence: `${tooSmallActive} audience(s) flagged as "too small to use" by Meta. These audiences are present but cannot deliver effectively.`,
+        recommendation: 'Either expand the seed customer file or remove these audiences. Sub-1000-person audiences typically need consolidation with other segments.',
+      };
+    },
+  },
+  {
+    id: '3.7',
+    section: 'Audience Strategy',
+    question: 'Language targeting set to target market (not "All languages")',
+    severity: 'HIGH',
+    easySell: true,
+    evaluate: (d) => {
+      const active = d.adsets.filter((a) => a.status === 'ACTIVE');
+      if (!active.length) return { result: 'DATA_GAP', evidence: 'No active ad sets.' };
+      const unrestricted = active.filter((a) => isUnrestricted(a.targeting?.locales));
+      if (unrestricted.length === 0) {
+        const sample = active[0];
+        const langs = decodeLocales(sample.targeting?.locales);
+        return {
+          result: 'PASS',
+          evidence: `All ${active.length} active ad sets have language targeting set. Sample: '${sample.name}' targets ${langs.join(', ')}.`,
+        };
+      }
+      const adsetNames = unrestricted.slice(0, 3).map((a) => `'${a.name}'`).join(', ');
+      return {
+        result: 'FAIL',
+        evidence: `${unrestricted.length}/${active.length} active ad sets have NO language restriction set. This means ads can deliver to anyone regardless of what language they speak, including people in your target country who do not speak the language your ads are written in. Affected ad sets include: ${adsetNames}${unrestricted.length > 3 ? `, plus ${unrestricted.length - 3} more` : ''}.`,
+        recommendation: 'Set language targeting on every ad set to match the language your ads are written in. For an English-language ad targeting the US, restrict locales to English (US) and English (UK). This typically increases relevance score and reduces wasted impressions immediately.',
+      };
+    },
+  },
+  {
+    id: '3.9',
+    section: 'Audience Strategy',
+    question: 'Geographic targeting specific to service area',
+    severity: 'CRITICAL',
+    easySell: true,
+    evaluate: (d) => {
+      const active = d.adsets.filter((a) => a.status === 'ACTIVE');
+      if (!active.length) return { result: 'DATA_GAP', evidence: 'No active ad sets.' };
+      const noGeo = active.filter((a) => !a.targeting?.geo_locations?.countries?.length);
+      if (noGeo.length > 0) {
+        return {
+          result: 'FAIL',
+          evidence: `${noGeo.length}/${active.length} active ad sets have no geographic targeting set. Ads can deliver worldwide, which is almost never correct.`,
+          recommendation: 'Set geo targeting on every ad set to match the actual service area or shipping region.',
+        };
+      }
+      // Flag if any ad set is targeting more than 10 countries (likely overly broad for most businesses)
+      const broad = active.filter((a) => (a.targeting?.geo_locations?.countries?.length || 0) > 10);
+      if (broad.length > 0) {
+        return {
+          result: 'FAIL',
+          evidence: `${broad.length} active ad set(s) target more than 10 countries. This is usually too broad and dilutes performance signal across markets with very different conversion costs.`,
+          recommendation: 'Split international campaigns by region or country with separate budget and creative per market.',
+        };
+      }
+      const sample = active[0].targeting?.geo_locations?.countries?.join(', ') || '';
+      return {
+        result: 'PASS',
+        evidence: `All active ad sets have geographic targeting set. Sample geos: ${sample}.`,
+      };
+    },
+  },
+  {
+    id: '3.10',
+    section: 'Audience Strategy',
+    question: 'Age range narrow enough to be intentional',
+    severity: 'MEDIUM',
+    evaluate: (d) => {
+      const active = d.adsets.filter((a) => a.status === 'ACTIVE');
+      if (!active.length) return { result: 'DATA_GAP', evidence: 'No active ad sets.' };
+      const defaultRange = active.filter(
+        (a) => (a.targeting?.age_min || 18) <= 18 && (a.targeting?.age_max || 65) >= 65
+      );
+      if (defaultRange.length === active.length) {
+        return {
+          result: 'FAIL',
+          evidence: `All ${active.length} active ad sets use the default 18-65+ age range. This is the Meta default, suggesting age was never reviewed.`,
+          recommendation: 'Review age targeting against your actual customer demographic. Most B2C businesses have a clear 10-20 year buying window worth targeting.',
+        };
+      }
+      return {
+        result: 'PASS',
+        evidence: `${active.length - defaultRange.length}/${active.length} ad sets have intentional age targeting.`,
+      };
     },
   },
   {
@@ -390,6 +579,60 @@ const SPECS: ItemSpec[] = [
             evidence: `Oldest active creative is ${Math.round(oldest)} days old.`,
             recommendation: 'Plan a refresh cadence. Creative fatigue compounds after 60 days.',
           };
+    },
+  },
+
+  {
+    id: '4.5',
+    section: 'Ad Creative Quality',
+    question: 'Every ad has a clear call-to-action button',
+    severity: 'HIGH',
+    evaluate: (d) => {
+      if (!d.creatives.length) return { result: 'DATA_GAP', evidence: 'No creatives reviewed.' };
+      const withCta = d.creatives.filter((c) => c.call_to_action_type);
+      const noCta = d.creatives.length - withCta.length;
+      if (noCta === 0) {
+        const types = [...new Set(withCta.map((c) => c.call_to_action_type).filter(Boolean))];
+        return { result: 'PASS', evidence: `All ${withCta.length} reviewed creatives have a CTA button. Types in use: ${types.join(', ')}.` };
+      }
+      return {
+        result: 'FAIL',
+        evidence: `${noCta}/${d.creatives.length} active creative(s) have no call-to-action button. CTAs are the single highest-leverage element on a Meta ad and should never be missing.`,
+        recommendation: 'Add a CTA button to every ad. Match the button to the intent: Shop Now for purchases, Learn More for traffic, Sign Up for lead gen.',
+      };
+    },
+  },
+  {
+    id: '4.8',
+    section: 'Ad Creative Quality',
+    question: 'Landing pages are specific, not the homepage',
+    severity: 'HIGH',
+    evaluate: (d) => {
+      if (!d.creatives.length) return { result: 'DATA_GAP', evidence: 'No creatives reviewed.' };
+      const urls = d.creatives.map((c) => c.link_url || '').filter(Boolean);
+      if (!urls.length) return { result: 'DATA_GAP', evidence: 'Creatives had no link_url.' };
+      // Homepage = bare domain with no path (or single-slash path)
+      const homepageUrls = urls.filter((u) => {
+        try {
+          const parsed = new URL(u);
+          const path = parsed.pathname.replace(/\/$/, '');
+          return path === '' || path === '/';
+        } catch {
+          return false;
+        }
+      });
+      const sample = [...new Set(urls)].slice(0, 3);
+      if (homepageUrls.length > urls.length / 2) {
+        return {
+          result: 'FAIL',
+          evidence: `${homepageUrls.length}/${urls.length} reviewed ads point to the homepage rather than a specific landing page. Sample URLs: ${sample.join(' | ')}. Homepages are designed for navigation, not conversion.`,
+          recommendation: 'Build dedicated landing pages for each campaign or offer. Match the headline on the ad to the headline on the landing page. Conversion rates typically lift 2-3x with offer-specific landers.',
+        };
+      }
+      return {
+        result: 'PASS',
+        evidence: `${urls.length - homepageUrls.length}/${urls.length} reviewed ads point to specific landing pages.`,
+      };
     },
   },
 

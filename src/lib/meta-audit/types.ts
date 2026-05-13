@@ -142,6 +142,7 @@ export interface AudienceSummary {
   retention_days?: number;
   is_value_based?: boolean;
   customer_file_source?: string;
+  delivery_status?: { code?: number; description?: string };
 }
 
 export interface AuditDataBundle {

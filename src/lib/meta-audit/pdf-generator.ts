@@ -8,6 +8,7 @@
 
 import { jsPDF } from 'jspdf';
 import type { AuditOutput } from './types';
+import { decodeLocales, isUnrestricted } from './locales';
 
 interface DocState {
   doc: jsPDF;
@@ -424,6 +425,264 @@ export function generateAuditPdf(output: AuditOutput): Buffer {
       accountName,
       auditTitle
     );
+  }
+
+  // ===== Ad Set Targeting Breakdown =====
+  // Per active ad set, show language, geo, age range, included/excluded audiences,
+  // optimization goal, attribution. This is the headline section for "they're
+  // targeting all languages" type findings -- prospects can SEE it on the page.
+  const activeAdsets = data.adsets.filter((a) => a.status === 'ACTIVE');
+  if (activeAdsets.length > 0) {
+    newPage(s, accountName, auditTitle);
+    h1(s, 'Ad Set Targeting Breakdown');
+    body(
+      s,
+      `This section shows exactly what each of the ${activeAdsets.length} active ad set${activeAdsets.length === 1 ? '' : 's'} is targeting. Targeting issues like "all languages" or "all countries" are often the highest-impact, fastest fixes in an audit.`,
+      accountName,
+      auditTitle
+    );
+    s.y += 8;
+
+    activeAdsets.slice(0, 8).forEach((adset, idx) => {
+      ensureSpace(s, 180, accountName, auditTitle);
+      const languages = decodeLocales(adset.targeting?.locales);
+      const isUnrestrictedLang = isUnrestricted(adset.targeting?.locales);
+      const countries = adset.targeting?.geo_locations?.countries?.join(', ') || 'not set';
+      const ageMin = adset.targeting?.age_min;
+      const ageMax = adset.targeting?.age_max;
+      const ageRange = ageMin && ageMax ? `${ageMin}-${ageMax}` : 'not set';
+      const includedAudiences = adset.targeting?.custom_audiences?.map((a) => a.name).slice(0, 4) || [];
+      const excludedAudiences = adset.targeting?.excluded_custom_audiences?.map((a) => a.name).slice(0, 4) || [];
+      const optGoal = adset.optimization_goal || 'not set';
+      const attribution = adset.attribution_spec
+        ?.map((sp) => `${sp.window_days}d ${sp.event_type.toLowerCase().replace('_', '-')}`)
+        .join(', ') || 'default';
+      const advantage = adset.targeting?.targeting_automation?.advantage_audience === 1 ? 'On' : 'Off';
+
+      // Ad set name + budget header
+      s.doc.setFont('helvetica', 'bold');
+      s.doc.setFontSize(11);
+      setText(s, COLOR.text);
+      s.doc.text(`${idx + 1}. ${adset.name}`, MARGIN_X, s.y);
+      s.y += 14;
+
+      s.doc.setFont('helvetica', 'normal');
+      s.doc.setFontSize(9);
+
+      // Languages (highlighted if unrestricted)
+      const langColor = isUnrestrictedLang ? COLOR.red : COLOR.text;
+      setText(s, COLOR.muted);
+      s.doc.text('Languages:', MARGIN_X, s.y);
+      setText(s, langColor);
+      s.doc.text(languages.join(', '), MARGIN_X + 85, s.y);
+      s.y += 12;
+
+      // Geo
+      setText(s, COLOR.muted);
+      s.doc.text('Countries:', MARGIN_X, s.y);
+      setText(s, COLOR.text);
+      s.doc.text(countries, MARGIN_X + 85, s.y);
+      s.y += 12;
+
+      // Age range
+      setText(s, COLOR.muted);
+      s.doc.text('Age range:', MARGIN_X, s.y);
+      setText(s, COLOR.text);
+      s.doc.text(ageRange, MARGIN_X + 85, s.y);
+      s.y += 12;
+
+      // Optimization goal
+      setText(s, COLOR.muted);
+      s.doc.text('Optimizing for:', MARGIN_X, s.y);
+      setText(s, COLOR.text);
+      s.doc.text(optGoal, MARGIN_X + 85, s.y);
+      s.y += 12;
+
+      // Attribution
+      setText(s, COLOR.muted);
+      s.doc.text('Attribution:', MARGIN_X, s.y);
+      setText(s, COLOR.text);
+      s.doc.text(attribution, MARGIN_X + 85, s.y);
+      s.y += 12;
+
+      // Advantage+ Audience
+      setText(s, COLOR.muted);
+      s.doc.text('Advantage+ Audience:', MARGIN_X, s.y);
+      setText(s, COLOR.text);
+      s.doc.text(advantage, MARGIN_X + 130, s.y);
+      s.y += 12;
+
+      // Included audiences
+      if (includedAudiences.length > 0) {
+        setText(s, COLOR.muted);
+        s.doc.text('Includes audiences:', MARGIN_X, s.y);
+        s.y += 11;
+        setText(s, COLOR.text);
+        const inc = includedAudiences.join(', ');
+        const incLines = s.doc.splitTextToSize(inc, CONTENT_WIDTH - 12);
+        incLines.forEach((line: string) => {
+          ensureSpace(s, 11, accountName, auditTitle);
+          s.doc.text(line, MARGIN_X + 12, s.y);
+          s.y += 11;
+        });
+      }
+
+      // Excluded audiences
+      if (excludedAudiences.length > 0) {
+        setText(s, COLOR.muted);
+        s.doc.text('Excludes audiences:', MARGIN_X, s.y);
+        s.y += 11;
+        setText(s, COLOR.text);
+        const exc = excludedAudiences.join(', ');
+        const excLines = s.doc.splitTextToSize(exc, CONTENT_WIDTH - 12);
+        excLines.forEach((line: string) => {
+          ensureSpace(s, 11, accountName, auditTitle);
+          s.doc.text(line, MARGIN_X + 12, s.y);
+          s.y += 11;
+        });
+      }
+
+      // Inline flag if unrestricted languages
+      if (isUnrestrictedLang) {
+        s.y += 4;
+        setText(s, COLOR.red);
+        s.doc.setFont('helvetica', 'italic');
+        s.doc.setFontSize(9);
+        s.doc.text(
+          '! Language not restricted -- ads can deliver in any language to anyone in the targeted region.',
+          MARGIN_X,
+          s.y
+        );
+        s.y += 12;
+        s.doc.setFont('helvetica', 'normal');
+      }
+
+      s.y += 14;
+      // Separator line
+      setDraw(s, COLOR.border);
+      s.doc.setLineWidth(0.3);
+      s.doc.line(MARGIN_X, s.y - 4, PAGE_WIDTH - MARGIN_X, s.y - 4);
+      s.y += 4;
+    });
+
+    if (activeAdsets.length > 8) {
+      muted(
+        s,
+        `Showing 8 of ${activeAdsets.length} active ad sets. Full list available on request.`,
+        accountName,
+        auditTitle
+      );
+    }
+  }
+
+  // ===== Active Creative Review =====
+  // Show the actual ad copy a prospect is running. Surfaces issues like
+  // generic homepages, missing CTAs, weak hooks.
+  if (data.creatives.length > 0) {
+    newPage(s, accountName, auditTitle);
+    h1(s, 'Active Creative Review');
+    body(
+      s,
+      `The following ${data.creatives.length} creative${data.creatives.length === 1 ? ' is' : 's are'} active in the account. We've reviewed each for clarity, CTA presence, and landing-page specificity.`,
+      accountName,
+      auditTitle
+    );
+    s.y += 8;
+
+    data.creatives.slice(0, 8).forEach((c, idx) => {
+      ensureSpace(s, 120, accountName, auditTitle);
+      s.doc.setFont('helvetica', 'bold');
+      s.doc.setFontSize(11);
+      setText(s, COLOR.text);
+      s.doc.text(`${idx + 1}. ${c.name || c.title || c.id}`, MARGIN_X, s.y);
+      s.y += 14;
+
+      s.doc.setFont('helvetica', 'normal');
+      s.doc.setFontSize(9);
+
+      // Title (headline)
+      if (c.title) {
+        setText(s, COLOR.muted);
+        s.doc.text('Headline:', MARGIN_X, s.y);
+        setText(s, COLOR.text);
+        const titleLines = s.doc.splitTextToSize(c.title, CONTENT_WIDTH - 75);
+        titleLines.forEach((line: string, i: number) => {
+          ensureSpace(s, 11, accountName, auditTitle);
+          s.doc.text(line, MARGIN_X + 75, s.y);
+          if (i < titleLines.length - 1) s.y += 11;
+        });
+        s.y += 12;
+      }
+
+      // Body (primary text excerpt)
+      if (c.body) {
+        setText(s, COLOR.muted);
+        s.doc.text('Primary text:', MARGIN_X, s.y);
+        s.y += 11;
+        setText(s, COLOR.text);
+        const bodyExcerpt = c.body.length > 220 ? c.body.slice(0, 220) + '...' : c.body;
+        const bodyLines = s.doc.splitTextToSize(bodyExcerpt, CONTENT_WIDTH - 12);
+        bodyLines.forEach((line: string) => {
+          ensureSpace(s, 11, accountName, auditTitle);
+          s.doc.text(line, MARGIN_X + 12, s.y);
+          s.y += 11;
+        });
+      }
+
+      // CTA
+      setText(s, COLOR.muted);
+      s.doc.text('Call to action:', MARGIN_X, s.y);
+      setText(s, c.call_to_action_type ? COLOR.text : COLOR.red);
+      s.doc.text(c.call_to_action_type || 'NONE (missing CTA button)', MARGIN_X + 85, s.y);
+      s.y += 12;
+
+      // Link URL
+      if (c.link_url) {
+        setText(s, COLOR.muted);
+        s.doc.text('Landing page:', MARGIN_X, s.y);
+        setText(s, COLOR.text);
+        let pathDisplay = c.link_url;
+        try {
+          const parsed = new URL(c.link_url);
+          pathDisplay = parsed.hostname + parsed.pathname;
+          if (pathDisplay.length > 70) pathDisplay = pathDisplay.slice(0, 67) + '...';
+        } catch {
+          // keep raw
+        }
+        s.doc.text(pathDisplay, MARGIN_X + 85, s.y);
+        s.y += 12;
+
+        // Flag if homepage
+        try {
+          const parsed = new URL(c.link_url);
+          const path = parsed.pathname.replace(/\/$/, '');
+          if (path === '' || path === '/') {
+            setText(s, COLOR.red);
+            s.doc.setFont('helvetica', 'italic');
+            s.doc.text('! Landing page is the homepage -- not optimized for conversion.', MARGIN_X, s.y);
+            s.doc.setFont('helvetica', 'normal');
+            s.y += 12;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      s.y += 8;
+      setDraw(s, COLOR.border);
+      s.doc.setLineWidth(0.3);
+      s.doc.line(MARGIN_X, s.y - 4, PAGE_WIDTH - MARGIN_X, s.y - 4);
+      s.y += 4;
+    });
+
+    if (data.creatives.length > 8) {
+      muted(
+        s,
+        `Showing 8 of ${data.creatives.length} active creatives. Full review available on request.`,
+        accountName,
+        auditTitle
+      );
+    }
   }
 
   // ===== 90-Day Plan =====
