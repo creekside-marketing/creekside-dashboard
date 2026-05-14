@@ -56,12 +56,16 @@ function normalizeCreative(c: CreativeSummary): CreativeSummary {
   const oss = c.object_story_spec;
   const afs = c.asset_feed_spec;
 
-  // Resolve CTA
+  // Resolve CTA. Meta surfaces this in many places depending on creative
+  // type (single image, link ad, video, carousel, Advantage+, dynamic).
+  // We try every known location and take the first hit.
   if (!c.call_to_action_type) {
+    const cas = oss?.link_data?.child_attachments || [];
+    const childCta = cas.find((a) => a.call_to_action?.type)?.call_to_action?.type;
     const resolvedCta =
       oss?.link_data?.call_to_action?.type ||
       oss?.video_data?.call_to_action?.type ||
-      oss?.link_data?.child_attachments?.find((a) => a.call_to_action?.type)?.call_to_action?.type ||
+      childCta ||
       afs?.call_to_action_types?.[0] ||
       undefined;
     if (resolvedCta) c.call_to_action_type = resolvedCta;
@@ -185,8 +189,12 @@ export async function pullAuditData(accountId: string): Promise<AuditDataBundle>
     'object_type',
     'link_url',
     'url_tags',
-    'object_story_spec{link_data{call_to_action,image_url,picture,link,child_attachments{call_to_action,image_url,picture,link}},video_data{call_to_action,image_url,video_id}}',
-    'asset_feed_spec{bodies,titles,descriptions,images,videos,call_to_action_types}',
+    // Graph API quirk: call_to_action requires explicit sub-field expansion
+    // ({type,value{link}}). Requesting it as a bare field returns null on
+    // many creative types -- which is why some Sensate cards had image but
+    // no CTA in the previous run. Same expansion for child_attachments.
+    'object_story_spec{link_data{call_to_action{type,value{link,application,page}},image_url,picture,link,child_attachments{call_to_action{type,value{link}},image_url,picture,link,name,description}},video_data{call_to_action{type,value{link}},image_url,video_id,title,message}}',
+    'asset_feed_spec{bodies,titles,descriptions,images,videos,call_to_action_types,link_urls}',
     'degrees_of_freedom_spec',
   ].join(',');
   const activeAds = ads.filter((a) => a.status === 'ACTIVE').slice(0, 10);
