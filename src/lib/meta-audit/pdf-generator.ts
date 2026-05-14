@@ -137,18 +137,8 @@ function muted(s: DocState, text: string, account: string, audit: string) {
   s.y += 4;
 }
 
-function table(
-  s: DocState,
-  headers: string[],
-  rows: string[][],
-  widths: number[],
-  account: string,
-  audit: string
-) {
+function renderTableHeader(s: DocState, headers: string[], widths: number[]) {
   const rowHeight = 18;
-  ensureSpace(s, rowHeight * (rows.length + 1) + 10, account, audit);
-
-  // Header
   s.doc.setFont('helvetica', 'bold');
   s.doc.setFontSize(9);
   setFill(s, COLOR.bg);
@@ -160,15 +150,34 @@ function table(
     x += widths[i];
   });
   s.y += rowHeight - 2;
+}
+
+function table(
+  s: DocState,
+  headers: string[],
+  rows: string[][],
+  widths: number[],
+  account: string,
+  audit: string
+) {
+  const rowHeight = 18;
+  // Reserve room for at least the header + 1 row. If less, start fresh page.
+  ensureSpace(s, rowHeight * 2 + 4, account, audit);
+  renderTableHeader(s, headers, widths);
 
   // Rows
   s.doc.setFont('helvetica', 'normal');
   setDraw(s, COLOR.border);
   s.doc.setLineWidth(0.3);
   for (const row of rows) {
-    ensureSpace(s, rowHeight + 2, account, audit);
+    // If a row won't fit, paginate and re-render the header on the new page.
+    if (s.y + rowHeight + 2 > BOTTOM_LIMIT) {
+      newPage(s, account, audit);
+      renderTableHeader(s, headers, widths);
+      s.doc.setFont('helvetica', 'normal');
+    }
     s.doc.line(MARGIN_X, s.y - 12, PAGE_WIDTH - MARGIN_X, s.y - 12);
-    x = MARGIN_X + 6;
+    let x = MARGIN_X + 6;
     setText(s, COLOR.text);
     row.forEach((cell, i) => {
       const truncated = s.doc.splitTextToSize(cell, widths[i] - 6)[0] || '';
@@ -178,6 +187,73 @@ function table(
     s.y += rowHeight - 2;
   }
   s.y += 10;
+}
+
+// Renders a card header (numbered name) and wraps long names so they never
+// overflow the page width. Used by Ad Set Breakdown + Creative Review cards.
+function cardHeader(s: DocState, idx: number, name: string, account: string, audit: string) {
+  s.doc.setFont('helvetica', 'bold');
+  s.doc.setFontSize(11);
+  setText(s, COLOR.text);
+  const display = `${idx + 1}. ${name}`;
+  const lines = s.doc.splitTextToSize(display, CONTENT_WIDTH);
+  for (const line of lines) {
+    ensureSpace(s, 14, account, audit);
+    s.doc.text(line, MARGIN_X, s.y);
+    s.y += 14;
+  }
+}
+
+// Renders a label/value row inside a card. Wraps the value across multiple
+// lines if needed; never overflows page width. Label column is fixed width.
+function fieldRow(
+  s: DocState,
+  label: string,
+  value: string,
+  valueColor: [number, number, number],
+  account: string,
+  audit: string,
+  labelWidth = 95
+) {
+  ensureSpace(s, 12, account, audit);
+  s.doc.setFont('helvetica', 'normal');
+  s.doc.setFontSize(9);
+  setText(s, COLOR.muted);
+  s.doc.text(label, MARGIN_X, s.y);
+  setText(s, valueColor);
+  const valueLines = s.doc.splitTextToSize(value, CONTENT_WIDTH - labelWidth);
+  valueLines.forEach((line: string, i: number) => {
+    if (i > 0) {
+      ensureSpace(s, 11, account, audit);
+    }
+    s.doc.text(line, MARGIN_X + labelWidth, s.y);
+    if (i < valueLines.length - 1) s.y += 11;
+  });
+  s.y += 12;
+}
+
+// Renders a multi-line value below its label (label on its own line).
+// Used for audience lists which can be many items long.
+function fieldBlock(
+  s: DocState,
+  label: string,
+  value: string,
+  account: string,
+  audit: string
+) {
+  ensureSpace(s, 22, account, audit);
+  s.doc.setFont('helvetica', 'normal');
+  s.doc.setFontSize(9);
+  setText(s, COLOR.muted);
+  s.doc.text(label, MARGIN_X, s.y);
+  s.y += 11;
+  setText(s, COLOR.text);
+  const lines = s.doc.splitTextToSize(value, CONTENT_WIDTH - 12);
+  lines.forEach((line: string) => {
+    ensureSpace(s, 11, account, audit);
+    s.doc.text(line, MARGIN_X + 12, s.y);
+    s.y += 11;
+  });
 }
 
 function severityBadge(severity: string): [string, [number, number, number]] {
@@ -444,7 +520,6 @@ export function generateAuditPdf(output: AuditOutput): Buffer {
     s.y += 8;
 
     activeAdsets.slice(0, 8).forEach((adset, idx) => {
-      ensureSpace(s, 180, accountName, auditTitle);
       const languages = decodeLocales(adset.targeting?.locales);
       const isUnrestrictedLang = isUnrestricted(adset.targeting?.locales);
       const countries = adset.targeting?.geo_locations?.countries?.join(', ') || 'not set';
@@ -459,110 +534,48 @@ export function generateAuditPdf(output: AuditOutput): Buffer {
         .join(', ') || 'default';
       const advantage = adset.targeting?.targeting_automation?.advantage_audience === 1 ? 'On' : 'Off';
 
-      // Ad set name + budget header
-      s.doc.setFont('helvetica', 'bold');
-      s.doc.setFontSize(11);
-      setText(s, COLOR.text);
-      s.doc.text(`${idx + 1}. ${adset.name}`, MARGIN_X, s.y);
-      s.y += 14;
+      // Card header with wrapped name
+      cardHeader(s, idx, adset.name, accountName, auditTitle);
 
-      s.doc.setFont('helvetica', 'normal');
-      s.doc.setFontSize(9);
+      // Field rows (each wraps its value if needed)
+      fieldRow(s, 'Languages:', languages.join(', '), isUnrestrictedLang ? COLOR.red : COLOR.text, accountName, auditTitle);
+      fieldRow(s, 'Countries:', countries, COLOR.text, accountName, auditTitle);
+      fieldRow(s, 'Age range:', ageRange, COLOR.text, accountName, auditTitle);
+      fieldRow(s, 'Optimizing for:', optGoal, COLOR.text, accountName, auditTitle);
+      fieldRow(s, 'Attribution:', attribution, COLOR.text, accountName, auditTitle);
+      fieldRow(s, 'Advantage+ Audience:', advantage, COLOR.text, accountName, auditTitle, 135);
 
-      // Languages (highlighted if unrestricted)
-      const langColor = isUnrestrictedLang ? COLOR.red : COLOR.text;
-      setText(s, COLOR.muted);
-      s.doc.text('Languages:', MARGIN_X, s.y);
-      setText(s, langColor);
-      s.doc.text(languages.join(', '), MARGIN_X + 85, s.y);
-      s.y += 12;
-
-      // Geo
-      setText(s, COLOR.muted);
-      s.doc.text('Countries:', MARGIN_X, s.y);
-      setText(s, COLOR.text);
-      s.doc.text(countries, MARGIN_X + 85, s.y);
-      s.y += 12;
-
-      // Age range
-      setText(s, COLOR.muted);
-      s.doc.text('Age range:', MARGIN_X, s.y);
-      setText(s, COLOR.text);
-      s.doc.text(ageRange, MARGIN_X + 85, s.y);
-      s.y += 12;
-
-      // Optimization goal
-      setText(s, COLOR.muted);
-      s.doc.text('Optimizing for:', MARGIN_X, s.y);
-      setText(s, COLOR.text);
-      s.doc.text(optGoal, MARGIN_X + 85, s.y);
-      s.y += 12;
-
-      // Attribution
-      setText(s, COLOR.muted);
-      s.doc.text('Attribution:', MARGIN_X, s.y);
-      setText(s, COLOR.text);
-      s.doc.text(attribution, MARGIN_X + 85, s.y);
-      s.y += 12;
-
-      // Advantage+ Audience
-      setText(s, COLOR.muted);
-      s.doc.text('Advantage+ Audience:', MARGIN_X, s.y);
-      setText(s, COLOR.text);
-      s.doc.text(advantage, MARGIN_X + 130, s.y);
-      s.y += 12;
-
-      // Included audiences
       if (includedAudiences.length > 0) {
-        setText(s, COLOR.muted);
-        s.doc.text('Includes audiences:', MARGIN_X, s.y);
-        s.y += 11;
-        setText(s, COLOR.text);
-        const inc = includedAudiences.join(', ');
-        const incLines = s.doc.splitTextToSize(inc, CONTENT_WIDTH - 12);
-        incLines.forEach((line: string) => {
-          ensureSpace(s, 11, accountName, auditTitle);
-          s.doc.text(line, MARGIN_X + 12, s.y);
-          s.y += 11;
-        });
+        fieldBlock(s, 'Includes audiences:', includedAudiences.join(', '), accountName, auditTitle);
       }
-
-      // Excluded audiences
       if (excludedAudiences.length > 0) {
-        setText(s, COLOR.muted);
-        s.doc.text('Excludes audiences:', MARGIN_X, s.y);
-        s.y += 11;
-        setText(s, COLOR.text);
-        const exc = excludedAudiences.join(', ');
-        const excLines = s.doc.splitTextToSize(exc, CONTENT_WIDTH - 12);
-        excLines.forEach((line: string) => {
-          ensureSpace(s, 11, accountName, auditTitle);
-          s.doc.text(line, MARGIN_X + 12, s.y);
-          s.y += 11;
-        });
+        fieldBlock(s, 'Excludes audiences:', excludedAudiences.join(', '), accountName, auditTitle);
       }
 
       // Inline flag if unrestricted languages
       if (isUnrestrictedLang) {
-        s.y += 4;
+        ensureSpace(s, 14, accountName, auditTitle);
+        s.y += 2;
         setText(s, COLOR.red);
         s.doc.setFont('helvetica', 'italic');
         s.doc.setFontSize(9);
-        s.doc.text(
-          '! Language not restricted -- ads can deliver in any language to anyone in the targeted region.',
-          MARGIN_X,
-          s.y
-        );
-        s.y += 12;
+        const flagText = '! Language not restricted -- ads can deliver in any language to anyone in the targeted region.';
+        const flagLines = s.doc.splitTextToSize(flagText, CONTENT_WIDTH);
+        flagLines.forEach((line: string) => {
+          ensureSpace(s, 11, accountName, auditTitle);
+          s.doc.text(line, MARGIN_X, s.y);
+          s.y += 11;
+        });
         s.doc.setFont('helvetica', 'normal');
       }
 
-      s.y += 14;
       // Separator line
+      s.y += 6;
+      ensureSpace(s, 8, accountName, auditTitle);
       setDraw(s, COLOR.border);
       s.doc.setLineWidth(0.3);
       s.doc.line(MARGIN_X, s.y - 4, PAGE_WIDTH - MARGIN_X, s.y - 4);
-      s.y += 4;
+      s.y += 6;
     });
 
     if (activeAdsets.length > 8) {
@@ -590,89 +603,74 @@ export function generateAuditPdf(output: AuditOutput): Buffer {
     s.y += 8;
 
     data.creatives.slice(0, 8).forEach((c, idx) => {
-      ensureSpace(s, 120, accountName, auditTitle);
-      s.doc.setFont('helvetica', 'bold');
-      s.doc.setFontSize(11);
-      setText(s, COLOR.text);
-      s.doc.text(`${idx + 1}. ${c.name || c.title || c.id}`, MARGIN_X, s.y);
-      s.y += 14;
+      // Use ID for the header label since Meta auto-names creatives with the
+      // body text + date hash (which collides visually with the body block).
+      // Fall back to a short label if no ID.
+      const displayName = c.title && c.title.length < 80
+        ? c.title
+        : c.id
+        ? `Creative ${c.id}`
+        : `Creative ${idx + 1}`;
+      cardHeader(s, idx, displayName, accountName, auditTitle);
 
-      s.doc.setFont('helvetica', 'normal');
-      s.doc.setFontSize(9);
-
-      // Title (headline)
-      if (c.title) {
-        setText(s, COLOR.muted);
-        s.doc.text('Headline:', MARGIN_X, s.y);
-        setText(s, COLOR.text);
-        const titleLines = s.doc.splitTextToSize(c.title, CONTENT_WIDTH - 75);
-        titleLines.forEach((line: string, i: number) => {
-          ensureSpace(s, 11, accountName, auditTitle);
-          s.doc.text(line, MARGIN_X + 75, s.y);
-          if (i < titleLines.length - 1) s.y += 11;
-        });
-        s.y += 12;
+      // Title (headline) -- only show if not already used as the card header
+      if (c.title && c.title !== displayName) {
+        fieldRow(s, 'Headline:', c.title, COLOR.text, accountName, auditTitle);
       }
 
       // Body (primary text excerpt)
       if (c.body) {
-        setText(s, COLOR.muted);
-        s.doc.text('Primary text:', MARGIN_X, s.y);
-        s.y += 11;
-        setText(s, COLOR.text);
         const bodyExcerpt = c.body.length > 220 ? c.body.slice(0, 220) + '...' : c.body;
-        const bodyLines = s.doc.splitTextToSize(bodyExcerpt, CONTENT_WIDTH - 12);
-        bodyLines.forEach((line: string) => {
-          ensureSpace(s, 11, accountName, auditTitle);
-          s.doc.text(line, MARGIN_X + 12, s.y);
-          s.y += 11;
-        });
+        fieldBlock(s, 'Primary text:', bodyExcerpt, accountName, auditTitle);
       }
 
       // CTA
-      setText(s, COLOR.muted);
-      s.doc.text('Call to action:', MARGIN_X, s.y);
-      setText(s, c.call_to_action_type ? COLOR.text : COLOR.red);
-      s.doc.text(c.call_to_action_type || 'NONE (missing CTA button)', MARGIN_X + 85, s.y);
-      s.y += 12;
+      fieldRow(
+        s,
+        'Call to action:',
+        c.call_to_action_type || 'NONE (missing CTA button)',
+        c.call_to_action_type ? COLOR.text : COLOR.red,
+        accountName,
+        auditTitle
+      );
 
       // Link URL
       if (c.link_url) {
-        setText(s, COLOR.muted);
-        s.doc.text('Landing page:', MARGIN_X, s.y);
-        setText(s, COLOR.text);
         let pathDisplay = c.link_url;
+        let isHomepage = false;
         try {
           const parsed = new URL(c.link_url);
           pathDisplay = parsed.hostname + parsed.pathname;
-          if (pathDisplay.length > 70) pathDisplay = pathDisplay.slice(0, 67) + '...';
-        } catch {
-          // keep raw
-        }
-        s.doc.text(pathDisplay, MARGIN_X + 85, s.y);
-        s.y += 12;
-
-        // Flag if homepage
-        try {
-          const parsed = new URL(c.link_url);
           const path = parsed.pathname.replace(/\/$/, '');
-          if (path === '' || path === '/') {
-            setText(s, COLOR.red);
-            s.doc.setFont('helvetica', 'italic');
-            s.doc.text('! Landing page is the homepage -- not optimized for conversion.', MARGIN_X, s.y);
-            s.doc.setFont('helvetica', 'normal');
-            s.y += 12;
-          }
+          isHomepage = path === '' || path === '/';
         } catch {
-          // ignore
+          // keep raw URL
+        }
+        if (pathDisplay.length > 90) pathDisplay = pathDisplay.slice(0, 87) + '...';
+        fieldRow(s, 'Landing page:', pathDisplay, COLOR.text, accountName, auditTitle);
+
+        if (isHomepage) {
+          ensureSpace(s, 14, accountName, auditTitle);
+          setText(s, COLOR.red);
+          s.doc.setFont('helvetica', 'italic');
+          s.doc.setFontSize(9);
+          const flag = '! Landing page is the homepage -- not optimized for conversion.';
+          const flagLines = s.doc.splitTextToSize(flag, CONTENT_WIDTH);
+          flagLines.forEach((line: string) => {
+            ensureSpace(s, 11, accountName, auditTitle);
+            s.doc.text(line, MARGIN_X, s.y);
+            s.y += 11;
+          });
+          s.doc.setFont('helvetica', 'normal');
         }
       }
 
-      s.y += 8;
+      s.y += 4;
+      ensureSpace(s, 8, accountName, auditTitle);
       setDraw(s, COLOR.border);
       s.doc.setLineWidth(0.3);
       s.doc.line(MARGIN_X, s.y - 4, PAGE_WIDTH - MARGIN_X, s.y - 4);
-      s.y += 4;
+      s.y += 6;
     });
 
     if (data.creatives.length > 8) {
