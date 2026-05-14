@@ -114,6 +114,7 @@ export interface CreativeSummary {
   // The data puller normalizes nested locations into these fields so
   // downstream code (PDF generator, checklist) reads one canonical value.
   call_to_action_type?: string;
+  description?: string;
   image_url?: string;
   thumbnail_url?: string;
   video_id?: string;
@@ -127,17 +128,25 @@ export interface CreativeSummary {
       image_url?: string;
       picture?: string;
       link?: string;
+      name?: string;
+      description?: string;
+      message?: string;
       child_attachments?: Array<{
         call_to_action?: { type?: string };
         image_url?: string;
         picture?: string;
         link?: string;
+        name?: string;
+        description?: string;
       }>;
     };
     video_data?: {
       call_to_action?: { type?: string };
       image_url?: string;
       video_id?: string;
+      title?: string;
+      message?: string;
+      description?: string;
     };
   };
   asset_feed_spec?: {

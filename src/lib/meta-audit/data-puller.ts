@@ -89,6 +89,32 @@ function normalizeCreative(c: CreativeSummary): CreativeSummary {
     if (resolvedImage) c.image_url = resolvedImage;
   }
 
+  // Resolve description. Distinct from primary text (body) -- shown in
+  // certain placements like the desktop feed beneath the headline.
+  // Missing description is a real (if low-priority) sell opportunity.
+  if (!c.description) {
+    const resolvedDesc =
+      oss?.link_data?.description ||
+      oss?.video_data?.description ||
+      oss?.link_data?.child_attachments?.find((a) => a.description)?.description ||
+      afs?.descriptions?.[0]?.text ||
+      undefined;
+    if (resolvedDesc) c.description = resolvedDesc;
+  }
+
+  // Resolve title (headline) from nested locations if missing at top level.
+  // Empty headlines are an easy-sell finding -- the prospect can fix it in
+  // 30 seconds and the audit gives us the moment to mention it.
+  if (!c.title) {
+    const resolvedTitle =
+      oss?.link_data?.name ||
+      oss?.video_data?.title ||
+      oss?.link_data?.child_attachments?.find((a) => a.name)?.name ||
+      afs?.titles?.[0]?.text ||
+      undefined;
+    if (resolvedTitle) c.title = resolvedTitle;
+  }
+
   // Resolve link URL similarly so the Landing page field + the homepage check
   // both work for nested link ads.
   if (!c.link_url) {

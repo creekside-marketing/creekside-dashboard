@@ -622,6 +622,68 @@ const SPECS: ItemSpec[] = [
     },
   },
   {
+    id: '4.10',
+    section: 'Ad Creative Quality',
+    question: 'Every ad has a headline',
+    severity: 'MEDIUM',
+    easySell: true,
+    evaluate: (d) => {
+      if (!d.creatives.length) return { result: 'DATA_GAP', evidence: 'No creatives reviewed.' };
+      const withTitle = d.creatives.filter((c) => c.title && c.title.trim().length > 0);
+      const without = d.creatives.length - withTitle.length;
+      // Apply the same data-availability rule as CTA -- only fail when we
+      // have direct evidence the headline is missing on something Meta
+      // expects to have one. If literally no titles came back, that's a
+      // PipeBoard data gap on the creative type, not a config issue.
+      if (withTitle.length === 0) {
+        return {
+          result: 'DATA_GAP',
+          evidence: `${d.creatives.length} creative(s) reviewed but Meta API did not return title/headline data for any. Cannot confirm headline presence -- spot-check Ads Manager.`,
+        };
+      }
+      if (without === 0) {
+        return {
+          result: 'PASS',
+          evidence: `All ${withTitle.length} reviewed creative(s) have a headline set.`,
+        };
+      }
+      return {
+        result: 'FAIL',
+        evidence: `${without}/${d.creatives.length} active creative(s) are missing a headline. Headlines are the highest-leverage line on a Meta ad after the primary text -- the prospect can fix this in 30 seconds and you'll see CTR move.`,
+        recommendation: 'Add a 5-7 word benefit-led headline to every ad. Match the tone of the primary text but lead with the outcome ("Sleep deeper tonight", "Stop the scroll", "Save 40% this week").',
+      };
+    },
+  },
+  {
+    id: '4.11',
+    section: 'Ad Creative Quality',
+    question: 'Every ad has a description',
+    severity: 'LOW',
+    easySell: true,
+    evaluate: (d) => {
+      if (!d.creatives.length) return { result: 'DATA_GAP', evidence: 'No creatives reviewed.' };
+      const withDesc = d.creatives.filter((c) => c.description && c.description.trim().length > 0);
+      const without = d.creatives.length - withDesc.length;
+      if (withDesc.length === 0) {
+        return {
+          result: 'DATA_GAP',
+          evidence: `${d.creatives.length} creative(s) reviewed but Meta API did not return description data for any. Cannot confirm description presence -- spot-check Ads Manager.`,
+        };
+      }
+      if (without === 0) {
+        return {
+          result: 'PASS',
+          evidence: `All ${withDesc.length} reviewed creative(s) have a description set.`,
+        };
+      }
+      return {
+        result: 'FAIL',
+        evidence: `${without}/${d.creatives.length} active creative(s) are missing a description. Descriptions show beneath the headline in feed placements and reinforce the value proposition.`,
+        recommendation: 'Add a short description (2-4 words) to every ad emphasizing offer or differentiator ("Free shipping", "30-day trial", "Stress-relief tech").',
+      };
+    },
+  },
+  {
     id: '4.8',
     section: 'Ad Creative Quality',
     question: 'Landing pages are specific, not the homepage',

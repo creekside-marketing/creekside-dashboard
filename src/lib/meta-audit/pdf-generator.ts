@@ -750,9 +750,19 @@ export async function generateAuditPdf(output: AuditOutput): Promise<Buffer> {
         }
       }
 
-      // Title (headline) -- only show if not already used as the card header
+      // Title (headline) -- only show if not already used as the card header.
+      // If completely missing, surface that explicitly so the freelancer
+      // sees the gap (this is an easy-sell finding for prospects).
       if (c.title && c.title !== displayName) {
         fieldRow(s, 'Headline:', c.title, COLOR.text, accountName, auditTitle);
+      } else if (!c.title && displayName.startsWith('Creative ')) {
+        fieldRow(s, 'Headline:', 'NONE (empty in Ads Manager)', COLOR.red, accountName, auditTitle);
+      }
+
+      // Description (separate from primary text -- shown beneath headline
+      // in feed placements). Surface it as its own row when present.
+      if (c.description && c.description.trim().length > 0) {
+        fieldRow(s, 'Description:', c.description, COLOR.text, accountName, auditTitle);
       }
 
       // Body (primary text excerpt)
