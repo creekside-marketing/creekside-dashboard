@@ -232,8 +232,8 @@ export async function POST(req: NextRequest) {
       generatedAt: new Date().toISOString(),
     };
 
-    // 5. Generate both PDFs
-    const auditPdf = generateAuditPdf(output);
+    // 5. Generate both PDFs (audit is async because it fetches creative images)
+    const auditPdf = await generateAuditPdf(output);
     const loomPdf = generateLoomBriefPdf(output);
 
     // 6. Build filename slug

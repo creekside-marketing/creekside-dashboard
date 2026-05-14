@@ -7,13 +7,112 @@
 // Both return Buffer.
 
 import { jsPDF } from 'jspdf';
-import type { AuditOutput } from './types';
+import type { AuditOutput, CreativeSummary } from './types';
 import { decodeLocales, isUnrestricted } from './locales';
 
 interface DocState {
   doc: jsPDF;
   y: number;
   pageNumber: number;
+}
+
+interface FetchedImage {
+  dataUri: string;
+  format: 'JPEG' | 'PNG';
+  width: number;
+  height: number;
+}
+
+// Fetches an image URL server-side and returns a base64 data URI plus
+// dimensions so jsPDF.addImage can size it. Returns null on any failure
+// (timeout, non-2xx, oversized, unsupported format) so the caller can fall
+// back to a text-only card gracefully.
+//
+// Caps: 8s timeout, 2MB max payload. Meta image CDN is usually well under.
+async function fetchImageForPdf(url: string): Promise<FetchedImage | null> {
+  if (!url) return null;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { Accept: 'image/jpeg,image/png,image/*;q=0.8' },
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return null;
+
+    const contentType = res.headers.get('content-type') || '';
+    let format: 'JPEG' | 'PNG';
+    if (contentType.includes('jpeg') || contentType.includes('jpg')) {
+      format = 'JPEG';
+    } else if (contentType.includes('png')) {
+      format = 'PNG';
+    } else {
+      // Try sniffing from extension as a fallback
+      const lower = url.toLowerCase();
+      if (lower.includes('.jpg') || lower.includes('.jpeg')) format = 'JPEG';
+      else if (lower.includes('.png')) format = 'PNG';
+      else return null;
+    }
+
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength > 2 * 1024 * 1024) return null; // 2MB cap
+
+    const base64 = Buffer.from(buf).toString('base64');
+    const dataUri = `data:image/${format.toLowerCase()};base64,${base64}`;
+
+    // jsPDF needs concrete dimensions. Use a sane default and let the
+    // caller scale to width-fit. Meta creatives are typically square
+    // (1080x1080) or 4:5 (1080x1350). We'll compute aspect from the
+    // PNG/JPEG header to size correctly.
+    const dims = readImageDimensions(Buffer.from(buf), format);
+    if (!dims) return null;
+
+    return { dataUri, format, width: dims.width, height: dims.height };
+  } catch {
+    return null;
+  }
+}
+
+// Minimal header parser for JPEG/PNG to extract intrinsic dimensions.
+// Avoids pulling in a dependency. Returns null if it can't read.
+function readImageDimensions(buf: Buffer, format: 'JPEG' | 'PNG'): { width: number; height: number } | null {
+  try {
+    if (format === 'PNG') {
+      // PNG: bytes 16-19 = width (big-endian), 20-23 = height (big-endian)
+      if (buf.length < 24) return null;
+      if (buf.readUInt32BE(0) !== 0x89504e47) return null;
+      const width = buf.readUInt32BE(16);
+      const height = buf.readUInt32BE(20);
+      return { width, height };
+    }
+    // JPEG: scan for SOF0/SOF2 markers
+    let i = 2;
+    while (i < buf.length) {
+      if (buf[i] !== 0xff) return null;
+      const marker = buf[i + 1];
+      // SOF markers (skip SOF1/SOF5..SOF7 which we don't care about here)
+      if (marker === 0xc0 || marker === 0xc2) {
+        const height = buf.readUInt16BE(i + 5);
+        const width = buf.readUInt16BE(i + 7);
+        return { width, height };
+      }
+      const segLen = buf.readUInt16BE(i + 2);
+      i += 2 + segLen;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Resolve the best image URL for a creative. Prefers static image_url, falls
+// back to video thumbnail if present. Returns null if neither.
+function bestImageUrl(c: CreativeSummary): string | null {
+  if (c.image_url) return c.image_url;
+  // video_id alone doesn't give us a URL; the data puller would need to
+  // separately call get_ad_video for thumbnails. Out of scope for tier 1.
+  return null;
 }
 
 const MARGIN_X = 56;
@@ -271,7 +370,7 @@ function severityBadge(severity: string): [string, [number, number, number]] {
 
 // ============ AUDIT PDF ============
 
-export function generateAuditPdf(output: AuditOutput): Buffer {
+export async function generateAuditPdf(output: AuditOutput): Promise<Buffer> {
   const { account, findings, data, narrative } = output;
   const accountName = account.name || account.account_id;
   const auditTitle = 'META ADS AUDIT';
@@ -602,7 +701,20 @@ export function generateAuditPdf(output: AuditOutput): Buffer {
     );
     s.y += 8;
 
-    data.creatives.slice(0, 8).forEach((c, idx) => {
+    // Pre-fetch all creative images in parallel before the render loop.
+    // jsPDF.addImage is synchronous, so we have to materialize the bytes
+    // up front. Failures are caught per-image; cards without images still
+    // render text-only (the Tier 3 fallback Cade signed off on).
+    const creativesToRender = data.creatives.slice(0, 8);
+    const imageResults = await Promise.all(
+      creativesToRender.map(async (c) => {
+        const url = bestImageUrl(c);
+        if (!url) return null;
+        return fetchImageForPdf(url);
+      })
+    );
+
+    creativesToRender.forEach((c, idx) => {
       // Use ID for the header label since Meta auto-names creatives with the
       // body text + date hash (which collides visually with the body block).
       // Fall back to a short label if no ID.
@@ -612,6 +724,24 @@ export function generateAuditPdf(output: AuditOutput): Buffer {
         ? `Creative ${c.id}`
         : `Creative ${idx + 1}`;
       cardHeader(s, idx, displayName, accountName, auditTitle);
+
+      // Embed the actual creative image if we successfully fetched it.
+      // Sizing: max 140pt wide (leaves room for text below); preserve aspect.
+      const img = imageResults[idx];
+      if (img) {
+        const maxW = 160;
+        const aspect = img.height / Math.max(img.width, 1);
+        const drawW = maxW;
+        const drawH = Math.min(maxW * aspect, 200); // cap height for tall creatives
+        ensureSpace(s, drawH + 8, accountName, auditTitle);
+        try {
+          s.doc.addImage(img.dataUri, img.format, MARGIN_X, s.y, drawW, drawH);
+          s.y += drawH + 8;
+        } catch {
+          // jsPDF rejected the image bytes; skip silently and fall through
+          // to text-only card.
+        }
+      }
 
       // Title (headline) -- only show if not already used as the card header
       if (c.title && c.title !== displayName) {
