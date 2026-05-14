@@ -589,35 +589,35 @@ const SPECS: ItemSpec[] = [
     severity: 'HIGH',
     evaluate: (d) => {
       if (!d.creatives.length) return { result: 'DATA_GAP', evidence: 'No creatives reviewed.' };
-      // Confirmed missing = creative has a link_url but no CTA. If neither
-      // is present, that's a data gap from PipeBoard for this creative type
-      // (likely Advantage+ or dynamic), not a confirmed config issue. We
-      // do NOT count those as failures -- false negatives in front of a
-      // prospect destroy credibility (Meta's UI requires a CTA selection
-      // for clickable ads, so claiming 10/10 are missing would be wrong).
-      const inspectable = d.creatives.filter((c) => c.call_to_action_type || c.link_url);
-      const withCta = inspectable.filter((c) => c.call_to_action_type);
-      const confirmedMissing = inspectable.length - withCta.length;
-      const dataGap = d.creatives.length - inspectable.length;
+      // Hard rule: only return FAIL when we have ACTUAL evidence of a
+      // missing CTA. PipeBoard's MCP returns inconsistent data for this
+      // field across creative types -- for some it's there, for others
+      // it's not. Treating "not returned" as "missing" produces false
+      // negatives that embarrass us in front of prospects (Meta requires
+      // a CTA selection for clickable ads, so claiming 10/10 missing is
+      // factually wrong). When in doubt, mark as DATA_GAP and report
+      // honestly rather than over-claim.
+      const withCta = d.creatives.filter((c) => c.call_to_action_type);
+      const without = d.creatives.length - withCta.length;
 
-      if (inspectable.length === 0) {
+      if (withCta.length === 0) {
         return {
           result: 'DATA_GAP',
-          evidence: `${d.creatives.length} creative(s) reviewed but Meta API did not return CTA or link_url for any of them (likely Advantage+ / dynamic creatives). Cannot confirm CTA presence.`,
+          evidence: `${d.creatives.length} creative(s) reviewed but Meta API did not return call_to_action_type for any. Confirm CTAs are configured by spot-checking Ads Manager UI -- they almost certainly exist (Meta requires a CTA for clickable ads).`,
         };
       }
-      if (confirmedMissing === 0) {
+      if (without === 0) {
         const types = [...new Set(withCta.map((c) => c.call_to_action_type).filter(Boolean))];
-        const gapNote = dataGap > 0 ? ` ${dataGap} additional creative(s) not inspectable via API.` : '';
         return {
           result: 'PASS',
-          evidence: `${withCta.length} of ${inspectable.length} inspectable creative(s) have a CTA button (types: ${types.join(', ')}).${gapNote}`,
+          evidence: `All ${withCta.length} reviewed creative(s) have a CTA button confirmed. Types in use: ${types.join(', ')}.`,
         };
       }
+      // Partial data: some have CTAs, some don't. Don't fail -- report
+      // honestly that we couldn't verify the rest.
       return {
-        result: 'FAIL',
-        evidence: `${confirmedMissing}/${inspectable.length} clickable creative(s) confirmed missing a CTA button. CTAs are the single highest-leverage element on a Meta ad.`,
-        recommendation: 'Add a CTA button to every clickable ad. Match the button to the intent: Shop Now for purchases, Learn More for traffic, Sign Up for lead gen.',
+        result: 'DATA_GAP',
+        evidence: `${withCta.length}/${d.creatives.length} creative(s) have confirmed CTAs. Remaining ${without} could not be verified via the Meta API. Spot-check those in Ads Manager UI before flagging as a finding.`,
       };
     },
   },

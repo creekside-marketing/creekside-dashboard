@@ -761,31 +761,14 @@ export async function generateAuditPdf(output: AuditOutput): Promise<Buffer> {
         fieldBlock(s, 'Primary text:', bodyExcerpt, accountName, auditTitle);
       }
 
-      // CTA. Only show "missing CTA button" warning if the creative has a
-      // resolvable link_url -- that confirms it's a clickable ad where a
-      // CTA is required. For creatives where we couldn't detect anything,
-      // it's more likely a data gap than a real config issue. Don't lie to
-      // prospects.
+      // CTA. Only render the row if we actually have a verified value.
+      // Per Cade: don't show false-negative red "NONE" warnings or muted
+      // "data unavailable" notes -- they confuse the freelancer reading
+      // the audit and undermine credibility ("all the ads have CTAs,
+      // we know that, why does this say otherwise"). Better to omit the
+      // line entirely than to show anything we're not confident about.
       if (c.call_to_action_type) {
         fieldRow(s, 'Call to action:', c.call_to_action_type, COLOR.text, accountName, auditTitle);
-      } else if (c.link_url) {
-        fieldRow(
-          s,
-          'Call to action:',
-          'NONE (missing CTA button)',
-          COLOR.red,
-          accountName,
-          auditTitle
-        );
-      } else {
-        fieldRow(
-          s,
-          'Call to action:',
-          '(not returned by Meta API for this creative type)',
-          COLOR.muted,
-          accountName,
-          auditTitle
-        );
       }
 
       // Link URL

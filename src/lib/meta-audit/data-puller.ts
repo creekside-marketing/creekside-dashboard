@@ -233,7 +233,47 @@ export async function pullAuditData(accountId: string): Promise<AuditDataBundle>
     })
   );
 
-  const creatives: CreativeSummary[] = creativeDetails
+  // Last-resort: for any creative still missing a CTA after the two
+  // creative-level fetches, try to get it from the ad-level details.
+  // Modern Meta sometimes stores the CTA selection on the ad object
+  // rather than the creative (this matches what shows in Ads Manager
+  // UI under "Call to action" in the ad-level edit panel). Different
+  // endpoint, may return different fields. If this also fails to
+  // surface a CTA, we accept the data gap rather than fabricate.
+  const creativesWithAdLevelFallback = await Promise.all(
+    creativeDetails.map(async (creative, idx) => {
+      if (!creative) return creative;
+      if (creative.call_to_action_type) return creative; // already have it
+      const ad = activeAds[idx];
+      if (!ad) return creative;
+      const adDetailRaw = await callPipeboard('get_ad_details', {
+        ad_id: ad.id,
+        fields:
+          'id,name,creative{id,call_to_action_type,object_story_spec{link_data{call_to_action{type,value{link}}},video_data{call_to_action{type}}},asset_feed_spec{call_to_action_types}}',
+      }).catch(() => null);
+      if (!adDetailRaw) return creative;
+      const adDetail = extractData<{
+        creative?: {
+          call_to_action_type?: string;
+          object_story_spec?: CreativeSummary['object_story_spec'];
+          asset_feed_spec?: CreativeSummary['asset_feed_spec'];
+        };
+      }>(adDetailRaw, {});
+      const adCreative = adDetail.creative;
+      if (!adCreative) return creative;
+      const adLevelCta =
+        adCreative.call_to_action_type ||
+        adCreative.object_story_spec?.link_data?.call_to_action?.type ||
+        adCreative.object_story_spec?.video_data?.call_to_action?.type ||
+        adCreative.asset_feed_spec?.call_to_action_types?.[0];
+      if (adLevelCta) {
+        return { ...creative, call_to_action_type: adLevelCta };
+      }
+      return creative;
+    })
+  );
+
+  const creatives: CreativeSummary[] = creativesWithAdLevelFallback
     .filter((c): c is CreativeSummary => !!c)
     .map(normalizeCreative);
 
