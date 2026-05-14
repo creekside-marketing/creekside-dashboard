@@ -68,6 +68,13 @@ async function fetchImageForPdf(url: string): Promise<FetchedImage | null> {
     const dims = readImageDimensions(Buffer.from(buf), format);
     if (!dims) return null;
 
+    // Reject low-resolution preview/thumbnail images. Meta's nested fields
+    // sometimes only expose ~200x200 thumbnails (object_story_spec.picture,
+    // some video thumbnail_url) which look terrible when scaled up to
+    // 160pt in the PDF. Skipping them lets the card render text-only,
+    // which is cleaner than showing a blurry image to a prospect.
+    if (dims.width < 400 || dims.height < 400) return null;
+
     return { dataUri, format, width: dims.width, height: dims.height };
   } catch {
     return null;

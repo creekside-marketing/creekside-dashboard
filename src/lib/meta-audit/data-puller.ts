@@ -67,18 +67,20 @@ function normalizeCreative(c: CreativeSummary): CreativeSummary {
     if (resolvedCta) c.call_to_action_type = resolvedCta;
   }
 
-  // Resolve image URL. Priority: explicit image_url > thumbnail_url
-  // > object_story_spec link image > carousel first child > asset feed image.
+  // Resolve image URL. Priority: explicit image_url
+  // > object_story_spec.link_data.image_url > carousel first child image_url
+  // > asset_feed_spec.images first url.
+  //
+  // Deliberately NOT using `picture` (200x200 preview) or `thumbnail_url`
+  // (video preview) -- those are low-res and look blurry at PDF size. The
+  // PDF fetcher rejects sub-400px images anyway, but skipping them at
+  // resolution time saves an unnecessary HTTP fetch.
   if (!c.image_url) {
     const resolvedImage =
-      c.thumbnail_url ||
       oss?.link_data?.image_url ||
-      oss?.link_data?.picture ||
       oss?.video_data?.image_url ||
-      oss?.link_data?.child_attachments?.find((a) => a.image_url || a.picture)?.image_url ||
-      oss?.link_data?.child_attachments?.find((a) => a.image_url || a.picture)?.picture ||
+      oss?.link_data?.child_attachments?.find((a) => a.image_url)?.image_url ||
       afs?.images?.find((img) => img.url)?.url ||
-      afs?.videos?.find((v) => v.thumbnail_url)?.thumbnail_url ||
       undefined;
     if (resolvedImage) c.image_url = resolvedImage;
   }
@@ -165,10 +167,33 @@ export async function pullAuditData(accountId: string): Promise<AuditDataBundle>
   const adsParsed = extractData<{ data?: AdSummary[] }>(adsRaw, { data: [] });
   const ads = adsParsed.data || [];
 
-  // Pull creatives for active ads only (cap at 10 to keep API calls bounded)
+  // Pull creatives for active ads only (cap at 10 to keep API calls bounded).
+  // Explicitly request nested fields (object_story_spec, asset_feed_spec) so
+  // the normalizer below can resolve CTA + image_url from carousel /
+  // link-data / Advantage+ creatives. Without this fields list PipeBoard
+  // returns a minimal default response that drops the nested data we need.
+  const CREATIVE_FIELDS = [
+    'id',
+    'name',
+    'status',
+    'title',
+    'body',
+    'call_to_action_type',
+    'image_url',
+    'thumbnail_url',
+    'video_id',
+    'object_type',
+    'link_url',
+    'url_tags',
+    'object_story_spec{link_data{call_to_action,image_url,picture,link,child_attachments{call_to_action,image_url,picture,link}},video_data{call_to_action,image_url,video_id}}',
+    'asset_feed_spec{bodies,titles,descriptions,images,videos,call_to_action_types}',
+    'degrees_of_freedom_spec',
+  ].join(',');
   const activeAds = ads.filter((a) => a.status === 'ACTIVE').slice(0, 10);
   const creativeRaw = await Promise.all(
-    activeAds.map((a) => callPipeboard('get_ad_creatives', { ad_id: a.id }).catch(() => null))
+    activeAds.map((a) =>
+      callPipeboard('get_ad_creatives', { ad_id: a.id, fields: CREATIVE_FIELDS }).catch(() => null)
+    )
   );
   const creatives: CreativeSummary[] = creativeRaw
     .map((r) => extractData<{ data?: CreativeSummary[] }>(r, { data: [] }).data?.[0])
