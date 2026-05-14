@@ -128,15 +128,24 @@ const PAGE_HEIGHT = 842;
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN_X * 2;
 const BOTTOM_LIMIT = PAGE_HEIGHT - 90;
 
+// Creekside brand palette extracted from the official logo assets.
+// Primary blue = Creekside cerulean (the wave gradient mid-tone).
+// Deep blue = the darker gradient end + chart bar shadow.
+// Silver = the chart bar steel.
+// All other tokens (red, amber, green) tuned to harmonize with the brand
+// blues so findings still read clearly without clashing.
 const COLOR = {
-  text: [15, 23, 42] as [number, number, number],
-  muted: [100, 116, 139] as [number, number, number],
-  accent: [37, 99, 235] as [number, number, number],
-  border: [203, 213, 225] as [number, number, number],
-  red: [185, 28, 28] as [number, number, number],
+  text: [17, 24, 39] as [number, number, number],          // #111827 charcoal
+  muted: [100, 116, 139] as [number, number, number],      // slate-500
+  accent: [32, 149, 220] as [number, number, number],      // #2095DC Creekside cerulean (primary)
+  deep: [11, 61, 92] as [number, number, number],          // #0B3D5C deep brand blue
+  silver: [168, 176, 185] as [number, number, number],     // #A8B0B9 brand silver
+  border: [203, 213, 225] as [number, number, number],     // subtle divider
+  red: [192, 38, 48] as [number, number, number],          // toned to harmonize with brand
   amber: [161, 98, 7] as [number, number, number],
   green: [21, 128, 61] as [number, number, number],
-  bg: [248, 250, 252] as [number, number, number],
+  bg: [240, 246, 252] as [number, number, number],         // #F0F6FC very pale brand tint
+  white: [255, 255, 255] as [number, number, number],
 };
 
 function newDoc(): DocState {
@@ -172,40 +181,76 @@ function newPage(s: DocState, account: string, audit: string) {
 }
 
 function pageHeader(s: DocState, account: string, audit: string) {
+  // Branded running header: small brand-color mark at the left, client+audit
+  // in muted text. The 2pt accent square on the left is a subtle continuity
+  // mark across every internal page (will be replaced by the logo mark
+  // once Cade saves the PNG files into the repo).
+  setFill(s, COLOR.accent);
+  s.doc.rect(MARGIN_X, 30, 12, 12, 'F');
+  s.doc.setFont('helvetica', 'bold');
   s.doc.setFontSize(8);
+  setText(s, COLOR.deep);
+  s.doc.text(`${account.toUpperCase()}`, MARGIN_X + 20, 40);
+  s.doc.setFont('helvetica', 'normal');
   setText(s, COLOR.muted);
-  s.doc.text(`${account.toUpperCase()} · ${audit}`, MARGIN_X, 36);
+  s.doc.setFontSize(7.5);
+  s.doc.text(audit.toUpperCase(), MARGIN_X + 20 + s.doc.getTextWidth(account.toUpperCase()) + 8, 40);
   setDraw(s, COLOR.border);
-  s.doc.setLineWidth(0.5);
-  s.doc.line(MARGIN_X, 44, PAGE_WIDTH - MARGIN_X, 44);
-  s.y = 70;
+  s.doc.setLineWidth(0.4);
+  s.doc.line(MARGIN_X, 50, PAGE_WIDTH - MARGIN_X, 50);
+  s.y = 76;
 }
 
 function pageFooter(s: DocState, account: string, audit: string) {
-  s.doc.setFontSize(8);
+  // Brand accent line above the footer line for visual continuity.
+  setDraw(s, COLOR.accent);
+  s.doc.setLineWidth(1.5);
+  s.doc.line(MARGIN_X, PAGE_HEIGHT - 44, MARGIN_X + 24, PAGE_HEIGHT - 44);
+  s.doc.setLineWidth(0.3);
+  s.doc.setFontSize(7.5);
+  s.doc.setFont('helvetica', 'normal');
   setText(s, COLOR.muted);
   s.doc.text(
-    `Creekside Marketing · ${account} · ${audit} · Page ${s.pageNumber}`,
+    `CREEKSIDE MARKETING  ·  ${account}  ·  ${audit}`,
     MARGIN_X,
     PAGE_HEIGHT - 30
   );
+  // Page number, right-aligned, in brand color
+  setText(s, COLOR.deep);
+  s.doc.setFont('helvetica', 'bold');
+  const pageLabel = `${String(s.pageNumber).padStart(2, '0')}`;
+  const pageW = s.doc.getTextWidth(pageLabel);
+  s.doc.text(pageLabel, PAGE_WIDTH - MARGIN_X - pageW, PAGE_HEIGHT - 30);
 }
 
 function h1(s: DocState, text: string) {
+  // Section headers get a brand-accent vertical bar to the left -- gives
+  // each major section a consistent, professional anchor instead of just
+  // floating bold text. Plus a thin accent underline below.
+  setFill(s, COLOR.accent);
+  s.doc.rect(MARGIN_X, s.y - 14, 3, 22, 'F');
   s.doc.setFont('helvetica', 'bold');
   s.doc.setFontSize(22);
   setText(s, COLOR.text);
-  s.doc.text(text, MARGIN_X, s.y);
-  s.y += 28;
+  s.doc.text(text, MARGIN_X + 12, s.y);
+  s.y += 12;
+  setDraw(s, COLOR.border);
+  s.doc.setLineWidth(0.4);
+  s.doc.line(MARGIN_X, s.y, PAGE_WIDTH - MARGIN_X, s.y);
+  s.y += 18;
 }
 
 function h2(s: DocState, text: string, account: string, audit: string) {
   ensureSpace(s, 40, account, audit);
+  // Lightweight: just brand-deep colored bold text, slightly smaller
+  // accent bar to differentiate from h1.
+  setFill(s, COLOR.accent);
+  s.doc.rect(MARGIN_X, s.y - 10, 2, 14, 'F');
   s.doc.setFont('helvetica', 'bold');
   s.doc.setFontSize(15);
-  setText(s, COLOR.text);
-  s.doc.text(text, MARGIN_X, s.y);
-  s.y += 20;
+  setText(s, COLOR.deep);
+  s.doc.text(text, MARGIN_X + 10, s.y);
+  s.y += 22;
 }
 
 function h3(s: DocState, text: string, account: string, audit: string) {
@@ -390,67 +435,103 @@ export async function generateAuditPdf(output: AuditOutput): Promise<Buffer> {
   const s = newDoc();
 
   // ===== Cover Page =====
-  setText(s, COLOR.accent);
+  // Layout: branded masthead (brand-block at top), prominent client name
+  // mid-page, KPI tile row, footer info block. Uses an 8pt grid throughout
+  // for consistent vertical rhythm.
+
+  // 1. Brand masthead block (full-width deep brand stripe across top)
+  setFill(s, COLOR.deep);
+  s.doc.rect(0, 0, PAGE_WIDTH, 96, 'F');
+  setText(s, COLOR.white);
   s.doc.setFont('helvetica', 'bold');
-  s.doc.setFontSize(10);
-  s.doc.text('CREEKSIDE MARKETING', MARGIN_X, s.y);
+  s.doc.setFontSize(13);
+  s.doc.text('CREEKSIDE MARKETING', MARGIN_X, 42);
+  setText(s, [255, 255, 255]);
   s.doc.setFont('helvetica', 'normal');
-  setText(s, COLOR.muted);
+  s.doc.setFontSize(8.5);
+  // letter-spaced subtitle for that "intelligence brand" feel
+  s.doc.text('P A I D   M E D I A   I N T E L L I G E N C E', MARGIN_X, 60);
+  // Confidential badge -- right-aligned, white outlined
+  setText(s, COLOR.silver);
   s.doc.setFontSize(8);
-  s.doc.text('PAID MEDIA INTELLIGENCE', MARGIN_X, s.y + 14);
-  s.y += 60;
+  const confLabel = `CONFIDENTIAL · ${accountName.toUpperCase()}`;
+  const confW = s.doc.getTextWidth(confLabel);
+  s.doc.text(confLabel, PAGE_WIDTH - MARGIN_X - confW, 42);
+  s.doc.text(dateStr.toUpperCase(), PAGE_WIDTH - MARGIN_X - s.doc.getTextWidth(dateStr.toUpperCase()), 60);
 
+  // 2. Title block -- centered on client name, big
+  s.y = 160;
   setText(s, COLOR.muted);
-  s.doc.setFontSize(9);
-  s.doc.text(`CONFIDENTIAL · FOR ${accountName.toUpperCase()}`, MARGIN_X, s.y);
-  s.y += 30;
+  s.doc.setFont('helvetica', 'normal');
+  s.doc.setFontSize(10);
+  s.doc.text('META ADS ACCOUNT AUDIT', MARGIN_X, s.y);
+  s.y += 28;
 
+  // Client name -- the hero element on the page
   setText(s, COLOR.text);
   s.doc.setFont('helvetica', 'bold');
-  s.doc.setFontSize(28);
-  s.doc.text('Meta Ads Account Audit', MARGIN_X, s.y);
-  s.y += 36;
+  s.doc.setFontSize(40);
+  // Wrap client name if too long
+  const clientLines = s.doc.splitTextToSize(accountName, CONTENT_WIDTH);
+  clientLines.forEach((line: string, i: number) => {
+    s.doc.text(line, MARGIN_X, s.y + i * 44);
+  });
+  s.y += clientLines.length * 44 + 16;
 
+  // Brand accent rule beneath the title
+  setDraw(s, COLOR.accent);
+  s.doc.setLineWidth(2);
+  s.doc.line(MARGIN_X, s.y, MARGIN_X + 60, s.y);
+  s.doc.setLineWidth(0.3);
+  s.y += 24;
+
+  // 3. Executive summary paragraph
   s.doc.setFont('helvetica', 'normal');
-  s.doc.setFontSize(14);
-  setText(s, COLOR.accent);
-  s.doc.text(accountName, MARGIN_X, s.y);
-  s.y += 30;
-
   setText(s, COLOR.text);
   body(s, narrative.executiveSummary, accountName, auditTitle);
+  s.y += 12;
 
-  // KPI tiles
-  const tile = (label: string, value: string, x: number, y: number) => {
+  // 4. KPI tiles (full-width row, branded)
+  const tile = (label: string, value: string, x: number, y: number, w: number) => {
     setFill(s, COLOR.bg);
-    s.doc.rect(x, y, 110, 60, 'F');
-    setText(s, COLOR.muted);
-    s.doc.setFontSize(8);
-    s.doc.text(label.toUpperCase(), x + 8, y + 14);
+    s.doc.rect(x, y, w, 64, 'F');
+    // Brand accent stripe down the left edge of each tile
+    setFill(s, COLOR.accent);
+    s.doc.rect(x, y, 3, 64, 'F');
+    setText(s, COLOR.deep);
+    s.doc.setFont('helvetica', 'bold');
+    s.doc.setFontSize(7.5);
+    s.doc.text(label.toUpperCase(), x + 12, y + 18);
     setText(s, COLOR.text);
     s.doc.setFont('helvetica', 'bold');
-    s.doc.setFontSize(14);
-    s.doc.text(value, x + 8, y + 38);
+    s.doc.setFontSize(18);
+    s.doc.text(value, x + 12, y + 44);
     s.doc.setFont('helvetica', 'normal');
   };
 
   const insights = data.insights30dAccount;
   if (insights) {
-    s.y += 10;
-    tile('Spend (30d)', `$${Math.round(insights.spend).toLocaleString()}`, MARGIN_X, s.y);
-    tile('Purchases', String(insights.purchases), MARGIN_X + 120, s.y);
-    tile('ROAS', insights.roas.toFixed(2), MARGIN_X + 240, s.y);
-    tile('CPA', `$${insights.cpa.toFixed(0)}`, MARGIN_X + 360, s.y);
-    s.y += 80;
+    const tileW = (CONTENT_WIDTH - 24) / 4; // 4 tiles + 8pt gutters
+    tile('Spend (30d)', `$${Math.round(insights.spend).toLocaleString()}`, MARGIN_X, s.y, tileW);
+    tile('Purchases', String(insights.purchases), MARGIN_X + tileW + 8, s.y, tileW);
+    tile('ROAS', insights.roas.toFixed(2), MARGIN_X + (tileW + 8) * 2, s.y, tileW);
+    tile('CPA', `$${insights.cpa.toFixed(0)}`, MARGIN_X + (tileW + 8) * 3, s.y, tileW);
+    s.y += 88;
   }
 
+  // 5. Footer metadata block (account ID, prepared by) -- minimal, muted
   setText(s, COLOR.muted);
-  s.doc.setFontSize(9);
-  s.doc.text(`Account ID: ${account.account_id}`, MARGIN_X, s.y);
+  s.doc.setFont('helvetica', 'normal');
+  s.doc.setFontSize(8.5);
+  s.doc.text(`ACCOUNT ID`, MARGIN_X, s.y);
+  s.doc.text(`AUDIT DATE`, MARGIN_X + 180, s.y);
+  s.doc.text(`PREPARED BY`, MARGIN_X + 360, s.y);
   s.y += 14;
-  s.doc.text(`Audit date: ${dateStr}`, MARGIN_X, s.y);
-  s.y += 14;
-  s.doc.text(`Prepared by: Creekside Marketing`, MARGIN_X, s.y);
+  setText(s, COLOR.text);
+  s.doc.setFontSize(10);
+  s.doc.text(account.account_id, MARGIN_X, s.y);
+  s.doc.text(dateStr, MARGIN_X + 180, s.y);
+  s.doc.text('Creekside Marketing', MARGIN_X + 360, s.y);
 
   // ===== Scorecard Page =====
   newPage(s, accountName, auditTitle);
