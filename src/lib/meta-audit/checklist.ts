@@ -589,16 +589,35 @@ const SPECS: ItemSpec[] = [
     severity: 'HIGH',
     evaluate: (d) => {
       if (!d.creatives.length) return { result: 'DATA_GAP', evidence: 'No creatives reviewed.' };
-      const withCta = d.creatives.filter((c) => c.call_to_action_type);
-      const noCta = d.creatives.length - withCta.length;
-      if (noCta === 0) {
+      // Confirmed missing = creative has a link_url but no CTA. If neither
+      // is present, that's a data gap from PipeBoard for this creative type
+      // (likely Advantage+ or dynamic), not a confirmed config issue. We
+      // do NOT count those as failures -- false negatives in front of a
+      // prospect destroy credibility (Meta's UI requires a CTA selection
+      // for clickable ads, so claiming 10/10 are missing would be wrong).
+      const inspectable = d.creatives.filter((c) => c.call_to_action_type || c.link_url);
+      const withCta = inspectable.filter((c) => c.call_to_action_type);
+      const confirmedMissing = inspectable.length - withCta.length;
+      const dataGap = d.creatives.length - inspectable.length;
+
+      if (inspectable.length === 0) {
+        return {
+          result: 'DATA_GAP',
+          evidence: `${d.creatives.length} creative(s) reviewed but Meta API did not return CTA or link_url for any of them (likely Advantage+ / dynamic creatives). Cannot confirm CTA presence.`,
+        };
+      }
+      if (confirmedMissing === 0) {
         const types = [...new Set(withCta.map((c) => c.call_to_action_type).filter(Boolean))];
-        return { result: 'PASS', evidence: `All ${withCta.length} reviewed creatives have a CTA button. Types in use: ${types.join(', ')}.` };
+        const gapNote = dataGap > 0 ? ` ${dataGap} additional creative(s) not inspectable via API.` : '';
+        return {
+          result: 'PASS',
+          evidence: `${withCta.length} of ${inspectable.length} inspectable creative(s) have a CTA button (types: ${types.join(', ')}).${gapNote}`,
+        };
       }
       return {
         result: 'FAIL',
-        evidence: `${noCta}/${d.creatives.length} active creative(s) have no call-to-action button. CTAs are the single highest-leverage element on a Meta ad and should never be missing.`,
-        recommendation: 'Add a CTA button to every ad. Match the button to the intent: Shop Now for purchases, Learn More for traffic, Sign Up for lead gen.',
+        evidence: `${confirmedMissing}/${inspectable.length} clickable creative(s) confirmed missing a CTA button. CTAs are the single highest-leverage element on a Meta ad.`,
+        recommendation: 'Add a CTA button to every clickable ad. Match the button to the intent: Shop Now for purchases, Learn More for traffic, Sign Up for lead gen.',
       };
     },
   },

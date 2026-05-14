@@ -198,13 +198,42 @@ export async function pullAuditData(accountId: string): Promise<AuditDataBundle>
     'degrees_of_freedom_spec',
   ].join(',');
   const activeAds = ads.filter((a) => a.status === 'ACTIVE').slice(0, 10);
-  const creativeRaw = await Promise.all(
+
+  // Two-step fetch. Previous single-call (get_ad_creatives + fields=) was
+  // proven not to work -- PipeBoard ignored the fields parameter and
+  // returned its minimal default shape, dropping all nested data (CTA,
+  // image_url, link). The byte-identical 997.4KB PDFs across runs confirmed
+  // this. Switching to get_creative_details, which is the dedicated full-
+  // detail endpoint that returns nested fields by default. Falls back to
+  // the basic get_ad_creatives data if the details call fails.
+  const creativeBasic = await Promise.all(
     activeAds.map((a) =>
       callPipeboard('get_ad_creatives', { ad_id: a.id, fields: CREATIVE_FIELDS }).catch(() => null)
     )
   );
-  const creatives: CreativeSummary[] = creativeRaw
+  const basicCreatives = creativeBasic
     .map((r) => extractData<{ data?: CreativeSummary[] }>(r, { data: [] }).data?.[0])
+    .map((c) => c || null);
+
+  // Now fetch full details per creative ID. If any individual call fails,
+  // fall back to the basic creative we already have.
+  const creativeDetails = await Promise.all(
+    basicCreatives.map(async (basic) => {
+      if (!basic?.id) return basic;
+      const detailRaw = await callPipeboard('get_creative_details', {
+        creative_id: basic.id,
+        fields: CREATIVE_FIELDS,
+      }).catch(() => null);
+      if (!detailRaw) return basic;
+      const detail = extractData<CreativeSummary | null>(detailRaw, null);
+      if (!detail) return basic;
+      // Merge: detail wins for nested fields, but preserve basic fields
+      // not returned by detail (e.g. some status/name fields).
+      return { ...basic, ...detail };
+    })
+  );
+
+  const creatives: CreativeSummary[] = creativeDetails
     .filter((c): c is CreativeSummary => !!c)
     .map(normalizeCreative);
 
