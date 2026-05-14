@@ -543,18 +543,22 @@ export async function generateAuditPdf(output: AuditOutput): Promise<Buffer> {
   s.doc.setFont('helvetica', 'normal');
   s.doc.setFontSize(10);
   s.doc.text('META ADS ACCOUNT AUDIT', MARGIN_X, s.y);
-  s.y += 28;
+  // Gap between the small label and the huge client name. 40pt font has
+  // ~28pt cap height above its baseline, so we need >=44pt of total gap
+  // between the label's baseline and the client name's baseline to avoid
+  // the cap of the client name overlapping the descender of the label.
+  s.y += 48;
 
-  // Client name -- the hero element on the page
+  // Client name -- the hero element on the page. 40pt bold, generous
+  // 50pt line height for multi-line cases (e.g. long client names).
   setText(s, COLOR.text);
   s.doc.setFont('helvetica', 'bold');
   s.doc.setFontSize(40);
-  // Wrap client name if too long
   const clientLines = s.doc.splitTextToSize(accountName, CONTENT_WIDTH);
   clientLines.forEach((line: string, i: number) => {
-    s.doc.text(line, MARGIN_X, s.y + i * 44);
+    s.doc.text(line, MARGIN_X, s.y + i * 50);
   });
-  s.y += clientLines.length * 44 + 16;
+  s.y += clientLines.length * 50 + 20;
 
   // Brand accent rule beneath the title
   setDraw(s, COLOR.accent);
