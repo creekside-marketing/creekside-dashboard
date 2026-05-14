@@ -7,8 +7,48 @@
 // Both return Buffer.
 
 import { jsPDF } from 'jspdf';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import type { AuditOutput, CreativeSummary } from './types';
 import { decodeLocales, isUnrestricted } from './locales';
+
+// Logo assets loaded once per server process from public/branding/.
+// readImageDimensions reads the PNG header for intrinsic dimensions so the
+// PDF can size the logos without distortion. Both logos are part of the
+// dashboard repo (committed -- not user-uploaded) so loading is reliable.
+type LogoAsset = { dataUri: string; width: number; height: number };
+
+function loadLogo(filename: string): LogoAsset | null {
+  try {
+    const path = join(process.cwd(), 'public', 'branding', filename);
+    const buf = readFileSync(path);
+    const base64 = buf.toString('base64');
+    const dataUri = `data:image/png;base64,${base64}`;
+    // PNG: width is bytes 16-19 big-endian, height is bytes 20-23
+    const width = buf.readUInt32BE(16);
+    const height = buf.readUInt32BE(20);
+    return { dataUri, width, height };
+  } catch {
+    return null;
+  }
+}
+
+// Lazy singletons -- loaded once on first PDF generation, cached for the
+// life of the server process.
+let CREEKSIDE_FULL_LOGO: LogoAsset | null | undefined;
+let CREEKSIDE_MARK: LogoAsset | null | undefined;
+function getFullLogo(): LogoAsset | null {
+  if (CREEKSIDE_FULL_LOGO === undefined) {
+    CREEKSIDE_FULL_LOGO = loadLogo('creekside-full-black.png');
+  }
+  return CREEKSIDE_FULL_LOGO;
+}
+function getMark(): LogoAsset | null {
+  if (CREEKSIDE_MARK === undefined) {
+    CREEKSIDE_MARK = loadLogo('creekside-mark.png');
+  }
+  return CREEKSIDE_MARK;
+}
 
 interface DocState {
   doc: jsPDF;
@@ -181,23 +221,41 @@ function newPage(s: DocState, account: string, audit: string) {
 }
 
 function pageHeader(s: DocState, account: string, audit: string) {
-  // Branded running header: small brand-color mark at the left, client+audit
-  // in muted text. The 2pt accent square on the left is a subtle continuity
-  // mark across every internal page (will be replaced by the logo mark
-  // once Cade saves the PNG files into the repo).
-  setFill(s, COLOR.accent);
-  s.doc.rect(MARGIN_X, 30, 12, 12, 'F');
+  // Branded running header: small Creekside wave mark at the left
+  // (loaded from public/branding/creekside-mark.png), then client name in
+  // deep brand blue and audit title in muted, with a divider line beneath.
+  const mark = getMark();
+  let textX = MARGIN_X;
+  if (mark) {
+    // Square logo, render at 18pt square. The white background of the PNG
+    // blends with the white page so it reads as a transparent mark.
+    const size = 18;
+    try {
+      s.doc.addImage(mark.dataUri, 'PNG', MARGIN_X, 28, size, size, 'ckmark', 'FAST');
+      textX = MARGIN_X + size + 8;
+    } catch {
+      // Fallback to accent square
+      setFill(s, COLOR.accent);
+      s.doc.rect(MARGIN_X, 30, 12, 12, 'F');
+      textX = MARGIN_X + 20;
+    }
+  } else {
+    setFill(s, COLOR.accent);
+    s.doc.rect(MARGIN_X, 30, 12, 12, 'F');
+    textX = MARGIN_X + 20;
+  }
+
   s.doc.setFont('helvetica', 'bold');
   s.doc.setFontSize(8);
   setText(s, COLOR.deep);
-  s.doc.text(`${account.toUpperCase()}`, MARGIN_X + 20, 40);
+  s.doc.text(`${account.toUpperCase()}`, textX, 42);
   s.doc.setFont('helvetica', 'normal');
   setText(s, COLOR.muted);
   s.doc.setFontSize(7.5);
-  s.doc.text(audit.toUpperCase(), MARGIN_X + 20 + s.doc.getTextWidth(account.toUpperCase()) + 8, 40);
+  s.doc.text(audit.toUpperCase(), textX + s.doc.getTextWidth(account.toUpperCase()) + 8, 42);
   setDraw(s, COLOR.border);
   s.doc.setLineWidth(0.4);
-  s.doc.line(MARGIN_X, 50, PAGE_WIDTH - MARGIN_X, 50);
+  s.doc.line(MARGIN_X, 52, PAGE_WIDTH - MARGIN_X, 52);
   s.y = 76;
 }
 
@@ -439,20 +497,40 @@ export async function generateAuditPdf(output: AuditOutput): Promise<Buffer> {
   // mid-page, KPI tile row, footer info block. Uses an 8pt grid throughout
   // for consistent vertical rhythm.
 
-  // 1. Brand masthead block (full-width deep brand stripe across top)
-  setFill(s, COLOR.deep);
+  // 1. Brand masthead block (full-width black stripe to match the logo
+  // background -- no awkward bg color clash). Embeds the actual logo on
+  // the left side; right side carries the confidential badge + date.
+  setFill(s, [0, 0, 0]);
   s.doc.rect(0, 0, PAGE_WIDTH, 96, 'F');
-  setText(s, COLOR.white);
-  s.doc.setFont('helvetica', 'bold');
-  s.doc.setFontSize(13);
-  s.doc.text('CREEKSIDE MARKETING', MARGIN_X, 42);
-  setText(s, [255, 255, 255]);
-  s.doc.setFont('helvetica', 'normal');
-  s.doc.setFontSize(8.5);
-  // letter-spaced subtitle for that "intelligence brand" feel
-  s.doc.text('P A I D   M E D I A   I N T E L L I G E N C E', MARGIN_X, 60);
-  // Confidential badge -- right-aligned, white outlined
+
+  const fullLogo = getFullLogo();
+  if (fullLogo) {
+    // Size the logo to fit the masthead height (96pt) with vertical padding
+    // (12pt top + 12pt bottom = 72pt available). Preserve aspect ratio.
+    const targetH = 72;
+    const aspect = fullLogo.width / fullLogo.height;
+    const drawW = targetH * aspect;
+    const drawH = targetH;
+    try {
+      s.doc.addImage(fullLogo.dataUri, 'PNG', MARGIN_X, 12, drawW, drawH, 'cklogo', 'FAST');
+    } catch {
+      // Fallback to text if image embed fails
+      setText(s, [255, 255, 255]);
+      s.doc.setFont('helvetica', 'bold');
+      s.doc.setFontSize(13);
+      s.doc.text('CREEKSIDE MARKETING', MARGIN_X, 56);
+    }
+  } else {
+    // No logo file available -- fall back to bold wordmark
+    setText(s, [255, 255, 255]);
+    s.doc.setFont('helvetica', 'bold');
+    s.doc.setFontSize(13);
+    s.doc.text('CREEKSIDE MARKETING', MARGIN_X, 56);
+  }
+
+  // Confidential badge -- right-aligned, silver
   setText(s, COLOR.silver);
+  s.doc.setFont('helvetica', 'normal');
   s.doc.setFontSize(8);
   const confLabel = `CONFIDENTIAL · ${accountName.toUpperCase()}`;
   const confW = s.doc.getTextWidth(confLabel);
