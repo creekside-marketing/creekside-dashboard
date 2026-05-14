@@ -42,6 +42,61 @@ function extractData<T>(raw: unknown, fallback: T): T {
   return raw as T;
 }
 
+// Meta stores call-to-action and image URL in different locations depending
+// on the creative type (single image, link ad, video, carousel, Advantage+).
+// The previous version only checked top-level fields, which produced false
+// negatives like "missing CTA" on ads that had Shop Now buttons configured
+// via object_story_spec.link_data.call_to_action.
+//
+// This normalizer walks every known location and writes the resolved value
+// back to the top-level fields so downstream code can read one canonical
+// place. Top-level wins if already set; otherwise we fall back through the
+// nested locations in priority order.
+function normalizeCreative(c: CreativeSummary): CreativeSummary {
+  const oss = c.object_story_spec;
+  const afs = c.asset_feed_spec;
+
+  // Resolve CTA
+  if (!c.call_to_action_type) {
+    const resolvedCta =
+      oss?.link_data?.call_to_action?.type ||
+      oss?.video_data?.call_to_action?.type ||
+      oss?.link_data?.child_attachments?.find((a) => a.call_to_action?.type)?.call_to_action?.type ||
+      afs?.call_to_action_types?.[0] ||
+      undefined;
+    if (resolvedCta) c.call_to_action_type = resolvedCta;
+  }
+
+  // Resolve image URL. Priority: explicit image_url > thumbnail_url
+  // > object_story_spec link image > carousel first child > asset feed image.
+  if (!c.image_url) {
+    const resolvedImage =
+      c.thumbnail_url ||
+      oss?.link_data?.image_url ||
+      oss?.link_data?.picture ||
+      oss?.video_data?.image_url ||
+      oss?.link_data?.child_attachments?.find((a) => a.image_url || a.picture)?.image_url ||
+      oss?.link_data?.child_attachments?.find((a) => a.image_url || a.picture)?.picture ||
+      afs?.images?.find((img) => img.url)?.url ||
+      afs?.videos?.find((v) => v.thumbnail_url)?.thumbnail_url ||
+      undefined;
+    if (resolvedImage) c.image_url = resolvedImage;
+  }
+
+  // Resolve link URL similarly so the Landing page field + the homepage check
+  // both work for nested link ads.
+  if (!c.link_url) {
+    const resolvedLink =
+      oss?.link_data?.link ||
+      oss?.link_data?.call_to_action?.value?.link ||
+      oss?.link_data?.child_attachments?.find((a) => a.link)?.link ||
+      undefined;
+    if (resolvedLink) c.link_url = resolvedLink;
+  }
+
+  return c;
+}
+
 function totalsFromInsights(row: Record<string, unknown> | null | undefined): InsightsTotals | null {
   if (!row) return null;
   const num = (v: unknown) => Number(v ?? 0);
@@ -117,7 +172,8 @@ export async function pullAuditData(accountId: string): Promise<AuditDataBundle>
   );
   const creatives: CreativeSummary[] = creativeRaw
     .map((r) => extractData<{ data?: CreativeSummary[] }>(r, { data: [] }).data?.[0])
-    .filter((c): c is CreativeSummary => !!c);
+    .filter((c): c is CreativeSummary => !!c)
+    .map(normalizeCreative);
 
   const account = extractData<AccountSummary>(accountRaw, {} as AccountSummary);
   const campaignsParsed = extractData<{ data?: CampaignSummary[] }>(campaignsRaw, { data: [] });

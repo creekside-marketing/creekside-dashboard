@@ -109,15 +109,44 @@ export interface CreativeSummary {
   status?: string;
   title?: string;
   body?: string;
+  // Top-level CTA + image. Meta also stores these in nested locations
+  // depending on creative type (link ad, video, carousel, Advantage+).
+  // The data puller normalizes nested locations into these fields so
+  // downstream code (PDF generator, checklist) reads one canonical value.
   call_to_action_type?: string;
   image_url?: string;
+  thumbnail_url?: string;
   video_id?: string;
   object_type?: string;
   link_url?: string;
+  // Nested locations Meta may populate instead of (or in addition to)
+  // the top-level fields above. Captured so the normalizer can resolve.
+  object_story_spec?: {
+    link_data?: {
+      call_to_action?: { type?: string; value?: { link?: string } };
+      image_url?: string;
+      picture?: string;
+      link?: string;
+      child_attachments?: Array<{
+        call_to_action?: { type?: string };
+        image_url?: string;
+        picture?: string;
+        link?: string;
+      }>;
+    };
+    video_data?: {
+      call_to_action?: { type?: string };
+      image_url?: string;
+      video_id?: string;
+    };
+  };
   asset_feed_spec?: {
     bodies?: { text: string }[];
     titles?: { text: string }[];
     descriptions?: { text: string }[];
+    images?: Array<{ url?: string; hash?: string }>;
+    videos?: Array<{ thumbnail_url?: string; video_id?: string }>;
+    call_to_action_types?: string[];
   };
   degrees_of_freedom_spec?: {
     creative_features_spec?: Record<string, { enroll_status?: string }>;
