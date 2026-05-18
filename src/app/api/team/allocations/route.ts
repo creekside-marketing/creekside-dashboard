@@ -13,6 +13,7 @@ const BANDWIDTH_REMAINING_HOURS: Record<string, number> = {
   'Scott Caldwell': 10,
   'Trent Lucas': 20,
   'Ahmed Imran': 15,
+  'Ade Aderibigbe': 10,
   'Aamir': 10,
   'Baran Eris': 20,
 };
@@ -23,6 +24,7 @@ const DISPLAY_ORDER: string[] = [
   'Scott Caldwell',
   'Trent Lucas',
   'Ahmed Imran',
+  'Ade Aderibigbe',
   'Aamir',
   'Baran Eris',
 ];
