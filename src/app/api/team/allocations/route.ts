@@ -13,7 +13,7 @@ const BANDWIDTH_REMAINING_HOURS: Record<string, number> = {
   'Scott Caldwell': 10,
   'Trent Lucas': 20,
   'Ahmed Imran': 15,
-  'Aamir': 9,
+  'Aamir': 10,
   'Baran Eris': 20,
 };
 
