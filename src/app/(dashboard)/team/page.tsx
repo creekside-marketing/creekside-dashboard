@@ -101,7 +101,7 @@ function MemberCard({ m }: { m: TeamMemberPayload }) {
           <div className="flex flex-wrap gap-2">
             <StatPill
               label="Pay / Mo"
-              value={formatCurrency(m.total_monthly_pay > 0 ? m.total_monthly_pay : m.monthly_retainer ?? 0)}
+              value={formatCurrency(m.monthly_retainer ?? m.total_monthly_pay)}
               accent="green"
             />
             <StatPill
@@ -194,7 +194,7 @@ export default function TeamPage() {
   const summary = useMemo(() => {
     const totalHours = members.reduce((s, m) => s + m.current_hours_per_week, 0);
     const totalPay = members.reduce(
-      (s, m) => s + (m.total_monthly_pay > 0 ? m.total_monthly_pay : m.monthly_retainer ?? 0),
+      (s, m) => s + (m.monthly_retainer ?? m.total_monthly_pay),
       0,
     );
     const bandwidth = members.reduce((s, m) => s + (m.bandwidth_remaining_hours ?? 0), 0);
