@@ -32,11 +32,31 @@ function formatDate(iso: string): string {
   });
 }
 
+const SECTIONS = [
+  { key: 'performance', label: 'Performance Snapshot', placeholder: 'Top metrics vs last period, KPI status (met/exceeded/missed + by how much), budget pacing. Use numbers.' },
+  { key: 'changes', label: 'What We Changed', placeholder: 'Campaign modifications, active tests + early learnings, issues caught and fixed.' },
+  { key: 'analysis', label: "What's Working / What's Not", placeholder: 'Top performers (with data), biggest current challenge, external factors affecting results.' },
+  { key: 'nextSteps', label: 'Next Steps', placeholder: 'Top 2-3 priorities for next period. Anticipated performance impacts from upcoming changes.' },
+  { key: 'clientNeeds', label: 'Client Needs', placeholder: 'Anything needed from the client? Creative assets, landing page updates, budget approvals, etc.' },
+] as const;
+
+type SectionKey = typeof SECTIONS[number]['key'];
+type SectionState = Record<SectionKey, string>;
+
+const EMPTY_SECTIONS: SectionState = { performance: '', changes: '', analysis: '', nextSteps: '', clientNeeds: '' };
+
+function buildContent(sections: SectionState): string {
+  return SECTIONS
+    .filter(s => sections[s.key].trim())
+    .map(s => `**${s.label}**\n${sections[s.key].trim()}`)
+    .join('\n\n');
+}
+
 export default function ReportNotesTimeline({ clientId }: Props) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [showEditor, setShowEditor] = useState(false);
-  const [newContent, setNewContent] = useState('');
+  const [sections, setSections] = useState<SectionState>({ ...EMPTY_SECTIONS });
   const [saving, setSaving] = useState(false);
   const [page, setPage] = useState(0);
   const [saveError, setSaveError] = useState('');
@@ -54,18 +74,20 @@ export default function ReportNotesTimeline({ clientId }: Props) {
 
   useEffect(() => { fetchNotes(); }, [fetchNotes]);
 
+  const hasContent = SECTIONS.some(s => sections[s.key].trim());
+
   const handleSave = async () => {
-    if (!newContent.trim()) return;
+    if (!hasContent) return;
     setSaving(true);
     setSaveError('');
     try {
       const res = await fetch('/api/report-notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_id: clientId, author: 'Creekside', content: newContent.trim() }),
+        body: JSON.stringify({ client_id: clientId, author: 'Creekside', content: buildContent(sections) }),
       });
       if (res.ok) {
-        setNewContent('');
+        setSections({ ...EMPTY_SECTIONS });
         setShowEditor(false);
         setPage(0);
         await fetchNotes();
@@ -112,29 +134,36 @@ export default function ReportNotesTimeline({ clientId }: Props) {
 
       {showEditor && (
         <div className="mb-6 border border-slate-200 rounded-xl p-4 bg-slate-50/50">
-          <div className="mb-3">
+          <div className="mb-4">
             <span className="text-xs font-medium text-slate-500">{formatDate(new Date().toISOString())}</span>
           </div>
-          <textarea
-            value={newContent}
-            onChange={(e) => setNewContent(e.target.value)}
-            placeholder="Write your report notes..."
-            rows={6}
-            className="w-full border border-slate-200 rounded-xl p-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#2563eb] focus:border-transparent resize-y mb-3"
-          />
+          <div className="space-y-4">
+            {SECTIONS.map((s) => (
+              <div key={s.key}>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">{s.label}</label>
+                <textarea
+                  value={sections[s.key]}
+                  onChange={(e) => setSections(prev => ({ ...prev, [s.key]: e.target.value }))}
+                  placeholder={s.placeholder}
+                  rows={3}
+                  className="w-full border border-slate-200 rounded-xl p-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#2563eb] focus:border-transparent resize-y"
+                />
+              </div>
+            ))}
+          </div>
           {saveError && (
-            <p className="text-xs text-red-500 mb-2">{saveError}</p>
+            <p className="text-xs text-red-500 mt-2">{saveError}</p>
           )}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 mt-4">
             <button
               onClick={handleSave}
-              disabled={saving || !newContent.trim()}
+              disabled={saving || !hasContent}
               className="bg-[#2563eb] text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium disabled:opacity-50 shadow-sm"
             >
               {saving ? 'Saving...' : 'Save'}
             </button>
             <button
-              onClick={() => { setShowEditor(false); setNewContent(''); setSaveError(''); }}
+              onClick={() => { setShowEditor(false); setSections({ ...EMPTY_SECTIONS }); setSaveError(''); }}
               className="px-4 py-2 rounded-lg text-sm font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
             >
               Cancel
