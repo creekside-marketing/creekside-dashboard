@@ -1464,6 +1464,7 @@ export default function ClientTable() {
                 <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Bonuses</th>
                 <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Software</th>
                 <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Profit</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Profit %</th>
                 <SortHeader label="Priority" sortKey="priority" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <SortHeader label="Manager" sortKey="account_manager" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <SortHeader label="Operator" sortKey="platform_operator" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
@@ -1476,7 +1477,7 @@ export default function ClientTable() {
             <tbody>
               {activeGroups.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="text-center text-slate-400 py-16 text-sm">
+                  <td colSpan={15} className="text-center text-slate-400 py-16 text-sm">
                     No clients match the current filters.
                   </td>
                 </tr>
@@ -1629,6 +1630,21 @@ export default function ClientTable() {
                                 {profitStr}
                               </span>
                             );
+                          })()}
+                        </td>
+                        {/* Profit % — per-row (profit / revenue) */}
+                        <td className="py-4 px-6 text-right text-sm font-semibold tabular-nums">
+                          {(() => {
+                            const costs = operatorCosts?.clients[client.client_name]?.[client.platform];
+                            if (!costs) {
+                              return <span className="text-slate-300">--</span>;
+                            }
+                            const rowRevenue = calculatedRevenue[client.id]?.value ?? 0;
+                            if (rowRevenue <= 0) return <span className="text-slate-300">--</span>;
+                            const rowProfit = rowRevenue - costs.operator_cost;
+                            const pct = Math.round((rowProfit / rowRevenue) * 100);
+                            const color = pct >= 70 ? 'text-emerald-700' : pct >= 50 ? 'text-amber-600' : 'text-red-600';
+                            return <span className={color}>{pct}%</span>;
                           })()}
                         </td>
                         {/* Priority — per-row */}
@@ -1818,6 +1834,7 @@ export default function ClientTable() {
                   <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Est. Revenue</th>
                   <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Proj. Cost</th>
                   <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Profit</th>
+                  <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Profit %</th>
                   <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Manager</th>
                   <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Budget</th>
                 </tr>
@@ -1859,6 +1876,14 @@ export default function ClientTable() {
                         </td>
                         <td className="py-3 px-6 text-right text-sm tabular-nums text-emerald-700 font-medium">
                           {rev > 0 ? `$${profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '--'}
+                        </td>
+                        <td className="py-3 px-6 text-right text-sm font-semibold tabular-nums">
+                          {(() => {
+                            if (rev <= 0) return <span className="text-slate-300">--</span>;
+                            const pct = Math.round((profit / rev) * 100);
+                            const color = pct >= 70 ? 'text-emerald-700' : pct >= 50 ? 'text-amber-600' : 'text-red-600';
+                            return <span className={color}>{pct}%</span>;
+                          })()}
                         </td>
                         <td className="py-3 px-6 text-sm text-slate-700">
                           {isFirstInGroup ? (client.account_manager ?? '--') : null}
