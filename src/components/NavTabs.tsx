@@ -11,7 +11,6 @@ const tabs = [
   { label: 'Archive', href: '/archive' },
   { label: 'Billing', href: '/billing' },
   { label: 'Upwork', href: '/upwork' },
-  { label: 'Meta Audits', href: '/meta-audits' },
 ];
 
 export default function NavTabs() {
