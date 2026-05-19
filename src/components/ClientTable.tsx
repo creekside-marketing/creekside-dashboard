@@ -1643,6 +1643,7 @@ export default function ClientTable() {
                             if (rowRevenue <= 0) return <span className="text-slate-300">--</span>;
                             const rowProfit = rowRevenue - costs.operator_cost;
                             const pct = Math.round((rowProfit / rowRevenue) * 100);
+                            if (pct >= 100) return <span className="text-slate-400">N/A</span>;
                             const color = pct >= 70 ? 'text-emerald-700' : pct >= 50 ? 'text-amber-600' : 'text-red-600';
                             return <span className={color}>{pct}%</span>;
                           })()}
