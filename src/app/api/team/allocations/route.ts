@@ -9,9 +9,9 @@ import { createServiceClient } from '@/lib/supabase';
 // Bandwidth remaining (hours/week) per Peterson + Cade — May 18 2026 call.
 // Single source of truth lives here; edit in code if it changes.
 const BANDWIDTH_REMAINING_HOURS: Record<string, number> = {
-  'Lindsey Bouffard': 6,
+  'Lindsey Bouffard': 7,  // +1 from Mark Wolf hours transferred to Trent
   'Scott Caldwell': 10,
-  'Trent Lucas': 20,
+  'Trent Lucas': 18,  // -2 from Mark Wolf 2-hr allocation
   'Ahmed Imran': 15,
   'Ade Aderibigbe': 10,
   'Baran Eris': 20,
