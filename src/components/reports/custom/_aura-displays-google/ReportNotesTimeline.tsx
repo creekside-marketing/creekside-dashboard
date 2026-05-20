@@ -74,10 +74,14 @@ export default function ReportNotesTimeline({ clientId }: Props) {
 
   useEffect(() => { fetchNotes(); }, [fetchNotes]);
 
-  const hasContent = SECTIONS.some(s => sections[s.key].trim());
+  const allFilled = SECTIONS.every(s => sections[s.key].trim());
+  const emptySections = SECTIONS.filter(s => !sections[s.key].trim()).map(s => s.label);
 
   const handleSave = async () => {
-    if (!hasContent) return;
+    if (!allFilled) {
+      setSaveError(`Fill in all sections before saving: ${emptySections.join(', ')}`);
+      return;
+    }
     setSaving(true);
     setSaveError('');
     try {
@@ -157,7 +161,7 @@ export default function ReportNotesTimeline({ clientId }: Props) {
           <div className="flex items-center gap-2 mt-4">
             <button
               onClick={handleSave}
-              disabled={saving || !hasContent}
+              disabled={saving || !allFilled}
               className="bg-[#2563eb] text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium disabled:opacity-50 shadow-sm"
             >
               {saving ? 'Saving...' : 'Save'}
