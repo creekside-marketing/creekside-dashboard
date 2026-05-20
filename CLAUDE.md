@@ -2,6 +2,10 @@
 
 Creekside Marketing internal operations dashboard. Built with Next.js 14 (App Router), Tailwind CSS, and Supabase. Deployed on Railway with auto-deploy from the `main` branch.
 
+## Agent Builds
+
+If anyone asks to build, create, edit, or scaffold an agent or skill, that work happens in the **agent-system repo** (`~/C-Code - Rag database/`), not this repo. Agents are markdown files in `.claude/agents/`, not application code. Tell the user to open a Claude Code session in the agent-system repo, then spawn `agent-builder-agent` from there.
+
 GitHub: `peterson-rainey/creekside-dashboard`
 
 ## Development
