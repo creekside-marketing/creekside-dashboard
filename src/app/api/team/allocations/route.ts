@@ -14,18 +14,17 @@ const BANDWIDTH_REMAINING_HOURS: Record<string, number> = {
   'Trent Lucas': 20,
   'Ahmed Imran': 15,
   'Ade Aderibigbe': 10,
-  'Aamir': 10,
   'Baran Eris': 20,
 };
 
 // Order in which members render on the page.
+// Aamir + Tobi excluded — Aamir bills through Upwork, Tobi is AI-agent-only.
 const DISPLAY_ORDER: string[] = [
   'Lindsey Bouffard',
   'Scott Caldwell',
   'Trent Lucas',
   'Ahmed Imran',
   'Ade Aderibigbe',
-  'Aamir',
   'Baran Eris',
 ];
 
