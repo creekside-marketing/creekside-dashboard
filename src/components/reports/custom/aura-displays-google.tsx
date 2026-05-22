@@ -223,7 +223,7 @@ export default function AuraDisplaysGoogleReport({ client, mode }: { client: Rep
         {/* ── Executive Summary KPIs ──────────────────────────────────── */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           <SparklineKpiCard label="Revenue" value={fmtMoney(totals.conversionValue)} change={kpi?.conversionValue.pct} changeDirection={kpi?.conversionValue.direction} changeSentiment="positive-up" size="lg" sparklineData={dailyData.map((d) => d.conversionValue)} />
-          <SparklineKpiCard label="ROAS" value={totals.roas > 0 ? `${totals.roas.toFixed(2)}x` : '--'} change={kpi?.roas.pct} changeDirection={kpi?.roas.direction} changeSentiment="positive-up" size="lg" sparklineData={dailyData.map((d) => d.roas)} target={4.0} />
+          <SparklineKpiCard label="ROAS" value={totals.roas > 0 ? `${totals.roas.toFixed(2)}x` : '--'} change={kpi?.roas.pct} changeDirection={kpi?.roas.direction} changeSentiment="positive-up" size="lg" sparklineData={dailyData.map((d) => d.roas)} target={5.5} />
           <SparklineKpiCard label="Total Spend" value={fmtMoney(totals.cost)} change={kpi?.cost.pct} changeDirection={kpi?.cost.direction} changeSentiment="neutral" size="lg" sparklineData={dailyData.map((d) => d.cost)} />
           <SparklineKpiCard label="Cost / Purchase" value={totals.conversions > 0 ? fmtMoney(totals.cpa) : '--'} change={kpi?.cpa.pct} changeDirection={kpi?.cpa.direction} changeSentiment="negative-up" size="lg" sparklineData={dailyData.map((d) => d.cpa)} />
           <SparklineKpiCard label="AOV" value={totals.conversions > 0 ? fmtMoney(totals.aov) : '--'} change={kpi?.aov.pct} changeDirection={kpi?.aov.direction} changeSentiment="positive-up" size="lg" sparklineData={dailyData.map((d) => d.aov)} />
@@ -272,7 +272,7 @@ export default function AuraDisplaysGoogleReport({ client, mode }: { client: Rep
         {/* ── Revenue vs Spend Chart ──────────────────────────────────── */}
         {dailyData.length > 0 && (<>
           <ReportChart title="Revenue vs Spend" data={dailyData} xKey="date" lines={[{ dataKey: 'cost', label: 'Spend', color: '#93C5FD', type: 'bar', yAxisId: 'left' }, { dataKey: 'conversionValue', label: 'Revenue', color: '#F59E0B', yAxisId: 'right' }]} formatY={(v) => `$${v.toLocaleString()}`} formatYRight={(v) => `$${v.toLocaleString()}`} />
-          <ReportChart title="ROAS Trend (target: 4.0x)" data={dailyData} xKey="date" lines={[{ dataKey: 'roas', label: 'ROAS', color: '#8B5CF6' }]} formatY={(v) => `${v.toFixed(1)}x`} height={250} />
+          <ReportChart title="ROAS Trend (target: 5.5x)" data={dailyData} xKey="date" lines={[{ dataKey: 'roas', label: 'ROAS', color: '#8B5CF6' }]} formatY={(v) => `${v.toFixed(1)}x`} height={250} />
         </>)}
 
         {/* ── Conversion Funnel ───────────────────────────────────────── */}
