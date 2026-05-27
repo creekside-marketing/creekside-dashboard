@@ -56,7 +56,7 @@ export default function ReportHeader({
     : 'bg-emerald-500';
 
   const badgeLabel = isOther
-    ? 'AI Agent'
+    ? 'Other'
     : isMeta
     ? 'Meta Ads'
     : 'Google Ads';

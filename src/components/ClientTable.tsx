@@ -87,7 +87,7 @@ function PlatformBadge({ platform }: { platform: string }) {
             ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-600/20'
             : 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20';
   const dotColor = isOther ? 'bg-red-500' : isProgrammatic ? 'bg-yellow-500' : isEmail ? 'bg-purple-500' : isChatGPT ? 'bg-orange-500' : isMeta ? 'bg-blue-500' : 'bg-emerald-500';
-  const label = isOther ? 'AI Agent' : isProgrammatic ? 'Programmatic Ads' : isEmail ? 'Email' : isChatGPT ? 'ChatGPT Ads' : isMeta ? 'Meta' : 'Google';
+  const label = isOther ? 'Other' : isProgrammatic ? 'Programmatic Ads' : isEmail ? 'Email' : isChatGPT ? 'ChatGPT Ads' : isMeta ? 'Meta' : 'Google';
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold ${badgeStyles}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
@@ -1926,7 +1926,7 @@ export default function ClientTable() {
         return (
         <div className="mt-8">
           <div className="flex items-center gap-3 mb-4 px-2">
-            <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">AI Agent Clients</h2>
+            <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Other Clients</h2>
             <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
               {new Set(aiAgentGroups.flatMap(g => g.rows.map(r => r.client_name))).size} clients
             </span>

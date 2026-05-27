@@ -39,10 +39,10 @@ function PlatformBadge({ platform }: { platform: string | null }) {
   const config: Record<string, { bg: string; dot: string; label: string }> = {
     meta: { bg: 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-600/20', dot: 'bg-blue-500', label: 'Meta' },
     google: { bg: 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20', dot: 'bg-emerald-500', label: 'Google' },
-    other: { bg: 'bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/20', dot: 'bg-red-500', label: 'AI Agent' },
+    other: { bg: 'bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/20', dot: 'bg-red-500', label: 'Other' },
     programmatic: { bg: 'bg-yellow-50 text-yellow-700 ring-1 ring-inset ring-yellow-600/20', dot: 'bg-yellow-500', label: 'Programmatic' },
     email: { bg: 'bg-purple-50 text-purple-700 ring-1 ring-inset ring-purple-600/20', dot: 'bg-purple-500', label: 'Email' },
-    chatgpt: { bg: 'bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/20', dot: 'bg-red-500', label: 'AI Agent' },
+    chatgpt: { bg: 'bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/20', dot: 'bg-red-500', label: 'ChatGPT Ads' },
   };
   const c = config[lower] ?? { bg: 'bg-slate-50 text-slate-700 ring-1 ring-inset ring-slate-500/20', dot: 'bg-slate-500', label: platform };
   return (
