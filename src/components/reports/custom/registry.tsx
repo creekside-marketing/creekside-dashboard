@@ -47,6 +47,7 @@ const registry: Record<string, ComponentType<ReportProps>> = {
   'fusion-dental-implants-programmatic': dynamic(() => import('./fusion-dental-implants-programmatic'), { loading: Spinner }),
   'perfect-parking-google': dynamic(() => import('./perfect-parking-google'), { loading: Spinner }),
   'quivr-meta': dynamic(() => import('./quivr-meta'), { loading: Spinner }),
+  'south-river-mortgage-google': dynamic(() => import('./south-river-mortgage-google'), { loading: Spinner }),
 };
 
 export default registry;
