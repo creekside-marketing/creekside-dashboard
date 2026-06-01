@@ -43,38 +43,28 @@ interface PerClientRow {
   acquisition_source: string | null;
 }
 
-function pad(n: number) { return String(n).padStart(2, '0'); }
-
-function currentYearMonth(): string {
-  const d = new Date();
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`;
-}
-
-function monthBounds(yearMonth: string) {
-  const [y, m] = yearMonth.split('-').map(Number);
-  const start = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0));
-  const end = new Date(Date.UTC(y, m, 0, 23, 59, 59));
-  return { start: start.toISOString(), end: end.toISOString() };
-}
-
-function previousMonth(yearMonth: string): string {
-  const [y, m] = yearMonth.split('-').map(Number);
-  const prev = new Date(Date.UTC(y, m - 2, 1));
-  return `${prev.getUTCFullYear()}-${pad(prev.getUTCMonth() + 1)}`;
+function rollingWindow(daysAgoStart: number, daysAgoEnd: number) {
+  const now = Date.now();
+  const start = new Date(now - daysAgoStart * 24 * 60 * 60 * 1000).toISOString();
+  const end = new Date(now - daysAgoEnd * 24 * 60 * 60 * 1000).toISOString();
+  return { start, end };
 }
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const targetMonth = searchParams.get('month') ?? currentYearMonth();
-    const prevMonth = previousMonth(targetMonth);
-
-    const { start: thisStart, end: thisEnd } = monthBounds(targetMonth);
-    const { start: prevStart, end: prevEnd } = monthBounds(prevMonth);
+    // Default = last 30 days vs prior 30 days. Configurable via ?windowDays= for analytics.
+    const windowDays = Math.max(7, Math.min(120, Number(searchParams.get('windowDays') ?? 30)));
+    const thisWindow = rollingWindow(windowDays, 0);
+    const prevWindow = rollingWindow(windowDays * 2, windowDays);
+    const thisStart = thisWindow.start;
+    const thisEnd = thisWindow.end;
+    const prevStart = prevWindow.start;
+    const prevEnd = prevWindow.end;
 
     const supabase = createServiceClient();
 
-    // 1. Pull paid Square invoices spanning both windows.
+    // 1. Pull paid Square invoices spanning both windows (~60 days total).
     const { data: squareRows, error: sqErr } = await supabase
       .from('square_entries')
       .select('client_id, amount_cents, source_timestamp, customer_name')
@@ -105,27 +95,18 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 3. Per (client_id, month) → latest invoice amount.
-    const latestByClientMonth: Record<string, number> = {};
-    for (const row of squareRows ?? []) {
-      const id = row.client_id as string | null;
-      if (!id) continue;
-      const ts = new Date(row.source_timestamp as string);
-      const ym = `${ts.getUTCFullYear()}-${pad(ts.getUTCMonth() + 1)}`;
-      const key = `${id}::${ym}::${ts.getTime()}`;
-      latestByClientMonth[key] = Number(row.amount_cents ?? 0) / 100;
-    }
-
-    function latestInMonthFor(clientId: string, ym: string): number {
+    // 3. latestInWindow(client, start, end) = amount of the latest paid Square invoice
+    //    for this client whose source_timestamp falls in [start, end]. Returns 0 if none.
+    function latestInWindow(clientId: string, windowStart: string, windowEnd: string): number {
       let best = 0;
-      let bestTs = 0;
-      for (const key of Object.keys(latestByClientMonth)) {
-        const [id, monthPart, tsPart] = key.split('::');
-        if (id !== clientId || monthPart !== ym) continue;
-        const ts = Number(tsPart);
-        if (ts > bestTs) {
-          bestTs = ts;
-          best = latestByClientMonth[key];
+      let bestTsStr = '';
+      for (const row of squareRows ?? []) {
+        if (row.client_id !== clientId) continue;
+        const tsStr = row.source_timestamp as string;
+        if (tsStr < windowStart || tsStr > windowEnd) continue;
+        if (tsStr > bestTsStr) {
+          bestTsStr = tsStr;
+          best = Number(row.amount_cents ?? 0) / 100;
         }
       }
       return best;
@@ -154,8 +135,8 @@ export async function GET(req: NextRequest) {
       const meta = clientMeta.get(id);
       if (!meta) continue;
 
-      let thisMrr = latestInMonthFor(id, targetMonth);
-      let lastMrr = latestInMonthFor(id, prevMonth);
+      let thisMrr = latestInWindow(id, thisStart, thisEnd);
+      let lastMrr = latestInWindow(id, prevStart, prevEnd);
 
       // Fallback: client has no Square data at all → use stored monthly_revenue
       // for both months (treated as steady-state, no expansion or contraction).
@@ -210,8 +191,9 @@ export async function GET(req: NextRequest) {
     }, {});
 
     return NextResponse.json({
-      target_month: targetMonth,
-      previous_month: prevMonth,
+      window_days: windowDays,
+      this_window: { start: thisStart, end: thisEnd },
+      prev_window: { start: prevStart, end: prevEnd },
       summary,
       new_by_source: newBySource,
       new_clients: newRows.sort((a, b) => b.this_month_mrr - a.this_month_mrr),
@@ -219,17 +201,17 @@ export async function GET(req: NextRequest) {
       contraction_clients: conRows.sort((a, b) => a.delta - b.delta),
       churn_clients: chrRows.sort((a, b) => b.last_month_mrr - a.last_month_mrr),
       _debug: searchParams.get('debug') === 'true' ? {
-        window_start: prevStart,
-        window_end: thisEnd,
+        this_window: { start: thisStart, end: thisEnd },
+        prev_window: { start: prevStart, end: prevEnd },
         square_payments_in_window: (squareRows ?? []).length,
         reporting_clients_total: (rcRows ?? []).length,
         eligible_client_count: eligibleIds.size,
         clients_meta_count: clientMeta.size,
-        latest_keys_sample: Object.keys(latestByClientMonth).slice(0, 5),
         first_square_row: (squareRows ?? [])[0] ?? null,
       } : undefined,
       notes: [
-        'MRR = latest paid Square invoice in the month per client.',
+        `Last ${windowDays} days vs prior ${windowDays} days.`,
+        'MRR = latest paid Square invoice in the window per client.',
         'Excludes retainer-category rows and platform="other" (AI Agent) rows.',
         'Clients with no Square data fall back to reporting_clients.monthly_revenue (no expansion/contraction).',
       ],

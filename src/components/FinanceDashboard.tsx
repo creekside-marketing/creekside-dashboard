@@ -64,8 +64,9 @@ type MrrClientRow = {
   acquisition_source: string | null;
 };
 type NetNewMrrData = {
-  target_month: string;
-  previous_month: string;
+  window_days: number;
+  this_window: { start: string; end: string };
+  prev_window: { start: string; end: string };
   summary: {
     new_mrr: number;
     expansion_mrr: number;
@@ -472,7 +473,7 @@ export default function FinanceDashboard() {
       {netNew && (
         <div className="space-y-4 pt-4">
           <h2 className="text-base font-semibold text-slate-900">
-            Net New MRR — {monthLabel(netNew.target_month + '-01')}
+            Net New MRR (last {netNew.window_days} days)
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <Tile label="New MRR" value={formatCurrency(netNew.summary.new_mrr)} valueColor="text-emerald-700" />
@@ -508,7 +509,8 @@ export default function FinanceDashboard() {
           </div>
 
           <p className="text-xs text-slate-500">
-            MRR = latest paid Square invoice in the month per client.
+            Last {netNew.window_days} days vs prior {netNew.window_days} days.
+            MRR = latest paid Square invoice in the window per client.
             Retainer-category rows and AI Agent (platform=&quot;other&quot;) rows are excluded.
             Clients with no Square data fall back to their stored monthly revenue (no expansion / contraction).
           </p>
