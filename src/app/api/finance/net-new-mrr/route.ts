@@ -64,13 +64,17 @@ export async function GET(req: NextRequest) {
 
     const supabase = createServiceClient();
 
-    // 1. Pull paid Square invoices spanning both windows (~60 days total).
+    // 1. Pull paid Square invoices going back 120 days. We need history beyond
+    //    the prev 30d window so we can (a) distinguish truly-new clients from
+    //    returning irregular billers and (b) catch monthly retainers whose
+    //    biggest invoice lands at a different point each cycle.
+    const wideStart = rollingWindow(windowDays * 4, 0).start; // 120 days ago by default
     const { data: squareRows, error: sqErr } = await supabase
       .from('square_entries')
       .select('client_id, amount_cents, source_timestamp, customer_name')
       .eq('data_type', 'payment')
       .eq('payment_status', 'COMPLETED')
-      .gte('source_timestamp', prevStart)
+      .gte('source_timestamp', wideStart)
       .lte('source_timestamp', thisEnd);
 
     if (sqErr) return NextResponse.json({ error: `square_entries read failed: ${sqErr.message}` }, { status: 500 });
@@ -95,19 +99,18 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 3. latestInWindow(client, start, end) = amount of the latest paid Square invoice
-    //    for this client whose source_timestamp falls in [start, end]. Returns 0 if none.
-    function latestInWindow(clientId: string, windowStart: string, windowEnd: string): number {
+    // 3. maxInWindow(client, start, end) = LARGEST paid Square invoice for this
+    //    client in the window. Using MAX (not latest) so monthly retainers are
+    //    captured correctly even if the largest invoice lands earlier in the
+    //    month than smaller top-up / partial invoices.
+    function maxInWindow(clientId: string, windowStart: string, windowEnd: string): number {
       let best = 0;
-      let bestTsStr = '';
       for (const row of squareRows ?? []) {
         if (row.client_id !== clientId) continue;
         const tsStr = row.source_timestamp as string;
         if (tsStr < windowStart || tsStr > windowEnd) continue;
-        if (tsStr > bestTsStr) {
-          bestTsStr = tsStr;
-          best = Number(row.amount_cents ?? 0) / 100;
-        }
+        const amt = Number(row.amount_cents ?? 0) / 100;
+        if (amt > best) best = amt;
       }
       return best;
     }
@@ -135,8 +138,17 @@ export async function GET(req: NextRequest) {
       const meta = clientMeta.get(id);
       if (!meta) continue;
 
-      let thisMrr = latestInWindow(id, thisStart, thisEnd);
-      let lastMrr = latestInWindow(id, prevStart, prevEnd);
+      let thisMrr = maxInWindow(id, thisStart, thisEnd);
+      let lastMrr = maxInWindow(id, prevStart, prevEnd);
+
+      // If prev 30-day window is empty but the client paid earlier than that
+      // (e.g. irregular monthly cadence: Feb -> May), look back to 120 days
+      // and use the largest prior payment as their historical baseline. Prevents
+      // returning clients from being false-flagged as NEW.
+      if (lastMrr === 0 && thisMrr > 0) {
+        const widerPrior = maxInWindow(id, wideStart, prevStart);
+        if (widerPrior > 0) lastMrr = widerPrior;
+      }
 
       // Fallback: client has no Square data at all → use stored monthly_revenue
       // for both windows (steady-state, no expansion / contraction).
