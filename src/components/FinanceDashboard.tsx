@@ -54,9 +54,36 @@ type AcquisitionData = {
   prior_window: WindowMetrics;
 };
 
+type MrrClientRow = {
+  client_id: string | null;
+  client_name: string;
+  this_month_mrr: number;
+  last_month_mrr: number;
+  delta: number;
+  bucket: 'new' | 'expansion' | 'contraction' | 'churn';
+  acquisition_source: string | null;
+};
+type NetNewMrrData = {
+  target_month: string;
+  previous_month: string;
+  summary: {
+    new_mrr: number;
+    expansion_mrr: number;
+    contraction_mrr: number;
+    churn_mrr: number;
+    net_new_mrr: number;
+  };
+  new_by_source: Record<string, number>;
+  new_clients: MrrClientRow[];
+  expansion_clients: MrrClientRow[];
+  contraction_clients: MrrClientRow[];
+  churn_clients: MrrClientRow[];
+};
+
 export default function FinanceDashboard() {
   const [data, setData] = useState<FinanceData | null>(null);
   const [acq, setAcq] = useState<AcquisitionData | null>(null);
+  const [netNew, setNetNew] = useState<NetNewMrrData | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
@@ -71,8 +98,9 @@ export default function FinanceDashboard() {
     Promise.all([
       fetch('/api/finance/expenses').then(r => r.json()),
       fetch('/api/finance/acquisition').then(r => r.json()),
+      fetch('/api/finance/net-new-mrr').then(r => r.json()),
     ])
-      .then(([expData, acqData]) => {
+      .then(([expData, acqData, mrrData]) => {
         if (expData?.error) {
           setErr(expData.error);
           setData(null);
@@ -84,6 +112,11 @@ export default function FinanceDashboard() {
           setAcq(null);
         } else {
           setAcq(acqData);
+        }
+        if (mrrData?.error) {
+          setNetNew(null);
+        } else {
+          setNetNew(mrrData);
         }
         setErr(null);
         setLoading(false);
@@ -435,6 +468,53 @@ export default function FinanceDashboard() {
         </div>
       )}
 
+      {/* Net New MRR breakdown section */}
+      {netNew && (
+        <div className="space-y-4 pt-4">
+          <h2 className="text-base font-semibold text-slate-900">
+            Net New MRR — {monthLabel(netNew.target_month + '-01')}
+          </h2>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <Tile label="New MRR" value={formatCurrency(netNew.summary.new_mrr)} valueColor="text-emerald-700" />
+            <Tile label="Expansion MRR" value={formatCurrency(netNew.summary.expansion_mrr)} valueColor="text-emerald-700" />
+            <Tile label="Contraction MRR" value={formatCurrency(netNew.summary.contraction_mrr)} valueColor="text-red-600" />
+            <Tile label="Churn MRR" value={formatCurrency(netNew.summary.churn_mrr)} valueColor="text-red-600" />
+            <Tile
+              label="Net New MRR"
+              value={(netNew.summary.net_new_mrr >= 0 ? '+' : '') + formatCurrency(netNew.summary.net_new_mrr)}
+              valueColor={netNew.summary.net_new_mrr >= 0 ? 'text-emerald-700' : 'text-red-600'}
+            />
+          </div>
+
+          {Object.keys(netNew.new_by_source).length > 0 && (
+            <div className="bg-white rounded-xl border border-slate-200 px-5 py-3">
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">New MRR by source</p>
+              <div className="flex flex-wrap gap-x-6 gap-y-1 mt-2">
+                {Object.entries(netNew.new_by_source).map(([src, amt]) => (
+                  <div key={src} className="text-sm">
+                    <span className="text-slate-500 capitalize">{src}: </span>
+                    <span className="font-semibold text-slate-900">{formatCurrency(amt)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="grid md:grid-cols-2 gap-4">
+            <MrrBucketTable title="New clients" rows={netNew.new_clients} amountField="this_month_mrr" showSource />
+            <MrrBucketTable title="Expansion" rows={netNew.expansion_clients} amountField="delta" />
+            <MrrBucketTable title="Contraction" rows={netNew.contraction_clients} amountField="delta" />
+            <MrrBucketTable title="Churn" rows={netNew.churn_clients} amountField="last_month_mrr" />
+          </div>
+
+          <p className="text-xs text-slate-500">
+            MRR = latest paid Square invoice in the month per client.
+            Retainer-category rows and AI Agent (platform=&quot;other&quot;) rows are excluded.
+            Clients with no Square data fall back to their stored monthly revenue (no expansion / contraction).
+          </p>
+        </div>
+      )}
+
       <FinanceTrendCharts />
     </div>
   );
@@ -474,6 +554,52 @@ function Tile({ label, value, valueColor, delta }: { label: string; value: strin
         <p className={`text-xs mt-1 ${delta.positive ? 'text-emerald-700' : 'text-red-600'}`}>
           {delta.text}
         </p>
+      )}
+    </div>
+  );
+}
+
+function MrrBucketTable({
+  title,
+  rows,
+  amountField,
+  showSource,
+}: {
+  title: string;
+  rows: MrrClientRow[];
+  amountField: 'this_month_mrr' | 'last_month_mrr' | 'delta';
+  showSource?: boolean;
+}) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+        <span className="text-xs text-slate-500">{rows.length}</span>
+      </div>
+      {rows.length === 0 ? (
+        <p className="px-4 py-4 text-sm text-slate-500">None this month.</p>
+      ) : (
+        <table className="w-full text-sm">
+          <tbody className="divide-y divide-slate-100">
+            {rows.map(r => {
+              const amt = r[amountField];
+              const isNegative = amountField === 'delta' && amt < 0;
+              return (
+                <tr key={`${title}-${r.client_id}`} className="hover:bg-slate-50">
+                  <td className="px-4 py-2 text-slate-900">
+                    {r.client_name}
+                    {showSource && r.acquisition_source && (
+                      <span className="ml-2 text-xs text-slate-400 capitalize">({r.acquisition_source})</span>
+                    )}
+                  </td>
+                  <td className={`px-4 py-2 text-right font-medium ${isNegative ? 'text-red-600' : 'text-slate-900'}`}>
+                    {isNegative ? '-' : ''}{formatCurrency(Math.abs(amt))}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       )}
     </div>
   );
