@@ -208,7 +208,7 @@ export async function GET(req: NextRequest) {
       if (!id) continue;
       const existing = churnedByClient.get(id);
       const storedMrr = Number(r.monthly_revenue ?? 0);
-      const priorMrr = latestInWindow(id, prevStart, prevEnd);
+      const priorMrr = maxInWindow(id, prevStart, prevEnd);
       const lostMrr = priorMrr > 0 ? priorMrr : storedMrr;
       if (lostMrr <= 0) continue;
       if (existing) {
