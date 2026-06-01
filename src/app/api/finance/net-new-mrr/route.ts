@@ -215,6 +215,16 @@ export async function GET(req: NextRequest) {
       expansion_clients: expRows.sort((a, b) => b.delta - a.delta),
       contraction_clients: conRows.sort((a, b) => a.delta - b.delta),
       churn_clients: chrRows.sort((a, b) => b.last_month_mrr - a.last_month_mrr),
+      _debug: searchParams.get('debug') === 'true' ? {
+        window_start: prevStart,
+        window_end: thisEnd,
+        square_payments_in_window: (squareRows ?? []).length,
+        reporting_clients_total: (rcRows ?? []).length,
+        eligible_client_count: eligibleIds.size,
+        clients_meta_count: clientMeta.size,
+        latest_keys_sample: Object.keys(latestByClientMonth).slice(0, 5),
+        first_square_row: (squareRows ?? [])[0] ?? null,
+      } : undefined,
       notes: [
         'MRR = latest paid Square invoice in the month per client.',
         'Excludes retainer-category rows and platform="other" (AI Agent) rows.',
