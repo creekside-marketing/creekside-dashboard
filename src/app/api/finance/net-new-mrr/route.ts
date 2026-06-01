@@ -132,17 +132,20 @@ export async function GET(req: NextRequest) {
     }
 
     // 4. Build per-client comparison for every eligible client.
-    const { data: clientsData } = await supabase
+    const { data: clientsData, error: clientsErr } = await supabase
       .from('clients')
-      .select('id, name, status, engagement_details, churned_date');
+      .select('id, name, status, engagement_details');
 
-    const clientMeta = new Map<string, { name: string; source: string | null; status: string; churned_date: string | null }>();
+    if (clientsErr) {
+      return NextResponse.json({ error: `clients read failed: ${clientsErr.message}` }, { status: 500 });
+    }
+
+    const clientMeta = new Map<string, { name: string; source: string | null; status: string }>();
     for (const c of clientsData ?? []) {
       clientMeta.set(c.id as string, {
         name: c.name as string,
         source: (c.engagement_details as { acquisition_source?: string } | null)?.acquisition_source ?? null,
         status: (c.status as string) ?? 'active',
-        churned_date: (c.churned_date as string | null) ?? null,
       });
     }
 
