@@ -2,6 +2,45 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCustomer } from '@/lib/google-ads';
 
+/**
+ * Runs a segmented-by-conversion-action GAQL query for a dimension view and
+ * attaches `pql_conversions` + `cost_per_pql` to each row of `data` whose
+ * dimension key (extracted by `getDataKey`) matches a key in the breakdown
+ * (extracted by `getResultKey`). Only counts the action named `pqlAction`.
+ *
+ * Best-effort: any error is swallowed so the main response is unaffected.
+ */
+async function attachPqlPerRow(
+  customer: any,
+  query: string,
+  pqlAction: string,
+  data: any[],
+  getResultKey: (row: any) => string | null,
+  getDataKey: (row: any) => string,
+): Promise<void> {
+  try {
+    const pqlResults = await customer.query(query);
+    const map: Record<string, number> = {};
+    for (const row of pqlResults as any[]) {
+      const name = row.segments?.conversion_action_name;
+      if (name !== pqlAction) continue;
+      const key = getResultKey(row);
+      if (!key) continue;
+      const conv = Number(row.metrics?.conversions ?? 0);
+      if (!conv) continue;
+      map[key] = (map[key] ?? 0) + conv;
+    }
+    for (const row of data) {
+      const key = getDataKey(row);
+      const conv = map[key] ?? 0;
+      row.pql_conversions = conv;
+      row.cost_per_pql = conv > 0 ? Number(row.cost ?? 0) / conv : 0;
+    }
+  } catch {
+    // Optional breakdown — don't fail the whole request.
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -10,6 +49,7 @@ export async function GET(request: NextRequest) {
     const since = searchParams.get('since');
     const until = searchParams.get('until');
     const level = searchParams.get('level') || 'campaign';
+    const pqlAction = searchParams.get('pql_action');
 
     // Validate date inputs to prevent GAQL injection
     const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -123,6 +163,22 @@ export async function GET(request: NextRequest) {
         cost_per_conversion: Number(row.metrics.cost_per_conversion) / 1_000_000,
       }));
 
+      if (pqlAction) {
+        await attachPqlPerRow(
+          customer,
+          `SELECT ad_group_criterion.keyword.text, segments.conversion_action_name, metrics.conversions
+           FROM keyword_view
+           WHERE ${dateFilter}
+             AND campaign.status != 'REMOVED'
+             AND ad_group.status != 'REMOVED'
+             AND ad_group_criterion.status != 'REMOVED'`,
+          pqlAction,
+          data,
+          (r: any) => (r.ad_group_criterion as any)?.keyword?.text ?? null,
+          (r: any) => r.keyword,
+        );
+      }
+
       return NextResponse.json({ level: 'keyword', customer_id: customerId, data });
     }
 
@@ -156,6 +212,20 @@ export async function GET(request: NextRequest) {
         cost_per_conversion: Number(row.metrics.cost_per_conversion) / 1_000_000,
       }));
 
+      if (pqlAction) {
+        await attachPqlPerRow(
+          customer,
+          `SELECT search_term_view.search_term, segments.conversion_action_name, metrics.conversions
+           FROM search_term_view
+           WHERE ${dateFilter}
+             AND campaign.status != 'REMOVED'`,
+          pqlAction,
+          data,
+          (r: any) => r.search_term_view?.search_term ?? null,
+          (r: any) => r.search_term,
+        );
+      }
+
       return NextResponse.json({ level: 'search_term', customer_id: customerId, data });
     }
 
@@ -188,6 +258,20 @@ export async function GET(request: NextRequest) {
         conversions: row.metrics.conversions,
         cost_per_conversion: Number(row.metrics.cost_per_conversion) / 1_000_000,
       }));
+
+      if (pqlAction) {
+        await attachPqlPerRow(
+          customer,
+          `SELECT user_location_view.targeting_location, segments.conversion_action_name, metrics.conversions
+           FROM user_location_view
+           WHERE ${dateFilter}
+             AND campaign.status != 'REMOVED'`,
+          pqlAction,
+          data,
+          (r: any) => String(r.user_location_view?.targeting_location ?? '') || null,
+          (r: any) => String(r.city),
+        );
+      }
 
       return NextResponse.json({ level: 'geo', customer_id: customerId, data });
     }
@@ -246,6 +330,23 @@ export async function GET(request: NextRequest) {
         }))
         .sort((a, b) => b.cost - a.cost);
 
+      if (pqlAction) {
+        await attachPqlPerRow(
+          customer,
+          `SELECT ad_group_criterion.age_range.type, segments.conversion_action_name, metrics.conversions
+           FROM age_range_view
+           WHERE ${dateFilter}
+             AND campaign.status != 'REMOVED'`,
+          pqlAction,
+          data,
+          (r: any) => {
+            const raw = String((r.ad_group_criterion as any)?.age_range?.type ?? '');
+            return ageLabels[raw] ?? raw ?? null;
+          },
+          (r: any) => r.age_range,
+        );
+      }
+
       return NextResponse.json({ level: 'age', customer_id: customerId, data });
     }
 
@@ -298,6 +399,23 @@ export async function GET(request: NextRequest) {
         }))
         .sort((a, b) => b.cost - a.cost);
 
+      if (pqlAction) {
+        await attachPqlPerRow(
+          customer,
+          `SELECT ad_group_criterion.gender.type, segments.conversion_action_name, metrics.conversions
+           FROM gender_view
+           WHERE ${dateFilter}
+             AND campaign.status != 'REMOVED'`,
+          pqlAction,
+          data,
+          (r: any) => {
+            const raw = String((r.ad_group_criterion as any)?.gender?.type ?? '');
+            return genderLabels[raw] ?? raw ?? null;
+          },
+          (r: any) => r.gender,
+        );
+      }
+
       return NextResponse.json({ level: 'gender', customer_id: customerId, data });
     }
 
@@ -344,6 +462,20 @@ export async function GET(request: NextRequest) {
       conversion_value_by_conv_time: Number(row.metrics.conversions_value_by_conversion_date ?? 0),
       cost_per_conversion: Number(row.metrics.cost_per_conversion) / 1_000_000,
     }));
+
+    if (pqlAction) {
+      await attachPqlPerRow(
+        customer,
+        `SELECT campaign.id, segments.conversion_action_name, metrics.conversions
+         FROM campaign
+         WHERE ${dateFilter}
+           AND campaign.status != 'REMOVED'`,
+        pqlAction,
+        data,
+        (r: any) => (r.campaign?.id != null ? String(r.campaign.id) : null),
+        (r: any) => String(r.campaign_id),
+      );
+    }
 
     return NextResponse.json({ level: 'campaign', customer_id: customerId, data });
   } catch (error: unknown) {

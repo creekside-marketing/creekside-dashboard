@@ -5,12 +5,21 @@
  * Manually branched from LeadGenGoogleReport.tsx (imports shared leaf
  * components directly from ../ rather than a copied _slug/ folder).
  *
- * Customization: adds a highlighted "Pricing Qualified Leads" primary-KPI
- * section at the top. PQL is tracked SOLELY from the Google Ads conversion
- * action named "Pricing Qualified - Realtime (JT)" (per Peterson, 2026-05).
- * The count and Cost per PQL are computed live from the account-level
- * conversionBreakdown for the selected date range, with week-over-week
- * comparison against the prior period.
+ * Customizations vs the shared lead-gen Google template:
+ *  - Highlighted "Pricing Qualified Leads" primary-KPI section at the top.
+ *    PQL is tracked SOLELY from the conversion action named
+ *    "Pricing Qualified - Realtime (JT)" (per Peterson, single source of
+ *    truth, no double-counting).
+ *  - Every breakdown table (Keywords, Search Terms, Location, Age, Gender,
+ *    and a dedicated Campaign PQL Performance table) shows both
+ *    Cost per Lead (cost / total conversions) and Cost per PQL
+ *    (cost / "Pricing Qualified - Realtime (JT)" conversions).
+ *  - A new Search Terms table that the default template doesn't show.
+ *
+ * The per-row PQL data comes from the shared API's opt-in pql_action param
+ * (additive; only fires when the param is set, so other clients are
+ * unaffected). The shared CampaignsTable stays untouched; we add a separate
+ * BreakdownTable below it for the PQL-focused per-campaign view.
  *
  * CANNOT: Modify ad account settings or budgets.
  * CANNOT: Write to any API — read-only data fetching.
@@ -39,11 +48,23 @@ import { ReportingClient } from '../types';
 /** The ONLY conversion action counted as a Pricing Qualified Lead. */
 const PQL_ACTION_NAME = 'Pricing Qualified - Realtime (JT)';
 
-// ── Helpers ──────────────────────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────────────
 
 const moneyCol = (v: unknown) => fmtMoney(Number(v ?? 0));
 const pctCol = (v: unknown) => fmtPct(Number(v ?? 0));
 const numCol = (v: unknown) => fmt(Number(v ?? 0));
+
+/** Money formatter that shows "--" when the underlying numeric is 0/empty. */
+const moneyOrDashCol = (v: unknown) => {
+  const n = Number(v ?? 0);
+  return n > 0 ? fmtMoney(n) : '--';
+};
+
+/** Integer formatter that shows "--" when the underlying numeric is 0/empty. */
+const numOrDashCol = (v: unknown) => {
+  const n = Number(v ?? 0);
+  return n > 0 ? fmt(n) : '--';
+};
 
 /**
  * Merges separate age and gender API responses into AgeGenderRow format
@@ -75,7 +96,7 @@ function mergeAgeGenderData(
   });
 }
 
-// ── PQL data fetching ──────────────────────────────────────────────────────
+// ── PQL data fetching (account-level, for the highlighted KPI block) ───────
 
 interface PqlState {
   current: number;
@@ -102,8 +123,7 @@ function extractCost(json: any): number {
 
 /**
  * Fetches the PQL conversion-action count and spend for the current and
- * prior periods of the selected date range. Self-contained so the rest of
- * the report's data flow is untouched.
+ * prior periods of the selected date range.
  */
 function usePqlData(adAccountId: string | null, dateRangeIndex: number): PqlState {
   const [state, setState] = useState<PqlState>({
@@ -160,6 +180,113 @@ function usePqlData(adAccountId: string | null, dateRangeIndex: number): PqlStat
   return state;
 }
 
+// ── Per-dimension data with PQL columns ────────────────────────────────────
+
+type Row = Record<string, unknown>;
+
+interface DimensionsWithPql {
+  keywords: Row[];
+  searchTerms: Row[];
+  geoData: Row[];
+  ageData: Row[];
+  genderData: Row[];
+  campaigns: Row[];
+  loading: boolean;
+}
+
+const EMPTY_DIMENSIONS: DimensionsWithPql = {
+  keywords: [],
+  searchTerms: [],
+  geoData: [],
+  ageData: [],
+  genderData: [],
+  campaigns: [],
+  loading: true,
+};
+
+/**
+ * Fetches each dimension's data with the pql_action param set, so every
+ * returned row already includes `pql_conversions` and `cost_per_pql`.
+ * This runs in parallel with (and shadows) the equivalent fetches inside
+ * useGoogleAdsData — the hook's dimension data is ignored by this report
+ * in favor of this PQL-augmented data.
+ */
+function useDimensionsWithPql(
+  adAccountId: string | null,
+  dateRangeIndex: number,
+): DimensionsWithPql {
+  const [state, setState] = useState<DimensionsWithPql>(EMPTY_DIMENSIONS);
+
+  useEffect(() => {
+    if (!adAccountId) {
+      setState((s) => ({ ...s, loading: false }));
+      return;
+    }
+    let cancelled = false;
+    setState((s) => ({ ...s, loading: true }));
+
+    (async () => {
+      try {
+        const cid = encodeURIComponent(adAccountId);
+        const action = encodeURIComponent(PQL_ACTION_NAME);
+        const range = DATE_RANGES[dateRangeIndex];
+        const dr = range.googleParam;
+        const base = `/api/google/insights?customer_id=${cid}&date_range=${dr}&pql_action=${action}`;
+
+        const urls = {
+          keyword: `${base}&level=keyword`,
+          search_term: `${base}&level=search_term`,
+          geo: `${base}&level=geo`,
+          age: `${base}&level=age`,
+          gender: `${base}&level=gender`,
+          campaign: `${base}&level=campaign`,
+        };
+
+        const [kRes, sRes, gRes, aRes, geRes, cRes] = await Promise.all([
+          fetch(urls.keyword).catch(() => null),
+          fetch(urls.search_term).catch(() => null),
+          fetch(urls.geo).catch(() => null),
+          fetch(urls.age).catch(() => null),
+          fetch(urls.gender).catch(() => null),
+          fetch(urls.campaign).catch(() => null),
+        ]);
+
+        const parse = async (res: Response | null): Promise<Row[]> => {
+          if (!res || !res.ok) return [];
+          try {
+            const j = await res.json();
+            return Array.isArray(j?.data) ? (j.data as Row[]) : [];
+          } catch {
+            return [];
+          }
+        };
+
+        const [keywords, searchTerms, geoData, ageData, genderData, campaigns] = await Promise.all([
+          parse(kRes),
+          parse(sRes),
+          parse(gRes),
+          parse(aRes),
+          parse(geRes),
+          parse(cRes),
+        ]);
+
+        if (cancelled) return;
+        setState({ keywords, searchTerms, geoData, ageData, genderData, campaigns, loading: false });
+      } catch {
+        if (!cancelled) {
+          setState({ ...EMPTY_DIMENSIONS, loading: false });
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [adAccountId, dateRangeIndex]);
+
+  return state;
+}
+
 // ── Component ────────────────────────────────────────────────────────────
 
 export default function SouthRiverMortgageGoogleReport({
@@ -171,13 +298,13 @@ export default function SouthRiverMortgageGoogleReport({
 }) {
   const data = useGoogleAdsData(client.ad_account_id);
   const {
-    campaigns, totals, dailyData, keywords,
-    geoData, ageData, genderData, kpiChanges,
+    campaigns, totals, dailyData,
+    kpiChanges,
     loading, error, lastRefreshed, cooldownRemaining,
     dateRangeIndex, currentRange, handleDateRangeChange, fetchData,
   } = data;
 
-  // ── PQL primary KPI (custom) ───────────────────────────────────────────
+  // ── PQL primary KPI (account-level) ────────────────────────────────────
   const pqlData = usePqlData(client.ad_account_id, dateRangeIndex);
   const pqlCount = pqlData.current;
   const pqlPrior = pqlData.prior;
@@ -186,7 +313,10 @@ export default function SouthRiverMortgageGoogleReport({
   const costPerPqlPrior = pqlPrior > 0 ? pqlData.costPrior / pqlPrior : 0;
   const costPerPqlChange = calcChange(costPerPql, costPerPqlPrior);
 
-  // ── Derived values ───────────────────────────────────────────────────
+  // ── Per-dimension data with PQL columns ────────────────────────────────
+  const dims = useDimensionsWithPql(client.ad_account_id, dateRangeIndex);
+
+  // ── Derived values ─────────────────────────────────────────────────────
 
   const costPerLead = totals.conversions > 0 ? totals.cost / totals.conversions : 0;
   const convRate = totals.clicks > 0 ? totals.conversions / totals.clicks : 0;
@@ -327,33 +457,46 @@ export default function SouthRiverMortgageGoogleReport({
 
           {/* 3. Lead Volume & Cost Trend */}
           {dailyData.length > 0 && (
-            <>
-              <ReportChart
-                title="Lead Volume & Cost Trend"
-                data={dailyData.map((d) => ({
-                  ...d,
-                  cpl: d.conversions > 0 ? d.cost / d.conversions : 0,
-                }))}
-                xKey="date"
-                lines={[
-                  { dataKey: 'conversions', label: 'Leads', color: '#10B981', type: 'bar', yAxisId: 'left' },
-                  { dataKey: 'cpl', label: 'CPL', color: '#8B5CF6', yAxisId: 'right' },
-                ]}
-                formatY={(v) => v.toFixed(0)}
-                formatYRight={(v) => `$${v.toFixed(0)}`}
-              />
-
-            </>
+            <ReportChart
+              title="Lead Volume & Cost Trend"
+              data={dailyData.map((d) => ({
+                ...d,
+                cpl: d.conversions > 0 ? d.cost / d.conversions : 0,
+              }))}
+              xKey="date"
+              lines={[
+                { dataKey: 'conversions', label: 'Leads', color: '#10B981', type: 'bar', yAxisId: 'left' },
+                { dataKey: 'cpl', label: 'CPL', color: '#8B5CF6', yAxisId: 'right' },
+              ]}
+              formatY={(v) => v.toFixed(0)}
+              formatYRight={(v) => `$${v.toFixed(0)}`}
+            />
           )}
 
-          {/* 6. Campaign Performance */}
+          {/* 4. Campaigns (shared component, untouched) */}
           <div>
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Campaigns</h2>
             <CampaignsTable campaigns={campaigns} platform="google" />
           </div>
 
-          {/* 8. Top Keywords */}
-          {keywords.length > 0 && (
+          {/* 5. Campaign PQL Performance (PQL-focused per-campaign view) */}
+          {dims.campaigns.length > 0 && (
+            <BreakdownTable
+              title="Campaign PQL Performance"
+              columns={[
+                { key: 'campaign_name', label: 'Campaign' },
+                { key: 'cost', label: 'Spend', align: 'right', format: moneyCol },
+                { key: 'conversions', label: 'Leads', align: 'right', format: numCol },
+                { key: 'cost_per_conversion', label: 'Cost / Lead', align: 'right', format: moneyOrDashCol },
+                { key: 'pql_conversions', label: 'PQLs', align: 'right', format: numOrDashCol },
+                { key: 'cost_per_pql', label: 'Cost / PQL', align: 'right', format: moneyOrDashCol },
+              ]}
+              data={dims.campaigns}
+            />
+          )}
+
+          {/* 6. Top Keywords */}
+          {dims.keywords.length > 0 && (
             <BreakdownTable
               title="Top Keywords"
               columns={[
@@ -363,23 +506,44 @@ export default function SouthRiverMortgageGoogleReport({
                 { key: 'ctr', label: 'CTR', align: 'right', format: pctCol },
                 { key: 'average_cpc', label: 'Avg. CPC', align: 'right', format: moneyCol },
                 { key: 'cost', label: 'Cost', align: 'right', format: moneyCol },
-                { key: 'conversions', label: 'Conv.', align: 'right', format: numCol },
-                { key: 'cost_per_conversion', label: 'Cost / Conv.', align: 'right', format: moneyCol },
+                { key: 'conversions', label: 'Leads', align: 'right', format: numCol },
+                { key: 'cost_per_conversion', label: 'Cost / Lead', align: 'right', format: moneyOrDashCol },
+                { key: 'pql_conversions', label: 'PQLs', align: 'right', format: numOrDashCol },
+                { key: 'cost_per_pql', label: 'Cost / PQL', align: 'right', format: moneyOrDashCol },
               ]}
-              data={keywords}
+              data={dims.keywords}
             />
           )}
 
-          {/* Demographics — side by side */}
-          {(ageData.length > 0 || genderData.length > 0) && (
+          {/* 7. Top Search Terms */}
+          {dims.searchTerms.length > 0 && (
+            <BreakdownTable
+              title="Top Search Terms"
+              columns={[
+                { key: 'search_term', label: 'Search Term' },
+                { key: 'impressions', label: 'Impressions', align: 'right', format: numCol },
+                { key: 'clicks', label: 'Clicks', align: 'right', format: numCol },
+                { key: 'ctr', label: 'CTR', align: 'right', format: pctCol },
+                { key: 'cost', label: 'Cost', align: 'right', format: moneyCol },
+                { key: 'conversions', label: 'Leads', align: 'right', format: numCol },
+                { key: 'cost_per_conversion', label: 'Cost / Lead', align: 'right', format: moneyOrDashCol },
+                { key: 'pql_conversions', label: 'PQLs', align: 'right', format: numOrDashCol },
+                { key: 'cost_per_pql', label: 'Cost / PQL', align: 'right', format: moneyOrDashCol },
+              ]}
+              data={dims.searchTerms}
+            />
+          )}
+
+          {/* 8. Demographics — side by side */}
+          {(dims.ageData.length > 0 || dims.genderData.length > 0) && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {ageData.length > 0 && genderData.length > 0 ? (
+              {dims.ageData.length > 0 && dims.genderData.length > 0 ? (
                 <DemographicChart
                   title="Age & Gender Breakdown"
                   type="age-gender"
-                  data={mergeAgeGenderData(ageData, genderData)}
+                  data={mergeAgeGenderData(dims.ageData, dims.genderData)}
                 />
-              ) : ageData.length > 0 ? (
+              ) : dims.ageData.length > 0 ? (
                 <BreakdownTable
                   title="Age Breakdown"
                   columns={[
@@ -388,13 +552,16 @@ export default function SouthRiverMortgageGoogleReport({
                     { key: 'clicks', label: 'Clicks', align: 'right', format: numCol },
                     { key: 'ctr', label: 'CTR', align: 'right', format: pctCol },
                     { key: 'cost', label: 'Cost', align: 'right', format: moneyCol },
-                    { key: 'conversions', label: 'Conv.', align: 'right', format: numCol },
+                    { key: 'conversions', label: 'Leads', align: 'right', format: numCol },
+                    { key: 'cost_per_conversion', label: 'Cost / Lead', align: 'right', format: moneyOrDashCol },
+                    { key: 'pql_conversions', label: 'PQLs', align: 'right', format: numOrDashCol },
+                    { key: 'cost_per_pql', label: 'Cost / PQL', align: 'right', format: moneyOrDashCol },
                   ]}
-                  data={ageData}
+                  data={dims.ageData}
                 />
               ) : null}
 
-              {genderData.length > 0 && (
+              {dims.genderData.length > 0 && (
                 <BreakdownTable
                   title="Gender Breakdown"
                   columns={[
@@ -403,17 +570,40 @@ export default function SouthRiverMortgageGoogleReport({
                     { key: 'clicks', label: 'Clicks', align: 'right', format: numCol },
                     { key: 'ctr', label: 'CTR', align: 'right', format: pctCol },
                     { key: 'cost', label: 'Cost', align: 'right', format: moneyCol },
-                    { key: 'conversions', label: 'Conv.', align: 'right', format: numCol },
-                    { key: 'cost_per_conversion', label: 'Cost / Conv.', align: 'right', format: moneyCol },
+                    { key: 'conversions', label: 'Leads', align: 'right', format: numCol },
+                    { key: 'cost_per_conversion', label: 'Cost / Lead', align: 'right', format: moneyOrDashCol },
+                    { key: 'pql_conversions', label: 'PQLs', align: 'right', format: numOrDashCol },
+                    { key: 'cost_per_pql', label: 'Cost / PQL', align: 'right', format: moneyOrDashCol },
                   ]}
-                  data={genderData}
+                  data={dims.genderData}
                 />
               )}
             </div>
           )}
 
-          {/* 11. Location Breakdown */}
-          {geoData.length > 0 && (
+          {/* 9. Stand-alone Age Breakdown table when both age and gender are present
+              (DemographicChart shows the visual; this table gives the numeric detail
+              including the new PQL columns the chart can't display). */}
+          {dims.ageData.length > 0 && dims.genderData.length > 0 && (
+            <BreakdownTable
+              title="Age Breakdown"
+              columns={[
+                { key: 'age_range', label: 'Age' },
+                { key: 'impressions', label: 'Impressions', align: 'right', format: numCol },
+                { key: 'clicks', label: 'Clicks', align: 'right', format: numCol },
+                { key: 'ctr', label: 'CTR', align: 'right', format: pctCol },
+                { key: 'cost', label: 'Cost', align: 'right', format: moneyCol },
+                { key: 'conversions', label: 'Leads', align: 'right', format: numCol },
+                { key: 'cost_per_conversion', label: 'Cost / Lead', align: 'right', format: moneyOrDashCol },
+                { key: 'pql_conversions', label: 'PQLs', align: 'right', format: numOrDashCol },
+                { key: 'cost_per_pql', label: 'Cost / PQL', align: 'right', format: moneyOrDashCol },
+              ]}
+              data={dims.ageData}
+            />
+          )}
+
+          {/* 10. Location Breakdown */}
+          {dims.geoData.length > 0 && (
             <BreakdownTable
               title="Location Breakdown"
               columns={[
@@ -423,17 +613,19 @@ export default function SouthRiverMortgageGoogleReport({
                 { key: 'ctr', label: 'CTR', align: 'right', format: pctCol },
                 { key: 'average_cpc', label: 'Avg. CPC', align: 'right', format: moneyCol },
                 { key: 'cost', label: 'Cost', align: 'right', format: moneyCol },
-                { key: 'conversions', label: 'Conv.', align: 'right', format: numCol },
-                { key: 'cost_per_conversion', label: 'Cost / Conv.', align: 'right', format: moneyCol },
+                { key: 'conversions', label: 'Leads', align: 'right', format: numCol },
+                { key: 'cost_per_conversion', label: 'Cost / Lead', align: 'right', format: moneyOrDashCol },
+                { key: 'pql_conversions', label: 'PQLs', align: 'right', format: numOrDashCol },
+                { key: 'cost_per_pql', label: 'Cost / PQL', align: 'right', format: moneyOrDashCol },
               ]}
-              data={geoData}
+              data={dims.geoData}
             />
           )}
 
         </>
       )}
 
-      {/* 13. Notes */}
+      {/* 11. Notes */}
       <ReportNotesTimeline clientId={client.id} mode={mode} />
     </div>
   );
