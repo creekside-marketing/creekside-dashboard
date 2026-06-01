@@ -139,14 +139,23 @@ export async function GET(req: NextRequest) {
       let lastMrr = latestInWindow(id, prevStart, prevEnd);
 
       // Fallback: client has no Square data at all → use stored monthly_revenue
-      // for both months (treated as steady-state, no expansion or contraction).
+      // for both windows (steady-state, no expansion / contraction).
       const noSquareEver = thisMrr === 0 && lastMrr === 0;
       if (noSquareEver && (fallbackMrrById[id] ?? 0) > 0) {
         thisMrr = fallbackMrrById[id];
         lastMrr = fallbackMrrById[id];
       }
 
-      // Churn override: client marked status='churned' counts as 0 this month.
+      // Billing-date drift: client is still active (per canonical status) and has a prior-window
+      // invoice but no current-window invoice. Their monthly bill likely hasn't hit yet because
+      // billing days drift ±a few days each cycle. Treat as steady-state instead of "churn".
+      // True churn is caught separately below via reporting_clients.churned_date.
+      const isActive = meta.status === 'active';
+      if (thisMrr === 0 && lastMrr > 0 && isActive) {
+        thisMrr = lastMrr;
+      }
+
+      // Churn override: canonical client status flipped to churned/inactive after window started.
       if (meta.status === 'churned' || meta.status === 'inactive') thisMrr = 0;
 
       const delta = thisMrr - lastMrr;
@@ -166,6 +175,47 @@ export async function GET(req: NextRequest) {
         delta: round2(delta),
         bucket,
         acquisition_source: meta.source,
+      });
+    }
+
+    // 4b. Detect REAL churn: reporting_clients rows marked status='churned' with
+     //    churned_date inside the current window. These don't pass the eligibleIds
+     //    filter above, so we add them separately to the rows list.
+    const { data: churnedRcRows } = await supabase
+      .from('reporting_clients')
+      .select('client_id, client_name, monthly_revenue, churned_date')
+      .eq('status', 'churned')
+      .gte('churned_date', thisStart.slice(0, 10))
+      .lte('churned_date', thisEnd.slice(0, 10));
+
+    // Group by client_id (a client may have multiple rows churning in the same window)
+    const churnedByClient = new Map<string, { name: string; lostMrr: number }>();
+    for (const r of churnedRcRows ?? []) {
+      const id = r.client_id as string | null;
+      if (!id) continue;
+      const existing = churnedByClient.get(id);
+      const storedMrr = Number(r.monthly_revenue ?? 0);
+      const priorMrr = latestInWindow(id, prevStart, prevEnd);
+      const lostMrr = priorMrr > 0 ? priorMrr : storedMrr;
+      if (lostMrr <= 0) continue;
+      if (existing) {
+        existing.lostMrr += lostMrr;
+      } else {
+        churnedByClient.set(id, { name: (r.client_name as string) ?? 'Unknown', lostMrr });
+      }
+    }
+    for (const [id, churn] of churnedByClient) {
+      // Avoid double-counting if the client already appears in rows
+      if (rows.some(r => r.client_id === id)) continue;
+      const meta = clientMeta.get(id);
+      rows.push({
+        client_id: id,
+        client_name: meta?.name ?? churn.name,
+        this_month_mrr: 0,
+        last_month_mrr: round2(churn.lostMrr),
+        delta: -round2(churn.lostMrr),
+        bucket: 'churn',
+        acquisition_source: meta?.source ?? null,
       });
     }
 
