@@ -1,0 +1,35 @@
+name: Detect new client conversions
+
+# Hits the dashboard's /api/finance/detect-new-clients endpoint once a day.
+# The endpoint scans paid Square invoices for first-payment events (= new client
+# conversions) in the last 24h, matches each to a ClickUp lead (Upwork Leads
+# or Other Leads), and writes acquisition_source to clients.engagement_details.
+#
+# Idempotent — clients already tagged are skipped.
+# Manual trigger via the Actions UI is also enabled.
+
+on:
+  schedule:
+    # 11:00 UTC daily = 6 AM CDT / 5 AM CST
+    - cron: '0 11 * * *'
+  workflow_dispatch:
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger conversion detector
+        run: |
+          set -e
+          response=$(curl -sSf -X POST \
+            "https://creekside-dashboard.up.railway.app/api/finance/detect-new-clients?windowHours=24" \
+            -H "Content-Type: application/json")
+          echo "$response" | tee detector-response.json
+      - name: Upload response artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: detector-response-${{ github.run_id }}
+          path: detector-response.json
+          retention-days: 30
