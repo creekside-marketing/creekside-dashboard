@@ -183,8 +183,9 @@ export async function GET(req: NextRequest) {
      //    filter above, so we add them separately to the rows list.
     const { data: churnedRcRows } = await supabase
       .from('reporting_clients')
-      .select('client_id, client_name, monthly_revenue, churned_date')
+      .select('client_id, client_name, monthly_revenue, churned_date, client_category')
       .eq('status', 'churned')
+      .neq('client_category', 'retainer')
       .gte('churned_date', thisStart.slice(0, 10))
       .lte('churned_date', thisEnd.slice(0, 10));
 
