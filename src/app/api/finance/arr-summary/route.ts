@@ -98,19 +98,21 @@ export async function GET() {
       if (amt > 0) fallbackByClient[r.client_id] = (fallbackByClient[r.client_id] ?? 0) + amt;
     }
 
-    // -- 3. Live current MRR: latest paid Square invoice in current calendar month per client --
-    const monthStart = thisMonth.toISOString();
-    const { data: squareThis, error: sqErr } = await supabase
+    // -- 3. Live current MRR: latest paid Square invoice per client across the last 60 days --
+    // Using 60d (not just this calendar month) avoids the "everyone looks churned on the
+    // 1st" problem. Each client's most recent billing is their current rate.
+    const sixtyDaysAgo = new Date(now.getTime() - 60 * 86400000).toISOString();
+    const { data: squareRecent, error: sqErr } = await supabase
       .from('square_entries')
       .select('client_id, amount_cents, source_timestamp')
       .eq('payment_status', 'COMPLETED')
       .gt('amount_cents', 0)
       .not('client_id', 'is', null)
-      .gte('source_timestamp', monthStart);
+      .gte('source_timestamp', sixtyDaysAgo);
     if (sqErr) return NextResponse.json({ error: sqErr.message }, { status: 500 });
 
     const latestSquareByClient: Record<string, { amount: number; ts: string }> = {};
-    for (const row of squareThis ?? []) {
+    for (const row of squareRecent ?? []) {
       const cid = row.client_id as string;
       if (!activeClientIds.has(cid)) continue;
       const ts = row.source_timestamp as string;
@@ -119,8 +121,7 @@ export async function GET() {
       if (!existing || ts > existing.ts) latestSquareByClient[cid] = { amount: amt, ts };
     }
 
-    // For clients with no current-month Square invoice yet, use fallback. This avoids the
-    // "everyone churned on the 1st" problem before invoices come in.
+    // For clients with no Square invoice in 60d, fall back to stored reporting_clients revenue.
     let currentMrr = 0;
     const currentMrrBySource = emptySources();
     for (const cid of activeClientIds) {
