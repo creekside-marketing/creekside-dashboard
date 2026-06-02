@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { formatCurrency } from '@/lib/utils/formatters';
 import FinanceTrendCharts from './FinanceTrendCharts';
+import ArrSummarySection from './ArrSummarySection';
 
 type CategoryProjection = {
   last_actual: number;
@@ -468,6 +469,9 @@ export default function FinanceDashboard() {
           </p>
         </div>
       )}
+
+      {/* MRR Overview (ARR + growth + per-source + trailing chart + forecast) */}
+      <ArrSummarySection />
 
       {/* Net New MRR breakdown section */}
       {netNew && (
