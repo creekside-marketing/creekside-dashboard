@@ -170,37 +170,53 @@ export async function GET() {
     const mrrChange = currentMrr - priorMonthMrr;
     const mrrChangePct = priorMonthMrr > 0 ? (mrrChange / priorMonthMrr) * 100 : null;
 
-    // -- 6. Run-rate forecast: MEDIAN MoM growth (robust to outlier months like
-    //    Lindsey onboarding or fee restructures that produce one-off +60% bumps) --
-    const validDeltas: number[] = [];
+    // -- 6. Run-rate forecast: MEDIAN of monthly absolute $ deltas, projected linearly --
+    //    Compounding percentage growth blows up over 12-24 months for early-stage SaaS
+    //    (every $51K -> $193K month becomes $193K -> $730K next year, which is unrealistic).
+    //    Linear additive projection from the median month-to-month $ change is more honest
+    //    for agencies at this scale and matches how operators actually plan.
+    const absDeltas: number[] = [];
+    for (let i = 1; i < trailing.length; i++) {
+      const prior = trailing[i - 1].total_mrr;
+      const curr = trailing[i].total_mrr;
+      if (prior > 0 && curr > 0) absDeltas.push(curr - prior);
+    }
+    const sortedAbs = [...absDeltas].sort((a, b) => a - b);
+    const medianMonthlyDelta = sortedAbs.length === 0
+      ? 0
+      : sortedAbs.length % 2 === 1
+        ? sortedAbs[Math.floor(sortedAbs.length / 2)]
+        : (sortedAbs[sortedAbs.length / 2 - 1] + sortedAbs[sortedAbs.length / 2]) / 2;
+
+    // Also compute median percentage for display context
+    const pctDeltas: number[] = [];
     for (let i = 1; i < trailing.length; i++) {
       const pct = trailing[i].net_change_pct;
-      if (pct !== null && Number.isFinite(pct)) validDeltas.push(pct);
+      if (pct !== null && Number.isFinite(pct)) pctDeltas.push(pct);
     }
-    const sortedDeltas = [...validDeltas].sort((a, b) => a - b);
-    const medianMonthlyGrowthPct = sortedDeltas.length === 0
+    const sortedPct = [...pctDeltas].sort((a, b) => a - b);
+    const medianMonthlyGrowthPct = sortedPct.length === 0
       ? 0
-      : sortedDeltas.length % 2 === 1
-        ? sortedDeltas[Math.floor(sortedDeltas.length / 2)]
-        : (sortedDeltas[sortedDeltas.length / 2 - 1] + sortedDeltas[sortedDeltas.length / 2]) / 2;
+      : sortedPct.length % 2 === 1
+        ? sortedPct[Math.floor(sortedPct.length / 2)]
+        : (sortedPct[sortedPct.length / 2 - 1] + sortedPct[sortedPct.length / 2]) / 2;
 
-    // Compound forward for 12 / 24 months
-    const projectedMrr12 = currentMrr * Math.pow(1 + medianMonthlyGrowthPct / 100, 12);
-    const projectedMrr24 = currentMrr * Math.pow(1 + medianMonthlyGrowthPct / 100, 24);
+    // Linear projection forward
+    const projectedMrr12 = Math.max(0, currentMrr + medianMonthlyDelta * 12);
+    const projectedMrr24 = Math.max(0, currentMrr + medianMonthlyDelta * 24);
 
-    // Generate month-by-month forecast curve (6 months forward) for the chart
+    // Month-by-month forecast curve (linear additive)
     const monthlyForecast: Array<{ month: string; mrr: number }> = [];
-    let runningMrr = currentMrr;
     for (let i = 1; i <= 6; i++) {
-      runningMrr = runningMrr * (1 + medianMonthlyGrowthPct / 100);
+      const projected = Math.max(0, currentMrr + medianMonthlyDelta * i);
       const m = addMonths(thisMonth, i);
-      monthlyForecast.push({ month: monthKey(m), mrr: round2(runningMrr) });
+      monthlyForecast.push({ month: monthKey(m), mrr: round2(projected) });
     }
 
     // Confidence based on data quantity
     let confidence: 'low' | 'medium' | 'high' = 'low';
-    if (validDeltas.length >= 5) confidence = 'high';
-    else if (validDeltas.length >= 3) confidence = 'medium';
+    if (absDeltas.length >= 5) confidence = 'high';
+    else if (absDeltas.length >= 3) confidence = 'medium';
 
     return NextResponse.json({
       current_mrr: round2(currentMrr),
@@ -222,13 +238,15 @@ export async function GET() {
       },
       trailing_6_months: trailing,
       forecast: {
+        method: 'linear_median',
+        median_monthly_delta: round2(medianMonthlyDelta),
         median_monthly_growth_pct: round2(medianMonthlyGrowthPct),
         projected_mrr_12mo: round2(projectedMrr12),
         projected_arr_12mo: round2(projectedMrr12 * 12),
         projected_mrr_24mo: round2(projectedMrr24),
         projected_arr_24mo: round2(projectedMrr24 * 12),
         confidence,
-        based_on_months: validDeltas.length,
+        based_on_months: absDeltas.length,
         monthly_forecast: monthlyForecast,
       },
     });

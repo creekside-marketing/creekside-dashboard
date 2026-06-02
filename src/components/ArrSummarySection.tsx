@@ -28,6 +28,8 @@ type ArrSummary = {
     net_change_pct: number | null;
   }>;
   forecast: {
+    method?: string;
+    median_monthly_delta: number;
     median_monthly_growth_pct: number;
     projected_mrr_12mo: number;
     projected_arr_12mo: number;
@@ -154,10 +156,10 @@ export default function ArrSummarySection() {
           </div>
           <p className="text-2xl font-semibold text-slate-900 mt-1">{formatCurrency(data.forecast.projected_arr_12mo)}</p>
           <p className="text-xs text-slate-500 mt-1">
-            At median{' '}
+            Linear at{' '}
             <span className="font-semibold text-slate-700">
-              {data.forecast.median_monthly_growth_pct >= 0 ? '+' : ''}
-              {data.forecast.median_monthly_growth_pct.toFixed(1)}%/mo
+              {data.forecast.median_monthly_delta >= 0 ? '+' : ''}
+              {formatCurrency(data.forecast.median_monthly_delta)}/mo
             </span>{' '}
             · 24mo {formatCurrency(data.forecast.projected_arr_24mo)}
           </p>
@@ -197,7 +199,7 @@ export default function ArrSummarySection() {
               MRR — actual ({visibleTrailing.length}mo) + forecast ({data.forecast.monthly_forecast.length}mo)
             </p>
             <p className="text-[11px] text-slate-400">
-              Dashed line = projected at median {data.forecast.median_monthly_growth_pct.toFixed(1)}%/mo growth
+              Dashed line = linear projection at +{formatCurrency(data.forecast.median_monthly_delta)}/mo
             </p>
           </div>
           <div style={{ width: '100%', height: 240 }}>
