@@ -7,8 +7,10 @@
  *   - Marketing spend = accounting_entries entries in the last 30 days where:
  *       category = 'Marketing' AND name does NOT match excluded one-time tools
  *       PLUS Queenie's PayPal payments (Labor category, name match)
- *   - New client = a name whose FIRST income transaction across all of accounting_entries
- *       falls within the last 30 days. Identified by client_name match.
+ *   - New client = a name whose FIRST EVER payment falls within the last 30 days.
+ *       Detection reads from BOTH accounting_entries (manual Google Sheet upload) AND
+ *       square_entries (live paid invoices) and dedups by canonical client_id so a new
+ *       client appears the moment Square sees a paid invoice — no waiting on accounting.
  *   - New MRR = sum of manually-entered MRR per new client (new_client_mrr table).
  *   - CAC = marketing_spend / new_client_count  (NULL if no new clients)
  *   - Cost of New MRR = marketing_spend / total_new_mrr  (NULL if 0 MRR)
@@ -97,87 +99,99 @@ export async function GET() {
       return NextResponse.json({ error: entriesErr.message }, { status: 500 });
     }
 
-    // First-payment lookup across ALL of accounting_entries (income only) to identify new clients
+    // Pull canonical clients FIRST so we can dedup payment sources by client_id.
+    const { data: clientsRows } = await supabase
+      .from('clients')
+      .select('id, name, primary_contact_name, display_names');
+
+    // normalizedNameVariant → canonical client_id (first variant wins for ties)
+    const clientIdByNormName: Record<string, string> = {};
+    const clientNameById: Record<string, string> = {};
+    for (const c of clientsRows ?? []) {
+      if (!c?.id) continue;
+      clientNameById[c.id] = c.name;
+      const variants = new Set<string>();
+      variants.add(normalizeName(c.name));
+      if (c.primary_contact_name) variants.add(normalizeName(c.primary_contact_name));
+      if (Array.isArray(c.display_names)) {
+        for (const dn of c.display_names as string[]) variants.add(normalizeName(dn));
+      }
+      variants.delete('');
+      for (const v of variants) {
+        if (!clientIdByNormName[v]) clientIdByNormName[v] = c.id;
+      }
+    }
+
+    // First-payment-ever map. Key = canonical client_id when known, else 'name::<normalized>'.
+    // Reads from BOTH accounting_entries (manual Google Sheet upload) AND square_entries
+    // (live Square sync). This way new clients show up the moment they pay an invoice in
+    // Square — no waiting on the monthly accounting upload.
+    type FirstPayment = { date: string; displayName: string; normName: string };
+    const firstPaymentByKey: Record<string, FirstPayment> = {};
+
+    const recordFirstPayment = (rawName: string | null | undefined, date: string | null | undefined) => {
+      if (!rawName || !date || isNonClientIncome(rawName)) return;
+      const norm = normalizeName(rawName);
+      if (!norm) return;
+      const clientId = clientIdByNormName[norm];
+      const key = clientId ?? `name::${norm}`;
+      const preferredName = clientId ? clientNameById[clientId] : rawName;
+      const existing = firstPaymentByKey[key];
+      if (!existing || date < existing.date) {
+        firstPaymentByKey[key] = { date, displayName: preferredName, normName: norm };
+      }
+    };
+
+    // Feed: accounting_entries income (historical, includes pre-Square-sync data)
     const { data: firstPayments, error: fpErr } = await supabase
       .from('accounting_entries')
-      .select('name, transaction_date, entry_type')
+      .select('name, transaction_date')
       .eq('entry_type', 'income')
       .eq('is_balance_row', false)
       .eq('is_summary_row', false)
       .not('name', 'is', null);
-
     if (fpErr) {
       return NextResponse.json({ error: fpErr.message }, { status: 500 });
     }
-
-    // Compute first payment date per CASE-INSENSITIVE normalized name.
-    // Track display name (first/most-formal version seen) for showing in UI.
-    const firstPaymentByNormName: Record<string, { date: string; displayName: string }> = {};
     for (const row of firstPayments ?? []) {
-      const name = row.name as string;
-      if (!name || isNonClientIncome(name)) continue;
-      const norm = normalizeName(name);
-      if (!norm) continue;
-      const date = row.transaction_date as string;
-      const existing = firstPaymentByNormName[norm];
-      if (!existing || date < existing.date) {
-        // Prefer titlecased display name (with capitals) over lowercase variants
-        const isMoreFormal = !existing || /[A-Z]/.test(name);
-        firstPaymentByNormName[norm] = {
-          date,
-          displayName: isMoreFormal ? name : existing.displayName,
-        };
-      }
+      recordFirstPayment(row.name as string, row.transaction_date as string);
+    }
+
+    // Feed: square_entries (live paid invoices — no manual upload required)
+    const { data: squarePayments, error: spErr } = await supabase
+      .from('square_entries')
+      .select('customer_name, source_timestamp, amount_cents, payment_status')
+      .eq('payment_status', 'COMPLETED')
+      .gt('amount_cents', 0)
+      .not('customer_name', 'is', null);
+    if (spErr) {
+      return NextResponse.json({ error: spErr.message }, { status: 500 });
+    }
+    for (const row of squarePayments ?? []) {
+      const date = (row.source_timestamp as string | null)?.slice(0, 10) ?? null;
+      recordFirstPayment(row.customer_name as string, date);
     }
 
     // Pull manually-entered MRR per client
     const { data: mrrRows, error: mrrErr } = await supabase
       .from('new_client_mrr')
       .select('client_name, first_payment_date, monthly_mrr');
-
     if (mrrErr) {
       return NextResponse.json({ error: mrrErr.message }, { status: 500 });
     }
-
     const mrrByKey: Record<string, number> = {};
     for (const row of mrrRows ?? []) {
       const key = `${normalizeName(row.client_name)}::${row.first_payment_date}`;
       mrrByKey[key] = Number(row.monthly_mrr ?? 0);
     }
 
-    // Auto-suggest MRR by matching payment names → client_id (via primary_contact_name +
-    // display_names) → full per-client revenue computed using the same fee_engine + live
-    // spend logic as the Clients dashboard. Sums across all clients sharing the contact.
-    // Manual mrrByKey wins.
-    const { data: clientsRows } = await supabase
-      .from('clients')
-      .select('id, name, primary_contact_name, display_names');
+    // Auto-suggest MRR via canonical client_id → fee-engine revenue. Reuses the same
+    // name-variant lookup as firstPayment so behaviour stays consistent.
     const revenueByClientId = await computeRevenueByClientId(supabase);
-
-    // Build normalized-name → set of matching client_ids. Dedup so a name
-    // that appears in BOTH primary_contact_name and display_names of the
-    // same client doesn't get counted twice.
-    const clientIdsByNormName: Record<string, Set<string>> = {};
-    for (const c of clientsRows ?? []) {
-      const candidates = new Set<string>();
-      if (c.primary_contact_name) candidates.add(normalizeName(c.primary_contact_name));
-      if (Array.isArray(c.display_names)) {
-        for (const dn of c.display_names as string[]) candidates.add(normalizeName(dn));
-      }
-      candidates.delete('');
-      for (const norm of candidates) {
-        if (!clientIdsByNormName[norm]) clientIdsByNormName[norm] = new Set();
-        clientIdsByNormName[norm].add(c.id);
-      }
-    }
-    // Sum revenue across each name's matched clients
     const suggestedMrrByNormName: Record<string, number> = {};
-    for (const [norm, ids] of Object.entries(clientIdsByNormName)) {
-      let total = 0;
-      for (const id of ids) {
-        total += revenueByClientId[id] ?? 0;
-      }
-      if (total > 0) suggestedMrrByNormName[norm] = total;
+    for (const [norm, id] of Object.entries(clientIdByNormName)) {
+      const rev = revenueByClientId[id] ?? 0;
+      if (rev > 0) suggestedMrrByNormName[norm] = rev;
     }
 
     // Helper to compute window metrics
@@ -200,11 +214,11 @@ export async function GET() {
 
       // New clients in window (first ever payment falls in window, case-insensitive)
       const newClients: Array<{ name: string; first_payment_date: string; monthly_mrr: number; mrr_source: 'manual' | 'auto' | 'none' }> = [];
-      for (const [norm, info] of Object.entries(firstPaymentByNormName)) {
+      for (const info of Object.values(firstPaymentByKey)) {
         if (info.date >= windowStart && info.date <= windowEnd) {
-          const key = `${norm}::${info.date}`;
+          const key = `${info.normName}::${info.date}`;
           const manual = mrrByKey[key];
-          const suggested = suggestedMrrByNormName[norm];
+          const suggested = suggestedMrrByNormName[info.normName];
           let mrr = 0;
           let source: 'manual' | 'auto' | 'none' = 'none';
           if (manual !== undefined) {
