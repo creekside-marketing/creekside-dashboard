@@ -1,0 +1,39 @@
+name: Monthly MRR snapshot
+
+# Captures each active non-retainer client's MRR at month-end into
+# client_mrr_history. Runs on the 1st of every month at 11:00 UTC
+# (= 6 AM CDT / 5 AM CST), snapshotting the PRIOR month's final values.
+#
+# Manual trigger available from the Actions tab for backfilling specific months.
+
+on:
+  schedule:
+    - cron: '0 11 1 * *'
+  workflow_dispatch:
+    inputs:
+      month:
+        description: 'Month to snapshot (YYYY-MM). Defaults to prior month.'
+        required: false
+        type: string
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compute month to snapshot
+        id: month
+        run: |
+          if [ -n "${{ github.event.inputs.month }}" ]; then
+            MONTH="${{ github.event.inputs.month }}"
+          else
+            # Prior month in YYYY-MM (works for both Linux date GNU and BSD)
+            MONTH=$(date -u -d "$(date -u +%Y-%m-01) -1 day" +%Y-%m 2>/dev/null || date -u -v-1m +%Y-%m)
+          fi
+          echo "month=$MONTH" >> "$GITHUB_OUTPUT"
+          echo "Snapshotting month: $MONTH"
+
+      - name: Trigger snapshot endpoint
+        run: |
+          curl -sSf -X POST \
+            "https://creekside-dashboard.up.railway.app/api/finance/snapshot-mrr?month=${{ steps.month.outputs.month }}" \
+            -H "Content-Type: application/json"
