@@ -126,19 +126,19 @@ export async function GET() {
     // Reads from BOTH accounting_entries (manual Google Sheet upload) AND square_entries
     // (live Square sync). This way new clients show up the moment they pay an invoice in
     // Square — no waiting on the monthly accounting upload.
-    type FirstPayment = { date: string; displayName: string; normName: string };
+    type FirstPayment = { date: string; displayName: string; normName: string; clientId: string | null };
     const firstPaymentByKey: Record<string, FirstPayment> = {};
 
     const recordFirstPayment = (rawName: string | null | undefined, date: string | null | undefined) => {
       if (!rawName || !date || isNonClientIncome(rawName)) return;
       const norm = normalizeName(rawName);
       if (!norm) return;
-      const clientId = clientIdByNormName[norm];
+      const clientId = clientIdByNormName[norm] ?? null;
       const key = clientId ?? `name::${norm}`;
       const preferredName = clientId ? clientNameById[clientId] : rawName;
       const existing = firstPaymentByKey[key];
       if (!existing || date < existing.date) {
-        firstPaymentByKey[key] = { date, displayName: preferredName, normName: norm };
+        firstPaymentByKey[key] = { date, displayName: preferredName, normName: norm, clientId };
       }
     };
 
@@ -212,9 +212,13 @@ export async function GET() {
         }
       }
 
-      // New clients in window (first ever payment falls in window, case-insensitive)
+      // New clients in window (first ever payment falls in window, case-insensitive).
+      // Excludes unmatched payments (no canonical client_id) — these are one-time/audit
+      // payments or new clients that haven't been added to the clients table yet. The
+      // "every new client must be in the dashboard" workflow enforces canonical-first.
       const newClients: Array<{ name: string; first_payment_date: string; monthly_mrr: number; mrr_source: 'manual' | 'auto' | 'none' }> = [];
       for (const info of Object.values(firstPaymentByKey)) {
+        if (!info.clientId) continue;
         if (info.date >= windowStart && info.date <= windowEnd) {
           const key = `${info.normName}::${info.date}`;
           const manual = mrrByKey[key];
