@@ -3,12 +3,14 @@
 import { useEffect, useState } from 'react';
 import {
   ResponsiveContainer,
-  BarChart,
+  ComposedChart,
   Bar,
+  Line,
   XAxis,
   YAxis,
   Tooltip,
   CartesianGrid,
+  Legend,
 } from 'recharts';
 import { formatCurrency } from '@/lib/utils/formatters';
 
@@ -26,13 +28,14 @@ type ArrSummary = {
     net_change_pct: number | null;
   }>;
   forecast: {
-    avg_monthly_growth_pct: number;
+    median_monthly_growth_pct: number;
     projected_mrr_12mo: number;
     projected_arr_12mo: number;
     projected_mrr_24mo: number;
     projected_arr_24mo: number;
     confidence: 'low' | 'medium' | 'high';
     based_on_months: number;
+    monthly_forecast: Array<{ month: string; mrr: number }>;
   };
 };
 
@@ -95,12 +98,23 @@ export default function ArrSummarySection() {
   const growthSign = data.mrr_change_pct !== null && data.mrr_change_pct >= 0 ? '+' : '';
   const growthColor = data.mrr_change_pct !== null && data.mrr_change_pct >= 0 ? 'text-emerald-700' : 'text-red-600';
 
-  // Filter trailing months that have any data (skip leading zeros that are gaps)
+  // Historical bars + forward forecast line. Forecast line anchors at the last actual
+  // month so the line visually connects to the bars.
   const visibleTrailing = data.trailing_6_months.filter(m => m.total_mrr > 0);
-  const chartData = visibleTrailing.map(m => ({
-    label: formatMonthLabel(m.month),
-    mrr: m.total_mrr,
-  }));
+  const lastActual = visibleTrailing[visibleTrailing.length - 1];
+
+  const chartData: Array<{ label: string; mrr: number | null; forecast: number | null }> = [
+    ...visibleTrailing.map(m => ({
+      label: formatMonthLabel(m.month),
+      mrr: m.total_mrr,
+      forecast: m === lastActual ? m.total_mrr : null, // anchor forecast line at last actual
+    })),
+    ...data.forecast.monthly_forecast.map(f => ({
+      label: formatMonthLabel(f.month),
+      mrr: null,
+      forecast: f.mrr,
+    })),
+  ];
 
   const sourceEntries = Object.entries(data.mrr_by_source)
     .filter(([, v]) => v > 0)
@@ -140,10 +154,10 @@ export default function ArrSummarySection() {
           </div>
           <p className="text-2xl font-semibold text-slate-900 mt-1">{formatCurrency(data.forecast.projected_arr_12mo)}</p>
           <p className="text-xs text-slate-500 mt-1">
-            At avg{' '}
+            At median{' '}
             <span className="font-semibold text-slate-700">
-              {data.forecast.avg_monthly_growth_pct >= 0 ? '+' : ''}
-              {data.forecast.avg_monthly_growth_pct.toFixed(1)}%/mo
+              {data.forecast.median_monthly_growth_pct >= 0 ? '+' : ''}
+              {data.forecast.median_monthly_growth_pct.toFixed(1)}%/mo
             </span>{' '}
             · 24mo {formatCurrency(data.forecast.projected_arr_24mo)}
           </p>
@@ -175,15 +189,20 @@ export default function ArrSummarySection() {
         </div>
       )}
 
-      {/* Trailing 6-month MRR chart */}
+      {/* Trailing MRR + forward forecast chart */}
       {chartData.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 px-5 py-4">
-          <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
-            Trailing MRR ({chartData.length} months)
-          </p>
-          <div style={{ width: '100%', height: 220 }}>
+          <div className="flex items-baseline justify-between mb-2">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+              MRR — actual ({visibleTrailing.length}mo) + forecast ({data.forecast.monthly_forecast.length}mo)
+            </p>
+            <p className="text-[11px] text-slate-400">
+              Dashed line = projected at median {data.forecast.median_monthly_growth_pct.toFixed(1)}%/mo growth
+            </p>
+          </div>
+          <div style={{ width: '100%', height: 240 }}>
             <ResponsiveContainer>
-              <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+              <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="label" tick={{ fontSize: 12 }} />
                 <YAxis
@@ -195,8 +214,19 @@ export default function ArrSummarySection() {
                   formatter={value => formatCurrency(typeof value === 'number' ? value : Number(value) || 0)}
                   labelStyle={{ color: '#0f172a', fontWeight: 600 }}
                 />
-                <Bar dataKey="mrr" fill="#10b981" radius={[4, 4, 0, 0]} />
-              </BarChart>
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="mrr" name="Actual MRR" fill="#10b981" radius={[4, 4, 0, 0]} />
+                <Line
+                  type="monotone"
+                  dataKey="forecast"
+                  name="Forecast"
+                  stroke="#8b5cf6"
+                  strokeWidth={2}
+                  strokeDasharray="5 5"
+                  dot={{ r: 3, fill: '#8b5cf6' }}
+                  connectNulls
+                />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         </div>

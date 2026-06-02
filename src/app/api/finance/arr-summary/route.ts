@@ -170,21 +170,34 @@ export async function GET() {
     const mrrChange = currentMrr - priorMonthMrr;
     const mrrChangePct = priorMonthMrr > 0 ? (mrrChange / priorMonthMrr) * 100 : null;
 
-    // -- 6. Run-rate forecast: average MoM growth across the trailing period --
+    // -- 6. Run-rate forecast: MEDIAN MoM growth (robust to outlier months like
+    //    Lindsey onboarding or fee restructures that produce one-off +60% bumps) --
     const validDeltas: number[] = [];
     for (let i = 1; i < trailing.length; i++) {
       const pct = trailing[i].net_change_pct;
       if (pct !== null && Number.isFinite(pct)) validDeltas.push(pct);
     }
-    const avgMonthlyGrowthPct = validDeltas.length > 0
-      ? validDeltas.reduce((s, v) => s + v, 0) / validDeltas.length
-      : 0;
+    const sortedDeltas = [...validDeltas].sort((a, b) => a - b);
+    const medianMonthlyGrowthPct = sortedDeltas.length === 0
+      ? 0
+      : sortedDeltas.length % 2 === 1
+        ? sortedDeltas[Math.floor(sortedDeltas.length / 2)]
+        : (sortedDeltas[sortedDeltas.length / 2 - 1] + sortedDeltas[sortedDeltas.length / 2]) / 2;
 
     // Compound forward for 12 / 24 months
-    const projectedMrr12 = currentMrr * Math.pow(1 + avgMonthlyGrowthPct / 100, 12);
-    const projectedMrr24 = currentMrr * Math.pow(1 + avgMonthlyGrowthPct / 100, 24);
+    const projectedMrr12 = currentMrr * Math.pow(1 + medianMonthlyGrowthPct / 100, 12);
+    const projectedMrr24 = currentMrr * Math.pow(1 + medianMonthlyGrowthPct / 100, 24);
 
-    // Confidence based on data quantity + variance
+    // Generate month-by-month forecast curve (6 months forward) for the chart
+    const monthlyForecast: Array<{ month: string; mrr: number }> = [];
+    let runningMrr = currentMrr;
+    for (let i = 1; i <= 6; i++) {
+      runningMrr = runningMrr * (1 + medianMonthlyGrowthPct / 100);
+      const m = addMonths(thisMonth, i);
+      monthlyForecast.push({ month: monthKey(m), mrr: round2(runningMrr) });
+    }
+
+    // Confidence based on data quantity
     let confidence: 'low' | 'medium' | 'high' = 'low';
     if (validDeltas.length >= 5) confidence = 'high';
     else if (validDeltas.length >= 3) confidence = 'medium';
@@ -209,13 +222,14 @@ export async function GET() {
       },
       trailing_6_months: trailing,
       forecast: {
-        avg_monthly_growth_pct: round2(avgMonthlyGrowthPct),
+        median_monthly_growth_pct: round2(medianMonthlyGrowthPct),
         projected_mrr_12mo: round2(projectedMrr12),
         projected_arr_12mo: round2(projectedMrr12 * 12),
         projected_mrr_24mo: round2(projectedMrr24),
         projected_arr_24mo: round2(projectedMrr24 * 12),
         confidence,
         based_on_months: validDeltas.length,
+        monthly_forecast: monthlyForecast,
       },
     });
   } catch (err) {
