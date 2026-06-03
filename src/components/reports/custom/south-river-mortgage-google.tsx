@@ -289,8 +289,11 @@ function useDimensionsWithPql(
 
 // ── Internal funnel-health data (INTERNAL MODE ONLY) ──────────────────────
 
-/** Single conversion action whose name flags Pre-Qualified Leads. */
-const PREQ_ACTION_NAME = 'Pre-Qualified Lead';
+/** Single conversion action whose name flags Pre-Qualified Leads.
+ *  Per Peterson + Ahmed (2026-06): the "Pre-Qualified Lead" concept maps to
+ *  the SUBMIT_LEAD_FORM action "Lead Instant Quote - (JTC)" — not the
+ *  similarly-named "Pre-Qualified Lead" action that's being deprecated. */
+const PREQ_ACTION_NAME = 'Lead Instant Quote - (JTC)';
 
 interface InternalFunnelState {
   dailyActions: Array<{ date: string; action_name: string; conversions: number }>;
