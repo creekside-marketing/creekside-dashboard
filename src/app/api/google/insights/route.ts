@@ -19,11 +19,17 @@ async function attachPqlPerRow(
   getDataKey: (row: any) => string,
 ): Promise<void> {
   try {
+    // `pqlAction` may be a single action name OR a comma-separated list of
+    // action names that should all be summed into a single PQL count. This
+    // is backward-compatible: a single name yields a single-element set.
+    const wanted = new Set(
+      pqlAction.split(',').map((n) => n.trim()).filter(Boolean),
+    );
     const pqlResults = await customer.query(query);
     const map: Record<string, number> = {};
     for (const row of pqlResults as any[]) {
-      const name = row.segments?.conversion_action_name;
-      if (name !== pqlAction) continue;
+      const name: string = row.segments?.conversion_action_name ?? '';
+      if (!wanted.has(name)) continue;
       const key = getResultKey(row);
       if (!key) continue;
       const conv = Number(row.metrics?.conversions ?? 0);

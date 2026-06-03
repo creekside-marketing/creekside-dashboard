@@ -45,8 +45,25 @@ import { ReportingClient } from '../types';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-/** The ONLY conversion action counted as a Pricing Qualified Lead. */
-const PQL_ACTION_NAME = 'Pricing Qualified - Realtime (JT)';
+/**
+ * Conversion actions counted as a Pricing Qualified Lead.
+ * All three are in the CONVERTED_LEAD goal category and primary_for_goal,
+ * representing the pricing-qualified step and the two downstream stages
+ * (Clear to Close → Funded). Per Peterson + Ahmed (2026-06).
+ *
+ * Note: a user who progresses through multiple stages is counted at each
+ * stage, so total PQL volume is a weighted sum favouring campaigns that
+ * drive downstream outcomes (Clear to Close, Funded). This is intentional
+ * for weekly review reporting.
+ */
+const PQL_ACTION_NAMES: readonly string[] = [
+  'Pricing Qualified - Realtime (JT)',
+  'Clear to Close - JTC',
+  'Funded (Offline-API) [JTC]',
+] as const;
+const PQL_ACTION_PARAM = PQL_ACTION_NAMES.join(',');
+/** Short human-readable list for caption text in the UI. */
+const PQL_ACTION_LABELS = 'Realtime (JT), Clear to Close (JTC), Funded (JTC)';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -109,10 +126,13 @@ interface PqlState {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function extractPql(json: any): number {
   const breakdown = Array.isArray(json?.conversionBreakdown) ? json.conversionBreakdown : [];
-  const row = breakdown.find(
-    (x: any) => String(x?.name ?? '').trim() === PQL_ACTION_NAME,
-  );
-  return row ? Number(row.conversions ?? 0) : 0;
+  const wanted = new Set<string>(PQL_ACTION_NAMES);
+  let total = 0;
+  for (const row of breakdown) {
+    const name = String(row?.name ?? '').trim();
+    if (wanted.has(name)) total += Number(row?.conversions ?? 0);
+  }
+  return total;
 }
 
 function extractCost(json: any): number {
@@ -228,7 +248,7 @@ function useDimensionsWithPql(
     (async () => {
       try {
         const cid = encodeURIComponent(adAccountId);
-        const action = encodeURIComponent(PQL_ACTION_NAME);
+        const action = encodeURIComponent(PQL_ACTION_PARAM);
         const range = DATE_RANGES[dateRangeIndex];
         const dr = range.googleParam;
         const base = `/api/google/insights?customer_id=${cid}&date_range=${dr}&pql_action=${action}`;
@@ -346,7 +366,7 @@ function useInternalFunnelData(
       try {
         const cid = encodeURIComponent(adAccountId);
         const p = computePriorPeriod(dateRangeIndex);
-        const actionsParam = encodeURIComponent(`${PQL_ACTION_NAME},${PREQ_ACTION_NAME}`);
+        const actionsParam = encodeURIComponent(`${PQL_ACTION_PARAM},${PREQ_ACTION_NAME}`);
         const preqEncoded = encodeURIComponent(PREQ_ACTION_NAME);
 
         const accountUrl =
@@ -385,10 +405,11 @@ function useInternalFunnelData(
 
         let accountPql = 0;
         let accountPreQ = 0;
+        const pqlNameSet = new Set<string>(PQL_ACTION_NAMES);
         const breakdown = Array.isArray(account?.conversionBreakdown) ? account.conversionBreakdown : [];
         for (const item of breakdown) {
           const name = String(item?.name ?? '').trim();
-          if (name === PQL_ACTION_NAME) accountPql = Number(item?.conversions ?? 0);
+          if (pqlNameSet.has(name)) accountPql += Number(item?.conversions ?? 0);
           if (name === PREQ_ACTION_NAME) accountPreQ = Number(item?.conversions ?? 0);
         }
 
@@ -470,12 +491,13 @@ export default function SouthRiverMortgageGoogleReport({
   const funnelDaily = (() => {
     if (!isInternal) return [] as Array<{ date: string; preq: number; pql: number; cost: number; rollingCostPerPql: number }>;
     const map = new Map<string, { date: string; preq: number; pql: number; cost: number }>();
+    const pqlNameSet = new Set<string>(PQL_ACTION_NAMES);
     for (const row of funnel.dailyActions) {
       const d = row.date;
       if (!map.has(d)) map.set(d, { date: d, preq: 0, pql: 0, cost: 0 });
       const rec = map.get(d)!;
       if (row.action_name === PREQ_ACTION_NAME) rec.preq += row.conversions;
-      if (row.action_name === PQL_ACTION_NAME) rec.pql += row.conversions;
+      if (pqlNameSet.has(row.action_name)) rec.pql += row.conversions;
     }
     for (const [date, cost] of Object.entries(funnel.dailyCost)) {
       if (!map.has(date)) map.set(date, { date, preq: 0, pql: 0, cost: 0 });
@@ -605,7 +627,7 @@ export default function SouthRiverMortgageGoogleReport({
               />
             </div>
             <p className="text-[11px] text-slate-500 mt-3">
-              Counts only the &ldquo;{PQL_ACTION_NAME}&rdquo; conversion action. Recent days may rise as conversions finish attributing.
+              Counts the combined Pricing Qualified conversion actions ({PQL_ACTION_LABELS}). Recent days may rise as conversions finish attributing.
             </p>
           </div>
 
@@ -701,7 +723,7 @@ export default function SouthRiverMortgageGoogleReport({
               )}
 
               <p className="text-[11px] text-amber-700/80 mt-1">
-                Pre-Q → PQL rate measures how many Pre-Qualified Leads progress to the &ldquo;{PQL_ACTION_NAME}&rdquo; action. Recent days may rise as PQL conversions finish attributing (~5-day lag).
+                Pre-Q → PQL rate measures how many Pre-Qualified Leads (Lead Instant Quote - JTC submissions) progress to any of the combined Pricing Qualified actions ({PQL_ACTION_LABELS}). Recent days may rise as PQL conversions finish attributing (~5-day lag).
               </p>
             </div>
           )}
