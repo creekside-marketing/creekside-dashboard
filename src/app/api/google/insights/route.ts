@@ -126,7 +126,50 @@ export async function GET(request: NextRequest) {
         // Conversion breakdown is optional — don't fail the whole request
       }
 
-      return NextResponse.json({ level: 'account', customer_id: customerId, data, conversionBreakdown });
+      // Optional: daily per-action breakdown for a specific set of conversion
+      // actions. Only computed when the caller passes &daily_actions=Name1,Name2.
+      // Used by internal funnel-health views. Additive — clients without the
+      // param see no change in the response.
+      const dailyActionsParam = searchParams.get('daily_actions');
+      let dailyActionBreakdown: Array<{ date: string; action_name: string; conversions: number }> | undefined;
+      if (dailyActionsParam) {
+        try {
+          const wanted = new Set(
+            dailyActionsParam.split(',').map((n) => n.trim()).filter(Boolean),
+          );
+          const dailyResults = await customer.query(`
+            SELECT
+              segments.date,
+              segments.conversion_action_name,
+              metrics.conversions
+            FROM customer
+            WHERE ${dateFilter}
+          `);
+          const collected: Array<{ date: string; action_name: string; conversions: number }> = [];
+          for (const row of dailyResults as any[]) {
+            const name: string = row.segments?.conversion_action_name ?? '';
+            if (!wanted.has(name)) continue;
+            const conv = Number(row.metrics?.conversions ?? 0);
+            if (conv === 0) continue;
+            collected.push({
+              date: String(row.segments?.date ?? ''),
+              action_name: name,
+              conversions: conv,
+            });
+          }
+          dailyActionBreakdown = collected;
+        } catch {
+          // Best-effort — don't fail the request if this query errors.
+        }
+      }
+
+      return NextResponse.json({
+        level: 'account',
+        customer_id: customerId,
+        data,
+        conversionBreakdown,
+        ...(dailyActionBreakdown ? { dailyActionBreakdown } : {}),
+      });
     }
 
     // ── Keyword level ──────────────────────────────────────────────────

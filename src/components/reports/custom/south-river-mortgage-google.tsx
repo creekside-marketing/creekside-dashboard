@@ -287,6 +287,142 @@ function useDimensionsWithPql(
   return state;
 }
 
+// ── Internal funnel-health data (INTERNAL MODE ONLY) ──────────────────────
+
+/** Single conversion action whose name flags Pre-Qualified Leads. */
+const PREQ_ACTION_NAME = 'Pre-Qualified Lead';
+
+interface InternalFunnelState {
+  dailyActions: Array<{ date: string; action_name: string; conversions: number }>;
+  dailyCost: Record<string, number>;
+  perCampaignPreQ: Record<string, number>;
+  accountPql: number;
+  accountPreQ: number;
+  accountCost: number;
+  loading: boolean;
+}
+
+const EMPTY_FUNNEL: InternalFunnelState = {
+  dailyActions: [],
+  dailyCost: {},
+  perCampaignPreQ: {},
+  accountPql: 0,
+  accountPreQ: 0,
+  accountCost: 0,
+  loading: false,
+};
+
+/**
+ * Fetches the data needed for the internal Funnel Health sections:
+ *   - daily Pre-Qualified and PQL counts (for the day-to-day chart)
+ *   - daily account cost (to compute rolling cost-per-PQL)
+ *   - per-campaign Pre-Qualified counts (for the funnel table; the PQL count
+ *     and spend per campaign are already in useDimensionsWithPql)
+ *   - account-level totals for the KPI block
+ *
+ * Only runs when `enabled` is true (i.e. mode === 'internal'). Public viewers
+ * never trigger these fetches, so there is no extra Google Ads API quota cost
+ * for client-facing report loads.
+ */
+function useInternalFunnelData(
+  adAccountId: string | null,
+  dateRangeIndex: number,
+  enabled: boolean,
+): InternalFunnelState {
+  const [state, setState] = useState<InternalFunnelState>({ ...EMPTY_FUNNEL, loading: enabled });
+
+  useEffect(() => {
+    if (!enabled || !adAccountId) {
+      setState({ ...EMPTY_FUNNEL, loading: false });
+      return;
+    }
+    let cancelled = false;
+    setState((s) => ({ ...s, loading: true }));
+
+    (async () => {
+      try {
+        const cid = encodeURIComponent(adAccountId);
+        const p = computePriorPeriod(dateRangeIndex);
+        const actionsParam = encodeURIComponent(`${PQL_ACTION_NAME},${PREQ_ACTION_NAME}`);
+        const preqEncoded = encodeURIComponent(PREQ_ACTION_NAME);
+
+        const accountUrl =
+          `/api/google/insights?customer_id=${cid}&level=account` +
+          `&since=${p.currentSince}&until=${p.currentUntil}` +
+          `&daily_actions=${actionsParam}`;
+
+        const campaignPreQUrl =
+          `/api/google/insights?customer_id=${cid}&level=campaign` +
+          `&since=${p.currentSince}&until=${p.currentUntil}` +
+          `&pql_action=${preqEncoded}`;
+
+        const [accountRes, campaignRes] = await Promise.all([
+          fetch(accountUrl).catch(() => null),
+          fetch(campaignPreQUrl).catch(() => null),
+        ]);
+
+        /* eslint-disable @typescript-eslint/no-explicit-any */
+        const account: any = accountRes && accountRes.ok ? await accountRes.json() : {};
+        const campaigns: any = campaignRes && campaignRes.ok ? await campaignRes.json() : {};
+        /* eslint-enable @typescript-eslint/no-explicit-any */
+
+        const dailyActions = Array.isArray(account?.dailyActionBreakdown)
+          ? (account.dailyActionBreakdown as Array<{ date: string; action_name: string; conversions: number }>)
+          : [];
+
+        const dailyCost: Record<string, number> = {};
+        let accountCost = 0;
+        const accountData = Array.isArray(account?.data) ? account.data : [];
+        for (const row of accountData) {
+          const date = String(row?.date ?? '');
+          const cost = Number(row?.cost ?? 0);
+          if (date) dailyCost[date] = cost;
+          accountCost += cost;
+        }
+
+        let accountPql = 0;
+        let accountPreQ = 0;
+        const breakdown = Array.isArray(account?.conversionBreakdown) ? account.conversionBreakdown : [];
+        for (const item of breakdown) {
+          const name = String(item?.name ?? '').trim();
+          if (name === PQL_ACTION_NAME) accountPql = Number(item?.conversions ?? 0);
+          if (name === PREQ_ACTION_NAME) accountPreQ = Number(item?.conversions ?? 0);
+        }
+
+        // The campaign endpoint with pql_action=Pre-Qualified Lead returns
+        // per-row pql_conversions = Pre-Q count under that param. We re-key
+        // it as perCampaignPreQ for clarity.
+        const perCampaignPreQ: Record<string, number> = {};
+        const campaignData = Array.isArray(campaigns?.data) ? campaigns.data : [];
+        for (const c of campaignData) {
+          const id = String(c?.campaign_id ?? '');
+          if (!id) continue;
+          perCampaignPreQ[id] = Number(c?.pql_conversions ?? 0);
+        }
+
+        if (cancelled) return;
+        setState({
+          dailyActions,
+          dailyCost,
+          perCampaignPreQ,
+          accountPql,
+          accountPreQ,
+          accountCost,
+          loading: false,
+        });
+      } catch {
+        if (!cancelled) setState({ ...EMPTY_FUNNEL, loading: false });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [adAccountId, dateRangeIndex, enabled]);
+
+  return state;
+}
+
 // ── Component ────────────────────────────────────────────────────────────
 
 export default function SouthRiverMortgageGoogleReport({
@@ -315,6 +451,71 @@ export default function SouthRiverMortgageGoogleReport({
 
   // ── Per-dimension data with PQL columns ────────────────────────────────
   const dims = useDimensionsWithPql(client.ad_account_id, dateRangeIndex);
+
+  // ── Internal funnel-health data (only fetched in internal mode) ────────
+  const isInternal = mode === 'internal';
+  const funnel = useInternalFunnelData(client.ad_account_id, dateRangeIndex, isInternal);
+
+  // Account-level funnel KPIs (internal only)
+  const funnelRate = funnel.accountPreQ > 0 ? funnel.accountPql / funnel.accountPreQ : 0;
+  const funnelCostPerPql = funnel.accountPql > 0 ? funnel.accountCost / funnel.accountPql : 0;
+
+  // Daily series for the Pre-Q vs PQL chart (internal only).
+  // Pivot dailyActions [{date, action_name, conversions}] into one row per
+  // date with separate fields for each action, then merge in dailyCost so we
+  // can show a rolling cost-per-PQL line on the same chart.
+  const funnelDaily = (() => {
+    if (!isInternal) return [] as Array<{ date: string; preq: number; pql: number; cost: number; rollingCostPerPql: number }>;
+    const map = new Map<string, { date: string; preq: number; pql: number; cost: number }>();
+    for (const row of funnel.dailyActions) {
+      const d = row.date;
+      if (!map.has(d)) map.set(d, { date: d, preq: 0, pql: 0, cost: 0 });
+      const rec = map.get(d)!;
+      if (row.action_name === PREQ_ACTION_NAME) rec.preq += row.conversions;
+      if (row.action_name === PQL_ACTION_NAME) rec.pql += row.conversions;
+    }
+    for (const [date, cost] of Object.entries(funnel.dailyCost)) {
+      if (!map.has(date)) map.set(date, { date, preq: 0, pql: 0, cost: 0 });
+      map.get(date)!.cost = cost;
+    }
+    const sorted = Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+    // 7-day trailing rolling Cost / PQL (smoother than per-day since PQL is sparse)
+    const WIN = 7;
+    return sorted.map((r, i) => {
+      const start = Math.max(0, i - WIN + 1);
+      let costSum = 0;
+      let pqlSum = 0;
+      for (let j = start; j <= i; j++) {
+        costSum += sorted[j].cost;
+        pqlSum += sorted[j].pql;
+      }
+      return { ...r, rollingCostPerPql: pqlSum > 0 ? costSum / pqlSum : 0 };
+    });
+  })();
+
+  // Per-campaign funnel rows (internal only). Merge spend + PQL from dims.campaigns
+  // (already fetched with pql_action=PQL_ACTION_NAME) with Pre-Q from funnel.perCampaignPreQ.
+  const funnelCampaignRows: Array<Record<string, unknown>> = isInternal
+    ? dims.campaigns
+        .map((c) => {
+          const id = String(c.campaign_id ?? '');
+          const pql = Number(c.pql_conversions ?? 0);
+          const preq = funnel.perCampaignPreQ[id] ?? 0;
+          const spend = Number(c.cost ?? 0);
+          return {
+            campaign_name: c.campaign_name,
+            cost: spend,
+            preq_conversions: preq,
+            pql_conversions: pql,
+            preq_to_pql_rate: preq > 0 ? pql / preq : 0,
+            cost_per_pql: pql > 0 ? spend / pql : 0,
+          };
+        })
+        // Only show campaigns that actually generated either a Pre-Q or a PQL in the window
+        .filter((r) => Number(r.preq_conversions) > 0 || Number(r.pql_conversions) > 0)
+        // Sort by spend desc so the biggest budgets sit at top
+        .sort((a, b) => Number(b.cost) - Number(a.cost))
+    : [];
 
   // ── Derived values ─────────────────────────────────────────────────────
 
@@ -404,6 +605,103 @@ export default function SouthRiverMortgageGoogleReport({
               Counts only the &ldquo;{PQL_ACTION_NAME}&rdquo; conversion action. Recent days may rise as conversions finish attributing.
             </p>
           </div>
+
+          {/* ───────────────────────────────────────────────────────────────────
+              INTERNAL FUNNEL HEALTH SECTIONS
+              Only rendered when the viewer has the dashboard cm_auth cookie
+              (mode === 'internal'). Public token viewers (clients) never see
+              this block. Sections: Funnel Health KPIs, daily Pre-Q vs PQL
+              chart, rolling Cost per PQL chart, per-campaign Funnel table.
+              ─────────────────────────────────────────────────────────────── */}
+          {isInternal && (
+            <div className="rounded-xl border-2 border-dashed border-amber-300 bg-amber-50/40 p-5 space-y-6">
+              <div className="flex items-center gap-2">
+                <span className="inline-block w-2 h-2 rounded-full bg-amber-600" />
+                <h2 className="text-xs font-bold text-amber-800 uppercase tracking-wider">
+                  Internal Ops View &mdash; Funnel Health
+                </h2>
+                <span className="text-[10px] font-medium text-amber-700/70 ml-2">
+                  Visible only to logged-in Creekside team. Not shown to clients.
+                </span>
+              </div>
+
+              {/* Funnel Health KPI cards */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <SparklineKpiCard
+                  label="Pre-Q → PQL Rate"
+                  value={funnel.loading ? '…' : funnel.accountPreQ > 0 ? fmtPct(funnelRate) : '--'}
+                  changeSentiment="positive-up"
+                  size="lg"
+                />
+                <SparklineKpiCard
+                  label="Pre-Qualified Leads"
+                  value={funnel.loading ? '…' : fmt(funnel.accountPreQ)}
+                  changeSentiment="positive-up"
+                  size="lg"
+                />
+                <SparklineKpiCard
+                  label="Pricing Qualified Leads"
+                  value={funnel.loading ? '…' : fmt(funnel.accountPql)}
+                  changeSentiment="positive-up"
+                  size="lg"
+                />
+                <SparklineKpiCard
+                  label="Cost per PQL"
+                  value={funnel.loading ? '…' : funnel.accountPql > 0 ? fmtMoney(funnelCostPerPql) : '--'}
+                  changeSentiment="negative-up"
+                  size="lg"
+                />
+              </div>
+
+              {/* Daily Pre-Q vs PQL chart */}
+              {funnelDaily.length > 0 && (
+                <ReportChart
+                  title="Daily Pre-Qualified vs Pricing Qualified Leads"
+                  data={funnelDaily}
+                  xKey="date"
+                  lines={[
+                    { dataKey: 'preq', label: 'Pre-Qualified', color: '#10B981', type: 'bar', yAxisId: 'left' },
+                    { dataKey: 'pql', label: 'Pricing Qualified (JT)', color: '#8B5CF6', yAxisId: 'right' },
+                  ]}
+                  formatY={(v) => v.toFixed(0)}
+                  formatYRight={(v) => v.toFixed(0)}
+                />
+              )}
+
+              {/* Rolling Cost per PQL trend */}
+              {funnelDaily.length > 0 && (
+                <ReportChart
+                  title="Cost per Pricing Qualified Lead (7-day rolling)"
+                  data={funnelDaily}
+                  xKey="date"
+                  lines={[
+                    { dataKey: 'rollingCostPerPql', label: 'Cost / PQL', color: '#F59E0B', yAxisId: 'left' },
+                  ]}
+                  formatY={(v) => `$${v.toFixed(0)}`}
+                />
+              )}
+
+              {/* Per-campaign funnel table */}
+              {funnelCampaignRows.length > 0 && (
+                <BreakdownTable
+                  title="Per-Campaign Funnel Health"
+                  columns={[
+                    { key: 'campaign_name', label: 'Campaign' },
+                    { key: 'cost', label: 'Spend', align: 'right', format: moneyCol },
+                    { key: 'preq_conversions', label: 'Pre-Q', align: 'right', format: numOrDashCol },
+                    { key: 'pql_conversions', label: 'PQL', align: 'right', format: numOrDashCol },
+                    { key: 'preq_to_pql_rate', label: 'Pre-Q → PQL', align: 'right', format: (v) => Number(v ?? 0) > 0 ? fmtPct(Number(v)) : '--' },
+                    { key: 'cost_per_pql', label: 'Cost / PQL', align: 'right', format: moneyOrDashCol },
+                  ]}
+                  data={funnelCampaignRows}
+                />
+              )}
+
+              <p className="text-[11px] text-amber-700/80 mt-1">
+                Pre-Q → PQL rate measures how many Pre-Qualified Leads progress to the &ldquo;{PQL_ACTION_NAME}&rdquo; action. Recent days may rise as PQL conversions finish attributing (~5-day lag).
+              </p>
+            </div>
+          )}
 
           {/* 2. Executive Summary KPIs — 5 SparklineKpiCards */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
