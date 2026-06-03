@@ -10,9 +10,14 @@
  * Response:
  *   {
  *     last_month:    { month_date, revenue, expenses_by_category, total_expenses, profit, margin_pct }
+ *     prior_month:   { month_date, revenue, expenses_by_category, total_expenses, profit, margin_pct } | null
  *     this_month:    { month_date, projected_revenue, projected_expenses_by_category, projected_total_expenses, projected_profit, projected_margin_pct }
  *     categories:    string[]   (canonical expense categories present in either month)
  *   }
+ *
+ * "prior_month" is the month BEFORE last_month — used by the UI to show an
+ * actual-to-actual delta in the change column (e.g. April → May), since the
+ * current month's projection is too speculative to anchor against.
  *
  * "Last month" = most recent full calendar month with any expense activity in accounting_entries.
  * "This month projected" = each category defaults to last month's actual unless overridden in monthly_expense_projections.
@@ -80,6 +85,43 @@ export async function GET() {
     const lastProfit = lastRevenue - lastTotalExpenses;
     const lastMargin = lastRevenue > 0 ? (lastProfit / lastRevenue) * 100 : 0;
 
+    // 2b. Pull the month BEFORE last_month for the change column.
+    // Per Cade: "change" should show the most recent ACTUAL-to-ACTUAL delta
+    // (e.g. April → May) because June projected is too speculative.
+    const { data: priorRow } = await supabase
+      .from('accounting_entries')
+      .select('month_date')
+      .eq('entry_type', 'expense')
+      .eq('is_balance_row', false)
+      .eq('is_summary_row', false)
+      .lt('month_date', lastMonthDate)
+      .order('month_date', { ascending: false })
+      .limit(1);
+    const priorMonthDate = priorRow?.[0]?.month_date as string | undefined;
+
+    const priorExpensesByCategory: Record<string, number> = {};
+    let priorRevenue = 0;
+    if (priorMonthDate) {
+      const { data: priorMonthRows } = await supabase
+        .from('accounting_entries')
+        .select('category, entry_type, amount_cents')
+        .eq('month_date', priorMonthDate)
+        .eq('is_balance_row', false)
+        .eq('is_summary_row', false);
+      for (const row of priorMonthRows ?? []) {
+        const amt = Number(row.amount_cents ?? 0) / 100;
+        if (row.entry_type === 'income') {
+          priorRevenue += amt;
+        } else if (row.entry_type === 'expense') {
+          const cat = row.category ?? 'Uncategorized';
+          priorExpensesByCategory[cat] = (priorExpensesByCategory[cat] ?? 0) + amt;
+        }
+      }
+    }
+    const priorTotalExpenses = Object.values(priorExpensesByCategory).reduce((s, v) => s + v, 0);
+    const priorProfit = priorRevenue - priorTotalExpenses;
+    const priorMargin = priorRevenue > 0 ? (priorProfit / priorRevenue) * 100 : 0;
+
     // 3. Pull this month's projections (overrides).
     const { data: projRows, error: projErr } = await supabase
       .from('monthly_expense_projections')
@@ -103,18 +145,26 @@ export async function GET() {
     }
 
     // 4. Compose this month's projected expenses (default = last month's actual).
+    // Include `prior_actual` (e.g. April) alongside `last_actual` (e.g. May) so
+    // the UI can show the actual-to-actual delta in the change column.
     const allCategories = Array.from(
-      new Set([...Object.keys(lastExpensesByCategory), ...Object.keys(projectionsByCategory)])
+      new Set([
+        ...Object.keys(lastExpensesByCategory),
+        ...Object.keys(projectionsByCategory),
+        ...Object.keys(priorExpensesByCategory),
+      ])
     ).sort();
 
-    const projectedByCategory: Record<string, { last_actual: number; projected: number; overridden: boolean; notes?: string }> = {};
+    const projectedByCategory: Record<string, { last_actual: number; prior_actual: number; projected: number; overridden: boolean; notes?: string }> = {};
     let projectedTotalExpenses = 0;
     for (const cat of allCategories) {
       const lastActual = lastExpensesByCategory[cat] ?? 0;
+      const priorActual = priorExpensesByCategory[cat] ?? 0;
       const overridden = Object.prototype.hasOwnProperty.call(projectionsByCategory, cat);
       const projected = overridden ? projectionsByCategory[cat] : lastActual;
       projectedByCategory[cat] = {
         last_actual: round2(lastActual),
+        prior_actual: round2(priorActual),
         projected: round2(projected),
         overridden,
         notes: notesByCategory[cat],
@@ -199,6 +249,16 @@ export async function GET() {
         profit: round2(lastProfit),
         margin_pct: round2(lastMargin),
       },
+      prior_month: priorMonthDate ? {
+        month_date: priorMonthDate,
+        revenue: round2(priorRevenue),
+        expenses_by_category: Object.fromEntries(
+          Object.entries(priorExpensesByCategory).map(([k, v]) => [k, round2(v)])
+        ),
+        total_expenses: round2(priorTotalExpenses),
+        profit: round2(priorProfit),
+        margin_pct: round2(priorMargin),
+      } : null,
       this_month: {
         month_date: thisMonthDate,
         projected_revenue: round2(projectedRevenue),

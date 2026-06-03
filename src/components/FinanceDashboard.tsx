@@ -7,20 +7,24 @@ import ArrSummarySection from './ArrSummarySection';
 
 type CategoryProjection = {
   last_actual: number;
+  prior_actual: number;
   projected: number;
   overridden: boolean;
   notes?: string;
 };
 
+type MonthActuals = {
+  month_date: string;
+  revenue: number;
+  expenses_by_category: Record<string, number>;
+  total_expenses: number;
+  profit: number;
+  margin_pct: number;
+};
+
 type FinanceData = {
-  last_month: {
-    month_date: string;
-    revenue: number;
-    expenses_by_category: Record<string, number>;
-    total_expenses: number;
-    profit: number;
-    margin_pct: number;
-  };
+  last_month: MonthActuals;
+  prior_month: MonthActuals | null;
   this_month: {
     month_date: string;
     projected_revenue: number;
@@ -218,7 +222,7 @@ export default function FinanceDashboard() {
   if (err) return <div className="text-red-500 text-sm">Error: {err}</div>;
   if (!data) return null;
 
-  const { last_month, this_month, categories } = data;
+  const { last_month, prior_month, this_month, categories } = data;
 
   return (
     <div className="space-y-6">
@@ -245,14 +249,20 @@ export default function FinanceDashboard() {
               <th className="px-6 py-3 text-left">Category</th>
               <th className="px-6 py-3 text-right">{monthLabel(last_month.month_date)} actual</th>
               <th className="px-6 py-3 text-right">{monthLabel(this_month.month_date)} projected</th>
-              <th className="px-6 py-3 text-right">Δ vs last month</th>
+              <th
+                className="px-6 py-3 text-right"
+                title={prior_month ? `Change from ${monthLabel(prior_month.month_date)} actual → ${monthLabel(last_month.month_date)} actual. We use the last two ACTUAL months instead of projected because the current month is still in progress.` : ''}
+              >
+                Δ {prior_month ? `${monthLabel(prior_month.month_date).split(' ')[0]}→${monthLabel(last_month.month_date).split(' ')[0]}` : 'vs prior'}
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {categories.map(cat => {
               const proj = this_month.projected_expenses_by_category[cat];
               if (!proj) return null;
-              const delta = proj.projected - proj.last_actual;
+              // Change column: last_actual − prior_actual (actual-to-actual, e.g. May − April)
+              const delta = prior_month ? proj.last_actual - proj.prior_actual : 0;
               const isEditing = editingCategory === cat;
               return (
                 <tr key={cat} className="hover:bg-slate-50">
@@ -297,9 +307,14 @@ export default function FinanceDashboard() {
               <td className="px-6 py-3 text-sm text-slate-900">Total expenses</td>
               <td className="px-6 py-3 text-right text-sm text-slate-900">{formatCurrency(last_month.total_expenses)}</td>
               <td className="px-6 py-3 text-right text-sm text-slate-900">{formatCurrency(this_month.projected_total_expenses)}</td>
-              <td className={`px-6 py-3 text-right text-sm ${this_month.projected_total_expenses - last_month.total_expenses > 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+              <td className={`px-6 py-3 text-right text-sm ${
+                prior_month
+                  ? (last_month.total_expenses - prior_month.total_expenses > 0 ? 'text-red-600' : 'text-emerald-700')
+                  : 'text-slate-400'
+              }`}>
                 {(() => {
-                  const d = this_month.projected_total_expenses - last_month.total_expenses;
+                  if (!prior_month) return '—';
+                  const d = last_month.total_expenses - prior_month.total_expenses;
                   if (d === 0) return '—';
                   return `${d > 0 ? '+' : ''}${formatCurrency(d)}`;
                 })()}
@@ -335,13 +350,35 @@ export default function FinanceDashboard() {
                   </button>
                 )}
               </td>
-              <td className="px-6 py-3 text-right text-sm text-slate-400">—</td>
+              <td className={`px-6 py-3 text-right text-sm ${
+                prior_month
+                  ? (last_month.revenue - prior_month.revenue >= 0 ? 'text-emerald-700' : 'text-red-600')
+                  : 'text-slate-400'
+              }`}>
+                {(() => {
+                  if (!prior_month) return '—';
+                  const d = last_month.revenue - prior_month.revenue;
+                  if (d === 0) return '—';
+                  return `${d > 0 ? '+' : ''}${formatCurrency(d)}`;
+                })()}
+              </td>
             </tr>
             <tr>
               <td className="px-6 py-3 text-sm text-slate-900">Profit</td>
               <td className={`px-6 py-3 text-right text-sm font-bold ${last_month.profit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{formatCurrency(last_month.profit)}</td>
               <td className={`px-6 py-3 text-right text-sm font-bold ${this_month.projected_profit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{formatCurrency(this_month.projected_profit)}</td>
-              <td className="px-6 py-3 text-right text-sm text-slate-400">—</td>
+              <td className={`px-6 py-3 text-right text-sm font-bold ${
+                prior_month
+                  ? (last_month.profit - prior_month.profit >= 0 ? 'text-emerald-700' : 'text-red-600')
+                  : 'text-slate-400'
+              }`}>
+                {(() => {
+                  if (!prior_month) return '—';
+                  const d = last_month.profit - prior_month.profit;
+                  if (d === 0) return '—';
+                  return `${d > 0 ? '+' : ''}${formatCurrency(d)}`;
+                })()}
+              </td>
             </tr>
           </tfoot>
         </table>
