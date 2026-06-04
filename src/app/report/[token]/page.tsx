@@ -6,10 +6,11 @@ import TabbedReport from '@/components/reports/TabbedReport';
 export default async function PublicReportPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
 
-  // Check if user is authenticated (dashboard session) → internal mode with editing
+  // Check if user is authenticated (dashboard session OR report index) → internal mode with editing
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get('cm_auth')?.value;
-  const isAuthenticated = sessionCookie === process.env.DASHBOARD_SESSION_SECRET;
+  const reportIndexAuth = cookieStore.get('report_index_auth')?.value === 'true';
+  const isAuthenticated = sessionCookie === process.env.DASHBOARD_SESSION_SECRET || reportIndexAuth;
   const mode = isAuthenticated ? 'internal' : 'public';
 
   // Validate UUID format to prevent junk queries
