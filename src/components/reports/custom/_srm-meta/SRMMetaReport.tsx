@@ -159,7 +159,7 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <h2 className="text-base font-semibold text-slate-800">
-            Prequalified Leads
+            Pricing Qualified Leads
             <span className="ml-2 text-xs font-normal text-slate-400">(Meta-attributed, from lead sheet)</span>
           </h2>
           <div className="inline-flex items-center rounded-lg bg-slate-100 p-1 gap-0.5">
@@ -189,7 +189,7 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
           ) : (
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
               <KpiCard
-                label="Prequalified Leads"
+                label="Pricing Qualified Leads"
                 value={fmt(kpi.currentLeads)}
                 change={leadsChange}
                 changeSentiment="positive-up"
@@ -201,7 +201,7 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
                 changeSentiment="neutral"
               />
               <KpiCard
-                label="Cost Per Lead"
+                label="Cost Per Pricing Qualified Lead"
                 value={currentCPL > 0 ? fmtMoney(currentCPL) : '--'}
                 change={cplChange}
                 changeSentiment="negative-up"
