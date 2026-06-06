@@ -20,6 +20,8 @@ export interface UpworkJob {
   client_name: string | null;
   upwork_url: string | null;
   clickup_task_id: string | null;
+  boosted: boolean | null;
+  boost_spend: number | null;
 }
 
 export interface UpworkLead {
@@ -81,6 +83,21 @@ export interface MonthlyDataPoint {
   avgHoursAfterPost: number;
 }
 
+export type TrendGranularity = 'monthly' | 'weekly' | 'daily';
+
+export interface TrendDataPoint {
+  label: string;
+  applications: number;
+  viewRate: number;
+  replyRate: number;
+  callRate: number;
+  winRate: number;
+  viewToReply: number;
+  replyToCall: number;
+  callToWin: number;
+  replyToWin: number;
+}
+
 export interface ScriptPerformanceRow {
   scriptName: string;
   count: number;
@@ -89,6 +106,19 @@ export interface ScriptPerformanceRow {
   callRate: number;
   winRate: number;
   avgConnects: number;
+}
+
+export interface ScriptMonthCell {
+  count: number;
+  viewRate: number;
+  replyRate: number;
+  callRate: number;
+}
+
+export interface ScriptMonthlyComparison {
+  months: string[];
+  scripts: string[];
+  data: Map<string, Map<string, ScriptMonthCell>>; // month -> script -> cell
 }
 
 export interface HoursAfterPostBucket {
@@ -122,6 +152,24 @@ export interface WeeklyDataPoint {
   viewsToReplies: number;   // messaged / viewed * 100
   repliesToCalls: number;   // salesCalls / messaged * 100
   callsToClients: number;   // won / salesCalls * 100
+}
+
+export interface BoostComparisonMetrics {
+  label: string;
+  applications: number;
+  views: number;
+  replies: number;
+  calls: number;
+  won: number;
+  totalConnects: number;
+  viewRate: number;
+  replyRate: number;
+  callRate: number;
+  winRate: number;
+  costPerView: number;
+  costPerReply: number;
+  costPerCall: number;
+  costPerWin: number;
 }
 
 export interface UpworkFunnelApiResponse {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import KpiCard from '@/components/KpiCard';
 import {
   ComposedChart, BarChart as ReBarChart, Bar, Line, XAxis, YAxis,
@@ -9,11 +9,13 @@ import {
 import type {
   UpworkJob, UpworkLead, UpworkFunnelFilters,
   FunnelMetrics, MonthlyDataPoint, ScriptPerformanceRow,
-  HoursAfterPostBucket, BreakdownRow,
+  HoursAfterPostBucket, BreakdownRow, BoostComparisonMetrics,
+  TrendGranularity,
 } from '@/lib/types/upwork-funnel';
 import {
   applyFilters, computeFunnelMetrics, computeMonthlyTrend, computeWeeklyTrend,
-  computeScriptPerformance, computeHoursAfterPostBuckets, computeBreakdown,
+  computeTrend, computeScriptPerformance, computeScriptMonthlyComparison,
+  computeHoursAfterPostBuckets, computeBreakdown, computeBoostComparison,
 } from '@/lib/engine/upwork-funnel';
 
 /* ── Helpers ── */
@@ -194,6 +196,7 @@ export default function UpworkFunnelPage() {
   /* ── Filters ── */
   const [filters, setFilters] = useState<UpworkFunnelFilters>(INITIAL_FILTERS);
   const [showClosedLeads, setShowClosedLeads] = useState(false);
+  const [trendGranularity, setTrendGranularity] = useState<TrendGranularity>('monthly');
 
   useEffect(() => {
     fetch('/api/upwork-funnel')
@@ -262,6 +265,8 @@ export default function UpworkFunnelPage() {
         client_name: lead.lead_name,
         upwork_url: lead.upwork_proposal_url,
         clickup_task_id: lead.clickup_task_id,
+        boosted: false,
+        boost_spend: null,
       });
     }
 
@@ -290,11 +295,14 @@ export default function UpworkFunnelPage() {
   const sheetJobs = useMemo(() => filteredJobs.filter((j) => !j.id.startsWith('lead-')), [filteredJobs]);
   const metrics = useMemo(() => filteredJobs.length > 0 ? computeFunnelMetrics(filteredJobs) : EMPTY_METRICS, [filteredJobs]);
   const monthlyTrend = useMemo(() => computeMonthlyTrend(sheetJobs), [sheetJobs]);
+  const trendByGranularity = useMemo(() => computeTrend(sheetJobs, trendGranularity), [sheetJobs, trendGranularity]);
   const scriptPerformance = useMemo(() => computeScriptPerformance(sheetJobs), [sheetJobs]);
+  const scriptMonthly = useMemo(() => computeScriptMonthlyComparison(sheetJobs), [sheetJobs]);
   const hoursAfterPostBuckets = useMemo(() => computeHoursAfterPostBuckets(sheetJobs), [sheetJobs]);
   const sourceTypeBreakdown = useMemo(() => computeBreakdown(sheetJobs, (j) => j.source_type ?? 'Unknown'), [sheetJobs]);
   const businessTypeBreakdown = useMemo(() => computeBreakdown(sheetJobs, (j) => j.business_type ?? 'Unknown'), [sheetJobs]);
   const platformBreakdown = useMemo(() => computeBreakdown(sheetJobs, (j) => j.platform ?? 'Unknown'), [sheetJobs]);
+  const boostComparison = useMemo(() => computeBoostComparison(sheetJobs), [sheetJobs]);
   // Weekly trend uses enrichedJobs (includes ClickUp leads) to match weekly comparison table
   // Slice to last 26 weeks (~6 months)
   const weeklyTrend = useMemo(() => computeWeeklyTrend(enrichedJobs).slice(-26), [enrichedJobs]);
@@ -447,13 +455,17 @@ export default function UpworkFunnelPage() {
     { name: 'Won', count: metrics.totalWon, pct: metrics.winRate * 100 },
   ];
 
-  const trendData = monthlyTrend.map((d) => ({
-    month: d.month.slice(2),
+  const trendData = trendByGranularity.map((d) => ({
+    label: d.label,
     applications: d.applications,
     viewRate: +(d.viewRate * 100).toFixed(1),
     replyRate: +(d.replyRate * 100).toFixed(1),
     callRate: +(d.callRate * 100).toFixed(1),
     winRate: +(d.winRate * 100).toFixed(1),
+    viewToReply: +(d.viewToReply * 100).toFixed(1),
+    replyToCall: +(d.replyToCall * 100).toFixed(1),
+    callToWin: +(d.callToWin * 100).toFixed(1),
+    replyToWin: +(d.replyToWin * 100).toFixed(1),
   }));
 
   const hoursData = hoursAfterPostBuckets.map((b) => ({
@@ -742,23 +754,146 @@ export default function UpworkFunnelPage() {
         <KpiCard label="Avg Competition" value={metrics.avgCompetingProposals.toFixed(1)} change="competing proposals" />
       </div>
 
-      {/* Monthly Trend */}
+      {/* Boosted vs Unboosted Comparison */}
+      {boostComparison.boosted.applications > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+          <div className="px-4 py-3 border-b border-slate-100">
+            <h3 className="text-sm font-semibold text-slate-900">Boosted vs Unboosted Performance</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Cost includes base connects + boost spend. $0.15 per connect.</p>
+          </div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-slate-50 text-slate-500 uppercase tracking-wider">
+                <th className="text-left py-2.5 px-4 font-semibold"></th>
+                <th className="text-right py-2.5 px-4 font-semibold">Boosted</th>
+                <th className="text-right py-2.5 px-4 font-semibold">Unboosted</th>
+                <th className="text-right py-2.5 px-4 font-semibold">Delta</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(() => {
+                const b = boostComparison.boosted;
+                const u = boostComparison.unboosted;
+                const fmtD = (v: number) => `$${v.toFixed(2)}`;
+                const fmtP = (v: number) => `${(v * 100).toFixed(1)}%`;
+                const deltaColor = (bVal: number, uVal: number, lowerIsBetter: boolean) => {
+                  const diff = bVal - uVal;
+                  if (Math.abs(diff) < 0.001) return 'text-slate-500';
+                  return (lowerIsBetter ? diff < 0 : diff > 0) ? 'text-emerald-600' : 'text-red-500';
+                };
+                const deltaFmt = (bVal: number, uVal: number, fmt: (v: number) => string) => {
+                  const diff = bVal - uVal;
+                  const sign = diff > 0 ? '+' : '';
+                  return `${sign}${fmt(diff)}`;
+                };
+
+                const rows = [
+                  { label: 'Applications', bVal: b.applications, uVal: u.applications, fmt: (v: number) => v.toLocaleString(), lower: false },
+                  { label: 'Total Spend', bVal: b.totalConnects * 0.15, uVal: u.totalConnects * 0.15, fmt: fmtD, lower: true },
+                  { label: 'View Rate', bVal: b.viewRate, uVal: u.viewRate, fmt: fmtP, lower: false },
+                  { label: 'Reply Rate', bVal: b.replyRate, uVal: u.replyRate, fmt: fmtP, lower: false },
+                  { label: 'Call Rate', bVal: b.callRate, uVal: u.callRate, fmt: fmtP, lower: false },
+                  { label: 'Win Rate', bVal: b.winRate, uVal: u.winRate, fmt: fmtP, lower: false },
+                  { label: 'Cost / View', bVal: b.costPerView, uVal: u.costPerView, fmt: fmtD, lower: true },
+                  { label: 'Cost / Reply (Lead)', bVal: b.costPerReply, uVal: u.costPerReply, fmt: fmtD, lower: true },
+                  { label: 'Cost / Call', bVal: b.costPerCall, uVal: u.costPerCall, fmt: fmtD, lower: true },
+                  { label: 'Cost / Win', bVal: b.costPerWin, uVal: u.costPerWin, fmt: fmtD, lower: true },
+                ];
+
+                return rows.map(({ label, bVal, uVal, fmt, lower }) => (
+                  <tr key={label} className="border-t border-slate-100">
+                    <td className="py-2 px-4 font-medium text-slate-900">{label}</td>
+                    <td className="py-2 px-4 text-right text-slate-700 font-semibold">{fmt(bVal)}</td>
+                    <td className="py-2 px-4 text-right text-slate-700">{fmt(uVal)}</td>
+                    <td className={`py-2 px-4 text-right font-semibold ${deltaColor(bVal, uVal, lower)}`}>
+                      {deltaFmt(bVal, uVal, fmt)}
+                    </td>
+                  </tr>
+                ));
+              })()}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Trend Chart (Monthly / Weekly / Daily) */}
       {trendData.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-          <h3 className="text-sm font-semibold text-slate-900 mb-4">Monthly Trends</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-slate-900">
+              {trendGranularity === 'monthly' ? 'Monthly' : trendGranularity === 'weekly' ? 'Weekly' : 'Daily'} Trends
+            </h3>
+            <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+              {(['monthly', 'weekly', 'daily'] as const).map((g) => (
+                <button
+                  key={g}
+                  onClick={() => setTrendGranularity(g)}
+                  className={`px-3 py-1 text-xs font-medium transition-colors ${
+                    trendGranularity === g
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {g.charAt(0).toUpperCase() + g.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
           <ResponsiveContainer width="100%" height={320}>
-            <ComposedChart data={trendData} margin={{ left: 0, right: 0, top: 0, bottom: 0 }}>
+            <ComposedChart data={trendData} margin={{ left: 0, right: 0, top: 0, bottom: trendGranularity === 'monthly' ? 0 : 40 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} />
+              <XAxis
+                dataKey="label"
+                tick={{ fill: '#94a3b8', fontSize: trendGranularity === 'monthly' ? 11 : 10 }}
+                axisLine={{ stroke: '#e2e8f0' }}
+                tickLine={false}
+                angle={trendGranularity === 'monthly' ? 0 : -45}
+                textAnchor={trendGranularity === 'monthly' ? 'middle' : 'end'}
+                height={trendGranularity === 'monthly' ? 30 : 60}
+                interval={trendGranularity === 'daily' ? Math.max(0, Math.floor(trendData.length / 15)) : 0}
+              />
               <YAxis yAxisId="left" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
               <YAxis yAxisId="right" orientation="right" domain={[0, 50]} tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} />
               <Tooltip contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: 12 }} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar yAxisId="left" dataKey="applications" fill="#e2e8f0" radius={[4, 4, 0, 0]} barSize={24} name="Applications" />
+              <Bar yAxisId="left" dataKey="applications" fill="#e2e8f0" radius={[4, 4, 0, 0]} barSize={trendGranularity === 'daily' ? 8 : trendGranularity === 'weekly' ? 16 : 24} name="Applications" />
               <Line yAxisId="right" type="monotone" dataKey="viewRate" stroke="#14B8A6" strokeWidth={2} dot={false} name="View %" />
               <Line yAxisId="right" type="monotone" dataKey="replyRate" stroke="#3B82F6" strokeWidth={2} dot={false} name="Reply %" />
               <Line yAxisId="right" type="monotone" dataKey="callRate" stroke="#F59E0B" strokeWidth={2} dot={false} name="Call %" />
               <Line yAxisId="right" type="monotone" dataKey="winRate" stroke="#10B981" strokeWidth={2} dot={false} name="Win %" />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Stage-to-Stage Conversion Trends */}
+      {trendData.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+          <h3 className="text-sm font-semibold text-slate-900 mb-1">Stage-to-Stage Conversions</h3>
+          <p className="text-xs text-slate-500 mb-4">How efficiently prospects move between funnel stages</p>
+          <ResponsiveContainer width="100%" height={300}>
+            <ComposedChart data={trendData} margin={{ left: 0, right: 0, top: 0, bottom: trendGranularity === 'monthly' ? 0 : 40 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+              <XAxis
+                dataKey="label"
+                tick={{ fill: '#94a3b8', fontSize: trendGranularity === 'monthly' ? 11 : 10 }}
+                axisLine={{ stroke: '#e2e8f0' }}
+                tickLine={false}
+                angle={trendGranularity === 'monthly' ? 0 : -45}
+                textAnchor={trendGranularity === 'monthly' ? 'middle' : 'end'}
+                height={trendGranularity === 'monthly' ? 30 : 60}
+                interval={trendGranularity === 'daily' ? Math.max(0, Math.floor(trendData.length / 15)) : 0}
+              />
+              <YAxis domain={[0, 100]} tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} />
+              <Tooltip
+                contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: 12 }}
+                formatter={(value) => [`${Number(value).toFixed(1)}%`]}
+              />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Line type="monotone" dataKey="viewToReply" stroke="#3B82F6" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="View → Reply" />
+              <Line type="monotone" dataKey="replyToCall" stroke="#F59E0B" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="Reply → Call" />
+              <Line type="monotone" dataKey="callToWin" stroke="#22C55E" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="Call → Win" />
+              <Line type="monotone" dataKey="replyToWin" stroke="#8B5CF6" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="Reply → Win" />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -795,6 +930,75 @@ export default function UpworkFunnelPage() {
                     <td className="text-slate-600 text-right py-2 px-3">{row.avgConnects.toFixed(1)}</td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Script Performance by Month (apples-to-apples) */}
+      {scriptMonthly.scripts.length > 0 && scriptMonthly.months.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+          <div className="px-4 py-3 border-b border-slate-100">
+            <h3 className="text-sm font-semibold text-slate-900">Script Performance by Month</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Compare scripts within the same month to control for market conditions</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 uppercase tracking-wider">
+                  <th className="text-left py-2 px-4 font-semibold sticky left-0 bg-slate-50 z-10">Month</th>
+                  {scriptMonthly.scripts.map((script) => (
+                    <th key={script} colSpan={3} className="text-center py-2 px-2 font-semibold border-l border-slate-200">{script}</th>
+                  ))}
+                </tr>
+                <tr className="bg-slate-50/50 text-slate-400 text-[10px] uppercase">
+                  <th className="sticky left-0 bg-slate-50/50 z-10"></th>
+                  {scriptMonthly.scripts.map((script) => (
+                    <React.Fragment key={`sub-${script}`}>
+                      <th className="py-1 px-1.5 text-center border-l border-slate-200">Apps</th>
+                      <th className="py-1 px-1.5 text-center">View%</th>
+                      <th className="py-1 px-1.5 text-center">Reply%</th>
+                    </React.Fragment>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {scriptMonthly.months.map((month) => {
+                  const monthData = scriptMonthly.data.get(month);
+                  // Find best view & reply rates this month for highlighting
+                  const cells = scriptMonthly.scripts.map((s) => monthData?.get(s));
+                  const viewRates = cells.map((c) => c?.viewRate ?? -1);
+                  const replyRates = cells.map((c) => c?.replyRate ?? -1);
+                  const bestView = Math.max(...viewRates);
+                  const bestReply = Math.max(...replyRates);
+                  return (
+                    <tr key={month} className="border-t border-slate-100 hover:bg-slate-50/50">
+                      <td className="py-2 px-4 font-medium text-slate-900 sticky left-0 bg-white z-10">{month.slice(2)}</td>
+                      {scriptMonthly.scripts.map((script, idx) => {
+                        const cell = cells[idx];
+                        if (!cell) return (
+                          <React.Fragment key={`${month}-${script}`}>
+                            <td className="py-2 px-1.5 text-center text-slate-300 border-l border-slate-100">&mdash;</td>
+                            <td className="py-2 px-1.5 text-center text-slate-300">&mdash;</td>
+                            <td className="py-2 px-1.5 text-center text-slate-300">&mdash;</td>
+                          </React.Fragment>
+                        );
+                        return (
+                          <React.Fragment key={`${month}-${script}`}>
+                            <td className="py-2 px-1.5 text-center text-slate-600 border-l border-slate-100">{cell.count}</td>
+                            <td className={`py-2 px-1.5 text-center ${cell.viewRate === bestView && bestView > 0 ? 'text-emerald-600 font-semibold' : 'text-slate-900'}`}>
+                              {(cell.viewRate * 100).toFixed(0)}%
+                            </td>
+                            <td className={`py-2 px-1.5 text-center ${cell.replyRate === bestReply && bestReply > 0 ? 'text-emerald-600 font-semibold' : 'text-slate-900'}`}>
+                              {(cell.replyRate * 100).toFixed(0)}%
+                            </td>
+                          </React.Fragment>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
