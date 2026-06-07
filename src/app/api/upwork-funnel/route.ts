@@ -6,7 +6,7 @@ const UPWORK_JOB_COLUMNS = [
   'script_used', 'source_type', 'profile_used', 'platform', 'business_type',
   'connects_spent', 'competing_proposals', 'hours_after_post',
   'viewed', 'messaged', 'sales_call', 'won', 'client_name', 'upwork_url',
-  'clickup_task_id', 'boosted', 'boost_spend',
+  'clickup_task_id', 'boosted', 'boost_spend', 'client_max_rate',
 ].join(', ');
 
 const UPWORK_LEAD_COLUMNS = [

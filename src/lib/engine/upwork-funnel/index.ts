@@ -8,5 +8,6 @@ export {
   computeScriptMonthlyComparison,
   computeHoursAfterPostBuckets,
   computeBreakdown,
+  computeRateBreakdown,
   computeBoostComparison,
 } from './metrics';

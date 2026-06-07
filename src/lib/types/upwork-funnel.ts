@@ -22,6 +22,7 @@ export interface UpworkJob {
   clickup_task_id: string | null;
   boosted: boolean | null;
   boost_spend: number | null;
+  client_max_rate: string | null;
 }
 
 export interface UpworkLead {
@@ -152,6 +153,19 @@ export interface WeeklyDataPoint {
   viewsToReplies: number;   // messaged / viewed * 100
   repliesToCalls: number;   // salesCalls / messaged * 100
   callsToClients: number;   // won / salesCalls * 100
+}
+
+export interface RateBreakdownRow {
+  bucket: string;
+  apps: number;
+  views: number;
+  viewRate: number;
+  replies: number;
+  replyRate: number;
+  calls: number;
+  callRate: number;
+  won: number;
+  winRate: number;
 }
 
 export interface BoostComparisonMetrics {

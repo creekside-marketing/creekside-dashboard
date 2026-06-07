@@ -15,7 +15,8 @@ import type {
 import {
   applyFilters, computeFunnelMetrics, computeMonthlyTrend, computeWeeklyTrend,
   computeTrend, computeScriptPerformance, computeScriptMonthlyComparison,
-  computeHoursAfterPostBuckets, computeBreakdown, computeBoostComparison,
+  computeHoursAfterPostBuckets, computeBreakdown, computeRateBreakdown,
+  computeBoostComparison,
 } from '@/lib/engine/upwork-funnel';
 
 /* ── Helpers ── */
@@ -267,6 +268,7 @@ export default function UpworkFunnelPage() {
         clickup_task_id: lead.clickup_task_id,
         boosted: false,
         boost_spend: null,
+        client_max_rate: null,
       });
     }
 
@@ -303,6 +305,7 @@ export default function UpworkFunnelPage() {
   const businessTypeBreakdown = useMemo(() => computeBreakdown(sheetJobs, (j) => j.business_type ?? 'Unknown'), [sheetJobs]);
   const platformBreakdown = useMemo(() => computeBreakdown(sheetJobs, (j) => j.platform ?? 'Unknown'), [sheetJobs]);
   const boostComparison = useMemo(() => computeBoostComparison(sheetJobs), [sheetJobs]);
+  const rateBreakdown = useMemo(() => computeRateBreakdown(filteredJobs), [filteredJobs]);
   // Weekly trend uses enrichedJobs (includes ClickUp leads) to match weekly comparison table
   // Slice to last 26 weeks (~6 months)
   const weeklyTrend = useMemo(() => computeWeeklyTrend(enrichedJobs).slice(-26), [enrichedJobs]);
@@ -753,6 +756,49 @@ export default function UpworkFunnelPage() {
         <KpiCard label="Cost / Win" value={dollars(metrics.connectsPerWin)} />
         <KpiCard label="Avg Competition" value={metrics.avgCompetingProposals.toFixed(1)} change="competing proposals" />
       </div>
+
+      {/* Job Rate Breakdown */}
+      {rateBreakdown.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+          <div className="px-4 py-3 border-b border-slate-100">
+            <h3 className="text-sm font-semibold text-slate-900">Performance by Job Rate</h3>
+          </div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-slate-50 text-slate-500 uppercase tracking-wider">
+                <th className="text-left py-2.5 px-4 font-semibold">Rate</th>
+                <th className="text-right py-2.5 px-3 font-semibold">Apps</th>
+                <th className="text-right py-2.5 px-3 font-semibold">View %</th>
+                <th className="text-right py-2.5 px-3 font-semibold">Reply %</th>
+                <th className="text-right py-2.5 px-3 font-semibold">Call %</th>
+                <th className="text-right py-2.5 px-3 font-semibold">Win %</th>
+                <th className="text-right py-2.5 px-3 font-semibold">Replies</th>
+                <th className="text-right py-2.5 px-3 font-semibold">Calls</th>
+                <th className="text-right py-2.5 px-3 font-semibold">Won</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(() => {
+                const bestReply = Math.max(...rateBreakdown.map((r) => r.replyRate));
+                const bestCall = Math.max(...rateBreakdown.map((r) => r.callRate));
+                return rateBreakdown.map((row) => (
+                  <tr key={row.bucket} className="border-t border-slate-100 hover:bg-slate-50/50">
+                    <td className="text-slate-900 py-2 px-4 font-medium">{row.bucket}</td>
+                    <td className="text-slate-600 text-right py-2 px-3">{row.apps.toLocaleString()}</td>
+                    <td className="text-slate-900 text-right py-2 px-3">{pct(row.viewRate)}</td>
+                    <td className={`text-right py-2 px-3 ${row.replyRate === bestReply && bestReply > 0 ? 'text-emerald-600 font-semibold' : 'text-slate-900'}`}>{pct(row.replyRate)}</td>
+                    <td className={`text-right py-2 px-3 ${row.callRate === bestCall && bestCall > 0 ? 'text-emerald-600 font-semibold' : 'text-slate-900'}`}>{pct(row.callRate)}</td>
+                    <td className="text-slate-900 text-right py-2 px-3">{pct(row.winRate)}</td>
+                    <td className="text-slate-600 text-right py-2 px-3">{row.replies}</td>
+                    <td className="text-slate-600 text-right py-2 px-3">{row.calls}</td>
+                    <td className="text-slate-600 text-right py-2 px-3">{row.won}</td>
+                  </tr>
+                ));
+              })()}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Boosted vs Unboosted Comparison */}
       {boostComparison.boosted.applications > 0 && (

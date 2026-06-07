@@ -8,6 +8,7 @@ import type {
   ScriptMonthlyComparison,
   HoursAfterPostBucket,
   BreakdownRow,
+  RateBreakdownRow,
   BoostComparisonMetrics,
   TrendGranularity,
   TrendDataPoint,
@@ -391,6 +392,59 @@ export function computeBreakdown(jobs: UpworkJob[], keyFn: (j: UpworkJob) => str
       };
     })
     .sort((a, b) => b.count - a.count);
+}
+
+/* ── Rate breakdown ── */
+
+function parseMaxRate(raw: string | null): number | null {
+  if (!raw) return null;
+  const cleaned = raw.replace(/[$,]/g, '');
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? null : num;
+}
+
+function rateBucket(raw: string | null): string {
+  const rate = parseMaxRate(raw);
+  if (rate === null) return 'No Rate Listed';
+  if (rate < 55) return 'Under $55';
+  if (rate < 100) return '$55-99';
+  return '$100+';
+}
+
+const RATE_BUCKET_ORDER = ['No Rate Listed', 'Under $55', '$55-99', '$100+'];
+
+export function computeRateBreakdown(jobs: UpworkJob[]): RateBreakdownRow[] {
+  const byBucket = new Map<string, UpworkJob[]>();
+
+  for (const job of jobs) {
+    const bucket = rateBucket(job.client_max_rate);
+    const arr = byBucket.get(bucket) ?? [];
+    arr.push(job);
+    byBucket.set(bucket, arr);
+  }
+
+  return RATE_BUCKET_ORDER
+    .filter((bucket) => byBucket.has(bucket))
+    .map((bucket) => {
+      const group = byBucket.get(bucket)!;
+      const apps = group.length;
+      const views = group.filter((j) => j.viewed).length;
+      const replies = group.filter((j) => j.messaged).length;
+      const calls = group.filter((j) => j.sales_call).length;
+      const won = group.filter((j) => j.won).length;
+      return {
+        bucket,
+        apps,
+        views,
+        viewRate: safeDiv(views, apps),
+        replies,
+        replyRate: safeDiv(replies, apps),
+        calls,
+        callRate: safeDiv(calls, apps),
+        won,
+        winRate: safeDiv(won, apps),
+      };
+    });
 }
 
 /* ── Boost comparison ── */
