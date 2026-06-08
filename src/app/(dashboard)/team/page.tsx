@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { getTeamColor } from '@/lib/team-colors';
 
 interface AllocationRow {
   client_name: string;
@@ -75,6 +76,10 @@ function MemberCard({ m }: { m: TeamMemberPayload }) {
     ? `$${m.hourly_rate}/hr`
     : 'Rate not set';
 
+  // Team color drives the header tint + left accent stripe so the same person
+  // is instantly identifiable here and in the Client Table labor chips.
+  const color = getTeamColor(m.name);
+
   const totalRow = (
     <tr className="bg-slate-50 font-semibold border-t-2 border-slate-300">
       <td className="px-4 py-2 text-sm text-slate-900">Total</td>
@@ -89,13 +94,16 @@ function MemberCard({ m }: { m: TeamMemberPayload }) {
   );
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-      <div className="px-5 py-4 border-b border-slate-200 bg-slate-50">
+    <div className={`bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden border-l-4 ${color.ring.replace('ring-', 'border-')}`}>
+      <div className={`px-5 py-4 border-b border-slate-200 ${color.bg}`}>
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900">{m.name}</h2>
-            <div className="text-xs text-slate-500 mt-0.5">
-              {m.role || 'Team member'} · {compLabel}
+          <div className="flex items-center gap-2">
+            <span className={`w-2.5 h-2.5 rounded-full ${color.dot}`} aria-hidden />
+            <div>
+              <h2 className={`text-lg font-bold ${color.text}`}>{m.name}</h2>
+              <div className="text-xs text-slate-600 mt-0.5">
+                {m.role || 'Team member'} · {compLabel}
+              </div>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">

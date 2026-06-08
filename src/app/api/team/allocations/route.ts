@@ -15,6 +15,7 @@ const BANDWIDTH_REMAINING_HOURS: Record<string, number> = {
   'Ahmed Imran': 15,
   'Ade Aderibigbe': 10,
   'Baran Eris': 20,
+  // Jordan Tryon: bandwidth not yet specified — will show as `--` until set.
 };
 
 // Order in which members render on the page.
@@ -26,6 +27,7 @@ const DISPLAY_ORDER: string[] = [
   'Ahmed Imran',
   'Ade Aderibigbe',
   'Baran Eris',
+  'Jordan Tryon',
 ];
 
 interface AllocationRow {
