@@ -118,7 +118,7 @@ export async function GET(req: NextRequest) {
     // 4. Build per-client comparison for every eligible client.
     const { data: clientsData, error: clientsErr } = await supabase
       .from('clients')
-      .select('id, name, status, engagement_details');
+      .select('id, name, status, engagement_details, primary_contact_name, display_names');
 
     if (clientsErr) {
       return NextResponse.json({ error: `clients read failed: ${clientsErr.message}` }, { status: 500 });
@@ -188,6 +188,59 @@ export async function GET(req: NextRequest) {
         bucket,
         acquisition_source: meta.source,
       });
+    }
+
+    // 4a. new_client_mrr fallback: clients who just landed but don't yet have a
+     //     COMPLETED Square payment synced. We use manually-confirmed MRR rows
+     //     keyed off the customer name (primary_contact_name / display_names /
+     //     canonical name) to surface them as NEW immediately. Avoids the "we
+     //     know they paid, why isn't it showing?" lag while we wait for Square sync.
+    const { data: newMrrRows } = await supabase
+      .from('new_client_mrr')
+      .select('client_name, first_payment_date, monthly_mrr')
+      .gte('first_payment_date', thisStart.slice(0, 10))
+      .lte('first_payment_date', thisEnd.slice(0, 10));
+
+    if (newMrrRows && newMrrRows.length > 0) {
+      // Build a name → client_id lookup table. Match on canonical name +
+      // primary_contact_name + display_names so "Don Morton" → MLS Signs etc.
+      const norm = (s: string | null | undefined) =>
+        (s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+      const clientIdByNormName = new Map<string, string>();
+      for (const c of clientsData ?? []) {
+        const id = c.id as string;
+        const variants = new Set<string>([norm(c.name as string)]);
+        const pcn = (c as { primary_contact_name?: string | null }).primary_contact_name;
+        if (pcn) variants.add(norm(pcn));
+        const dns = (c as { display_names?: string[] | null }).display_names;
+        if (Array.isArray(dns)) dns.forEach(dn => variants.add(norm(dn)));
+        variants.delete('');
+        for (const v of variants) {
+          if (!clientIdByNormName.has(v)) clientIdByNormName.set(v, id);
+        }
+      }
+
+      for (const r of newMrrRows) {
+        const name = (r.client_name as string) ?? '';
+        const mrr = Number(r.monthly_mrr ?? 0);
+        if (!name || mrr <= 0) continue;
+        const id = clientIdByNormName.get(norm(name));
+        if (!id) continue;
+        // Skip if this client already appears in rows (already detected via Square).
+        if (rows.some(rr => rr.client_id === id)) continue;
+        // Skip if not eligible (retainer or 'other' platform only).
+        if (!eligibleIds.has(id)) continue;
+        const meta = clientMeta.get(id);
+        rows.push({
+          client_id: id,
+          client_name: meta?.name ?? name,
+          this_month_mrr: round2(mrr),
+          last_month_mrr: 0,
+          delta: round2(mrr),
+          bucket: 'new',
+          acquisition_source: meta?.source ?? null,
+        });
+      }
     }
 
     // 4b. Detect REAL churn: reporting_clients rows marked status='churned' with

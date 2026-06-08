@@ -9,14 +9,20 @@ import { createServiceClient } from '@/lib/supabase';
 // Bandwidth remaining (hours/week) per Peterson + Cade — May 18 2026 call.
 // Single source of truth lives here; edit in code if it changes.
 const BANDWIDTH_REMAINING_HOURS: Record<string, number> = {
-  'Lindsey Bouffard': 7,  // +1 from Mark Wolf hours transferred to Trent
   'Scott Caldwell': 10,
   'Trent Lucas': 18,  // -2 from Mark Wolf 2-hr allocation
   'Ahmed Imran': 15,
   'Ade Aderibigbe': 10,
   'Baran Eris': 20,
+  // Lindsey is dynamic: 45-hr weekly capacity − 5-hr admin buffer − allocated hours.
   // Jordan Tryon + Aamir: bandwidth not yet specified — will show as `--` until set.
 };
+
+// Lindsey is the full-time salaried hire — her bandwidth flexes as we add/remove
+// client work. Capacity is 45 hrs/wk total, with a 5-hr admin buffer for downtime,
+// onboarding, and internal coordination. Remaining = 45 − 5 − sum(allocated).
+const LINDSEY_WEEKLY_CAPACITY = 45;
+const LINDSEY_ADMIN_BUFFER = 5;
 
 // Order in which members render on the page. Tobi remains excluded (AI-agent-only).
 const DISPLAY_ORDER: string[] = [
@@ -104,6 +110,11 @@ export async function GET() {
       );
       const totalHours = allocs.reduce((sum, a) => sum + (a.hours_per_week ?? 0), 0);
       const totalPay = allocs.reduce((sum, a) => sum + a.monthly_amount, 0);
+      // Lindsey gets a dynamic bandwidth computed from her allocations; everyone
+      // else uses the static map (their bandwidth is set by Peterson + Cade).
+      const bandwidth_remaining_hours = m.name === 'Lindsey Bouffard'
+        ? Math.round((LINDSEY_WEEKLY_CAPACITY - LINDSEY_ADMIN_BUFFER - totalHours) * 10) / 10
+        : (BANDWIDTH_REMAINING_HOURS[m.name] ?? null);
       return {
         id: m.id,
         name: m.name,
@@ -111,7 +122,7 @@ export async function GET() {
         hourly_rate: m.hourly_rate !== null ? Number(m.hourly_rate) : null,
         monthly_retainer: m.monthly_retainer !== null ? Number(m.monthly_retainer) : null,
         status: m.status,
-        bandwidth_remaining_hours: BANDWIDTH_REMAINING_HOURS[m.name] ?? null,
+        bandwidth_remaining_hours,
         current_hours_per_week: totalHours,
         total_monthly_pay: totalPay,
         allocations: allocs,
