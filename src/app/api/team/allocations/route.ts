@@ -15,11 +15,10 @@ const BANDWIDTH_REMAINING_HOURS: Record<string, number> = {
   'Ahmed Imran': 15,
   'Ade Aderibigbe': 10,
   'Baran Eris': 20,
-  // Jordan Tryon: bandwidth not yet specified — will show as `--` until set.
+  // Jordan Tryon + Aamir: bandwidth not yet specified — will show as `--` until set.
 };
 
-// Order in which members render on the page.
-// Aamir + Tobi excluded — Aamir bills through Upwork, Tobi is AI-agent-only.
+// Order in which members render on the page. Tobi remains excluded (AI-agent-only).
 const DISPLAY_ORDER: string[] = [
   'Lindsey Bouffard',
   'Scott Caldwell',
@@ -28,6 +27,7 @@ const DISPLAY_ORDER: string[] = [
   'Ade Aderibigbe',
   'Baran Eris',
   'Jordan Tryon',
+  'Aamir',
 ];
 
 interface AllocationRow {
