@@ -228,9 +228,11 @@ export async function GET() {
     //
     // Without this step, hiring Lindsey full-time would understate her cost in Operator
     // Costs unless every hour of her time was attributed to an active client.
+    // Allow both positive AND negative deltas — over-attributed members (chips > retainer,
+    // typically because of work attributed to retainer-category clients) get scaled DOWN
+    // in the total, under-attributed members (admin/overhead time not chipped) get the gap added.
     let salaryGap = 0;
     for (const [memberName, retainer] of Object.entries(retainerByMember)) {
-      // Sum this member's attribution across active (client, platform) rows only.
       let activeAttributed = 0;
       for (const [clientId, platforms] of Object.entries(clientPlatforms)) {
         for (const platform of platforms) {
@@ -238,8 +240,7 @@ export async function GET() {
           activeAttributed += laborByKeyMember[key]?.[memberName] ?? 0;
         }
       }
-      const gap = retainer - activeAttributed;
-      if (gap > 0) salaryGap += gap;
+      salaryGap += (retainer - activeAttributed);
     }
     totalLabor += salaryGap;
 
