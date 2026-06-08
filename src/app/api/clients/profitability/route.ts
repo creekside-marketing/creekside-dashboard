@@ -220,19 +220,16 @@ export async function GET() {
       }
     }
 
-    // Salary-gap reconciliation: retainer members contribute their FULL monthly_retainer
-    // to the operator cost total, regardless of how much labor is attributed to active
-    // (non-retainer) client rows. The per-client chips above accurately show hours × rate,
-    // but the gap (retainer minus active-attributed labor) represents admin/overhead/
-    // retainer-client work that isn't visible in the active client breakdown.
-    //
-    // Without this step, hiring Lindsey full-time would understate her cost in Operator
-    // Costs unless every hour of her time was attributed to an active client.
-    // Allow both positive AND negative deltas — over-attributed members (chips > retainer,
-    // typically because of work attributed to retainer-category clients) get scaled DOWN
-    // in the total, under-attributed members (admin/overhead time not chipped) get the gap added.
+    // Salary-gap reconciliation: ONLY applies to full-time salaried hires (Lindsey today).
+    // Their full monthly_retainer should contribute to Operator Costs even when some of
+    // their time goes to retainer-category clients or admin/overhead that isn't visible
+    // in the active client breakdown. Everyone else (Scott/Ahmed/Ade/Jordan/etc) is on
+    // per-client fixed rates — their monthly_retainer field is the SUM of those rates,
+    // not a cap target, so their allocations naturally equal their retainer with no gap.
+    const FULL_TIME_SALARIED_MEMBERS = new Set(['Lindsey Bouffard']);
     let salaryGap = 0;
     for (const [memberName, retainer] of Object.entries(retainerByMember)) {
+      if (!FULL_TIME_SALARIED_MEMBERS.has(memberName)) continue;
       let activeAttributed = 0;
       for (const [clientId, platforms] of Object.entries(clientPlatforms)) {
         for (const platform of platforms) {
