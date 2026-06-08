@@ -32,11 +32,16 @@
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 
+type LaborByMember = { member: string; amount: number };
+
 type CostBucket = {
   operator_cost: number;
   labor_cost: number;
   bonus_cost: number;
   software_cost: number;
+  // Per-team-member breakdown of labor + bonus on this (client, platform).
+  // Drives the color-coded chips under the Labor column in ClientTable.
+  labor_by_member: LaborByMember[];
 };
 
 export async function GET() {
@@ -56,10 +61,10 @@ export async function GET() {
         .neq('client_category', 'retainer'),
       supabase
         .from('client_labor_allocations')
-        .select('client_id, platform, monthly_amount'),
+        .select('client_id, platform, monthly_amount, team_member:team_members(name)'),
       supabase
         .from('client_bonuses')
-        .select('client_id, platform, expected_monthly_amount'),
+        .select('client_id, platform, expected_monthly_amount, team_member:team_members(name)'),
       supabase
         .from('client_software_costs')
         .select('client_id, platform, monthly_amount'),
@@ -82,19 +87,62 @@ export async function GET() {
       clientNames[row.client_id] = row.client_name;
     }
 
-    // Aggregate tagged costs by client_id::platform key.
+    // Aggregate labor + bonuses by client_id::platform key.
+    // Untagged rows (platform IS NULL) split evenly across all of the client's active platforms
+    // — used for cross-platform work like Jordan's tracking/GTM setup.
     const laborByKey: Record<string, number> = {};
+    const laborByKeyMember: Record<string, Record<string, number>> = {}; // key -> { member: amount }
+    const memberName = (row: { team_member?: { name?: string } | { name?: string }[] | null }): string => {
+      // Supabase typed the joined row as either an object or an array depending on FK shape.
+      const tm = Array.isArray(row.team_member) ? row.team_member[0] : row.team_member;
+      const raw = tm?.name?.trim() ?? '';
+      return raw || 'Unassigned';
+    };
+    const addLabor = (clientId: string, platform: string, member: string, amount: number) => {
+      const key = `${clientId}::${platform}`;
+      laborByKey[key] = (laborByKey[key] ?? 0) + amount;
+      if (!laborByKeyMember[key]) laborByKeyMember[key] = {};
+      laborByKeyMember[key][member] = (laborByKeyMember[key][member] ?? 0) + amount;
+    };
     for (const row of laborResult.data ?? []) {
-      if (!row.client_id || !row.platform) continue;
-      const key = `${row.client_id}::${row.platform}`;
-      laborByKey[key] = (laborByKey[key] ?? 0) + Number(row.monthly_amount ?? 0);
+      if (!row.client_id) continue;
+      const amount = Number(row.monthly_amount ?? 0);
+      if (amount === 0) continue;
+      const member = memberName(row);
+      if (row.platform) {
+        addLabor(row.client_id, row.platform, member, amount);
+      } else {
+        // Untagged → split across the client's active platforms
+        const platforms = clientPlatforms[row.client_id];
+        if (platforms && platforms.size > 0) {
+          const splitAmount = amount / platforms.size;
+          for (const p of platforms) addLabor(row.client_id, p, member, splitAmount);
+        }
+      }
     }
 
     const bonusByKey: Record<string, number> = {};
+    const bonusByKeyMember: Record<string, Record<string, number>> = {};
+    const addBonus = (clientId: string, platform: string, member: string, amount: number) => {
+      const key = `${clientId}::${platform}`;
+      bonusByKey[key] = (bonusByKey[key] ?? 0) + amount;
+      if (!bonusByKeyMember[key]) bonusByKeyMember[key] = {};
+      bonusByKeyMember[key][member] = (bonusByKeyMember[key][member] ?? 0) + amount;
+    };
     for (const row of bonusesResult.data ?? []) {
-      if (!row.client_id || !row.platform) continue;
-      const key = `${row.client_id}::${row.platform}`;
-      bonusByKey[key] = (bonusByKey[key] ?? 0) + Number(row.expected_monthly_amount ?? 0);
+      if (!row.client_id) continue;
+      const amount = Number(row.expected_monthly_amount ?? 0);
+      if (amount === 0) continue;
+      const member = memberName(row);
+      if (row.platform) {
+        addBonus(row.client_id, row.platform, member, amount);
+      } else {
+        const platforms = clientPlatforms[row.client_id];
+        if (platforms && platforms.size > 0) {
+          const splitAmount = amount / platforms.size;
+          for (const p of platforms) addBonus(row.client_id, p, member, splitAmount);
+        }
+      }
     }
 
     // Software: tagged costs go to specific platform; untagged splits across all platforms of the client.
@@ -133,11 +181,22 @@ export async function GET() {
         const bonus = bonusByKey[key] ?? 0;
         const software = softwareByKey[key] ?? 0;
         const total = labor + bonus + software;
+
+        // Combine labor + bonus per member, sorted desc so largest contributor renders first
+        const memberTotals: Record<string, number> = {};
+        for (const [m, a] of Object.entries(laborByKeyMember[key] ?? {})) memberTotals[m] = (memberTotals[m] ?? 0) + a;
+        for (const [m, a] of Object.entries(bonusByKeyMember[key] ?? {})) memberTotals[m] = (memberTotals[m] ?? 0) + a;
+        const labor_by_member: LaborByMember[] = Object.entries(memberTotals)
+          .map(([member, amount]) => ({ member, amount: round2(amount) }))
+          .filter(b => b.amount > 0)
+          .sort((a, b) => b.amount - a.amount);
+
         result[clientName][platform] = {
           operator_cost: round2(total),
           labor_cost: round2(labor),
           bonus_cost: round2(bonus),
           software_cost: round2(software),
+          labor_by_member,
         };
         totalLabor += labor;
         totalBonus += bonus;

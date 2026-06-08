@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import FilterBar from './FilterBar';
 import { calculatePlatformRevenue, describeFeeConfig } from '@/lib/fee-engine';
 import type { FeeConfig } from '@/lib/fee-engine';
+import { getTeamColor, shortName } from '@/lib/team-colors';
 
 interface Client {
   id: string;
@@ -853,7 +854,13 @@ export default function ClientTable() {
 
   // Operator cost data from API (labor + bonuses + software per client)
   const [operatorCosts, setOperatorCosts] = useState<{
-    clients: Record<string, Record<string, { operator_cost: number; labor_cost?: number; bonus_cost?: number; software_cost?: number }>>;
+    clients: Record<string, Record<string, {
+      operator_cost: number;
+      labor_cost?: number;
+      bonus_cost?: number;
+      software_cost?: number;
+      labor_by_member?: Array<{ member: string; amount: number }>;
+    }>>;
     totals: { operator_cost: number; labor_cost?: number; bonus_cost?: number; software_cost?: number };
   } | null>(null);
 
@@ -1585,15 +1592,41 @@ export default function ClientTable() {
                             );
                           })()}
                         </td>
-                        {/* Labor — per-row */}
+                        {/* Labor — per-row. Total on top, color-coded per-member chips below. */}
                         <td className="py-4 px-6 text-right text-sm text-slate-600 tabular-nums">
                           {(() => {
                             const costs = operatorCosts?.clients[client.client_name]?.[client.platform];
                             const value = costs?.labor_cost ?? 0;
                             if (value === 0) return <span className="text-slate-300">--</span>;
-                            return value >= 1000
+                            const formatted = value >= 1000
                               ? `$${(value / 1000).toFixed(1).replace(/\.0$/, '')}K`
                               : `$${Math.round(value)}`;
+                            const breakdown = costs?.labor_by_member ?? [];
+                            return (
+                              <div className="flex flex-col items-end gap-1">
+                                <span>{formatted}</span>
+                                {breakdown.length > 0 && (
+                                  <div className="flex flex-wrap justify-end gap-1">
+                                    {breakdown.map((b, i) => {
+                                      const color = getTeamColor(b.member);
+                                      const amount = b.amount >= 1000
+                                        ? `$${(b.amount / 1000).toFixed(1).replace(/\.0$/, '')}K`
+                                        : `$${Math.round(b.amount)}`;
+                                      return (
+                                        <span
+                                          key={`${b.member}-${i}`}
+                                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ring-1 ring-inset ${color.bg} ${color.text} ${color.ring}`}
+                                          title={`${b.member}: ${amount}`}
+                                        >
+                                          <span className={`w-1 h-1 rounded-full ${color.dot}`} />
+                                          {shortName(b.member)} {amount}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            );
                           })()}
                         </td>
                         {/* Bonuses — per-row */}
