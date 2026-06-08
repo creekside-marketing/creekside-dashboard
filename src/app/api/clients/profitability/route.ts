@@ -190,11 +190,9 @@ export async function GET() {
         const software = softwareByKey[key] ?? 0;
         const total = labor + bonus + software;
 
-        // Combine labor + bonus per member, sorted desc so largest contributor renders first
-        const memberTotals: Record<string, number> = {};
-        for (const [m, a] of Object.entries(laborByKeyMember[key] ?? {})) memberTotals[m] = (memberTotals[m] ?? 0) + a;
-        for (const [m, a] of Object.entries(bonusByKeyMember[key] ?? {})) memberTotals[m] = (memberTotals[m] ?? 0) + a;
-        const labor_by_member: LaborByMember[] = Object.entries(memberTotals)
+        // Labor-only breakdown per member so the chip amounts sum to the Labor column total.
+        // Bonuses are intentionally excluded — they have their own column on the table.
+        const labor_by_member: LaborByMember[] = Object.entries(laborByKeyMember[key] ?? {})
           .map(([member, amount]) => ({ member, amount: round2(amount) }))
           .filter(b => b.amount > 0)
           .sort((a, b) => b.amount - a.amount);
