@@ -71,7 +71,7 @@ export async function GET() {
         .select('client_id, platform, monthly_amount'),
       supabase
         .from('team_members')
-        .select('id, name'),
+        .select('id, name, monthly_retainer'),
     ]);
 
     const errors = [reportingClientsResult, laborResult, bonusesResult, softwareResult, teamMembersResult]
@@ -83,8 +83,18 @@ export async function GET() {
 
     // Build member_id → name lookup for the per-row team-member breakdown.
     const memberNameById: Record<string, string> = {};
+    // Build member_NAME → monthly_retainer lookup. Retainer members have their
+    // total contribution to operator cost pinned to monthly_retainer regardless
+    // of how many hours of attribution they have. Hourly members (no retainer)
+    // contribute the raw sum of their allocations.
+    const retainerByMember: Record<string, number> = {};
     for (const tm of teamMembersResult.data ?? []) {
-      if (tm?.id) memberNameById[tm.id] = tm.name?.trim() || 'Unassigned';
+      if (!tm?.id) continue;
+      const name = tm.name?.trim() || 'Unassigned';
+      memberNameById[tm.id] = name;
+      if (tm.monthly_retainer != null && Number(tm.monthly_retainer) > 0) {
+        retainerByMember[name] = Number(tm.monthly_retainer);
+      }
     }
 
     // Map client_id -> { platforms: Set, names: Set } for grouping + untagged-cost splitting.
@@ -150,6 +160,31 @@ export async function GET() {
           const splitAmount = amount / platforms.size;
           for (const p of platforms) addBonus(row.client_id, p, member, splitAmount);
         }
+      }
+    }
+
+    // Retainer cap: members with monthly_retainer set always contribute exactly that amount
+    // to Operator Costs, regardless of allocation sum. If their per-client labor sums to less
+    // (under-attributed) or more (over-attributed) than their retainer, scale all their
+    // contributions proportionally so the total matches. This way adding/removing client
+    // allocations on a salaried team member redistributes their fixed retainer instead of
+    // changing the operator cost total.
+    for (const [memberName, retainer] of Object.entries(retainerByMember)) {
+      // Sum this member's contribution across all (client, platform) keys
+      let memberTotal = 0;
+      for (const perMember of Object.values(laborByKeyMember)) {
+        memberTotal += perMember[memberName] ?? 0;
+      }
+      if (memberTotal <= 0) continue;  // No allocations → nothing to scale
+      const scale = retainer / memberTotal;
+      if (Math.abs(scale - 1) < 0.0001) continue;  // Already matches retainer
+      for (const [key, perMember] of Object.entries(laborByKeyMember)) {
+        const before = perMember[memberName] ?? 0;
+        if (before <= 0) continue;
+        const after = before * scale;
+        const delta = after - before;
+        perMember[memberName] = after;
+        laborByKey[key] = (laborByKey[key] ?? 0) + delta;
       }
     }
 
