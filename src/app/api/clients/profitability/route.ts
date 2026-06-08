@@ -53,6 +53,7 @@ export async function GET() {
       laborResult,
       bonusesResult,
       softwareResult,
+      teamMembersResult,
     ] = await Promise.all([
       supabase
         .from('reporting_clients')
@@ -61,20 +62,29 @@ export async function GET() {
         .neq('client_category', 'retainer'),
       supabase
         .from('client_labor_allocations')
-        .select('client_id, platform, monthly_amount, team_member:team_members(name)'),
+        .select('client_id, platform, monthly_amount, team_member_id'),
       supabase
         .from('client_bonuses')
-        .select('client_id, platform, expected_monthly_amount, team_member:team_members(name)'),
+        .select('client_id, platform, expected_monthly_amount, team_member_id'),
       supabase
         .from('client_software_costs')
         .select('client_id, platform, monthly_amount'),
+      supabase
+        .from('team_members')
+        .select('id, name'),
     ]);
 
-    const errors = [reportingClientsResult, laborResult, bonusesResult, softwareResult]
+    const errors = [reportingClientsResult, laborResult, bonusesResult, softwareResult, teamMembersResult]
       .map(r => r.error?.message)
       .filter(Boolean);
     if (errors.length) {
       return NextResponse.json({ error: errors.join('; ') }, { status: 500 });
+    }
+
+    // Build member_id → name lookup for the per-row team-member breakdown.
+    const memberNameById: Record<string, string> = {};
+    for (const tm of teamMembersResult.data ?? []) {
+      if (tm?.id) memberNameById[tm.id] = tm.name?.trim() || 'Unassigned';
     }
 
     // Map client_id -> { platforms: Set, names: Set } for grouping + untagged-cost splitting.
@@ -92,11 +102,9 @@ export async function GET() {
     // — used for cross-platform work like Jordan's tracking/GTM setup.
     const laborByKey: Record<string, number> = {};
     const laborByKeyMember: Record<string, Record<string, number>> = {}; // key -> { member: amount }
-    const memberName = (row: { team_member?: { name?: string } | { name?: string }[] | null }): string => {
-      // Supabase typed the joined row as either an object or an array depending on FK shape.
-      const tm = Array.isArray(row.team_member) ? row.team_member[0] : row.team_member;
-      const raw = tm?.name?.trim() ?? '';
-      return raw || 'Unassigned';
+    const memberName = (row: { team_member_id?: string | null }): string => {
+      if (!row.team_member_id) return 'Unassigned';
+      return memberNameById[row.team_member_id] ?? 'Unassigned';
     };
     const addLabor = (clientId: string, platform: string, member: string, amount: number) => {
       const key = `${clientId}::${platform}`;
