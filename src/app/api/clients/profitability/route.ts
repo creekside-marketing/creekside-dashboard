@@ -163,31 +163,6 @@ export async function GET() {
       }
     }
 
-    // Retainer cap: members with monthly_retainer set always contribute exactly that amount
-    // to Operator Costs, regardless of allocation sum. If their per-client labor sums to less
-    // (under-attributed) or more (over-attributed) than their retainer, scale all their
-    // contributions proportionally so the total matches. This way adding/removing client
-    // allocations on a salaried team member redistributes their fixed retainer instead of
-    // changing the operator cost total.
-    for (const [memberName, retainer] of Object.entries(retainerByMember)) {
-      // Sum this member's contribution across all (client, platform) keys
-      let memberTotal = 0;
-      for (const perMember of Object.values(laborByKeyMember)) {
-        memberTotal += perMember[memberName] ?? 0;
-      }
-      if (memberTotal <= 0) continue;  // No allocations → nothing to scale
-      const scale = retainer / memberTotal;
-      if (Math.abs(scale - 1) < 0.0001) continue;  // Already matches retainer
-      for (const [key, perMember] of Object.entries(laborByKeyMember)) {
-        const before = perMember[memberName] ?? 0;
-        if (before <= 0) continue;
-        const after = before * scale;
-        const delta = after - before;
-        perMember[memberName] = after;
-        laborByKey[key] = (laborByKey[key] ?? 0) + delta;
-      }
-    }
-
     // Software: tagged costs go to specific platform; untagged splits across all platforms of the client.
     const softwareByKey: Record<string, number> = {};
     for (const row of softwareResult.data ?? []) {
@@ -244,6 +219,29 @@ export async function GET() {
         totalSoftware += software;
       }
     }
+
+    // Salary-gap reconciliation: retainer members contribute their FULL monthly_retainer
+    // to the operator cost total, regardless of how much labor is attributed to active
+    // (non-retainer) client rows. The per-client chips above accurately show hours × rate,
+    // but the gap (retainer minus active-attributed labor) represents admin/overhead/
+    // retainer-client work that isn't visible in the active client breakdown.
+    //
+    // Without this step, hiring Lindsey full-time would understate her cost in Operator
+    // Costs unless every hour of her time was attributed to an active client.
+    let salaryGap = 0;
+    for (const [memberName, retainer] of Object.entries(retainerByMember)) {
+      // Sum this member's attribution across active (client, platform) rows only.
+      let activeAttributed = 0;
+      for (const [clientId, platforms] of Object.entries(clientPlatforms)) {
+        for (const platform of platforms) {
+          const key = `${clientId}::${platform}`;
+          activeAttributed += laborByKeyMember[key]?.[memberName] ?? 0;
+        }
+      }
+      const gap = retainer - activeAttributed;
+      if (gap > 0) salaryGap += gap;
+    }
+    totalLabor += salaryGap;
 
     return NextResponse.json({
       clients: result,
