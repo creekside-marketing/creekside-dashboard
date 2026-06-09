@@ -18,6 +18,7 @@
 
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
+import { computeRevenueByClientId } from '@/lib/client-revenue';
 
 type Source = 'upwork' | 'partner' | 'other' | 'unknown';
 
@@ -121,11 +122,21 @@ export async function GET() {
       if (!existing || ts > existing.ts) latestSquareByClient[cid] = { amount: amt, ts };
     }
 
-    // For clients with no Square invoice in 60d, fall back to stored reporting_clients revenue.
+    // Current MRR uses the SAME live fee engine the Client tab uses for "Est. Monthly
+    // Revenue" so both views always agree. For percentage clients (South River, AIW,
+    // Master Spa Parts, etc.) this pulls live ad spend × the rate from fee_config —
+    // far more accurate than "latest paid Square invoice" which lags by a full
+    // billing cycle on growing accounts. Falls back to Square / stored revenue only
+    // if the fee engine returns 0 (very rare — only for clients with no fee_config
+    // AND no monthly_budget AND no monthly_revenue).
+    const revenueByClientId = await computeRevenueByClientId(supabase);
     let currentMrr = 0;
     const currentMrrBySource = emptySources();
     for (const cid of activeClientIds) {
-      const amt = latestSquareByClient[cid]?.amount ?? fallbackByClient[cid] ?? 0;
+      const feeEngineAmt = revenueByClientId[cid] ?? 0;
+      const amt = feeEngineAmt > 0
+        ? feeEngineAmt
+        : (latestSquareByClient[cid]?.amount ?? fallbackByClient[cid] ?? 0);
       currentMrr += amt;
       const src = sourceByClientId[cid] ?? 'unknown';
       currentMrrBySource[src] += amt;
