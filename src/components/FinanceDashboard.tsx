@@ -323,11 +323,15 @@ export default function FinanceDashboard() {
               if (!p) return null;
               if (cat === 'Labor' && fixedLaborAmount > 0) {
                 if (typeKey === 'Variable') {
-                  const variableAmt = operatorCostAmount > 0 ? operatorCostAmount : Math.max(0, p.last_actual - fixedLaborAmount);
+                  // Variable Labor ALWAYS mirrors the live Operator Cost from the
+                  // Client tab — no historical subtraction, no fallback. All three
+                  // columns show the same value because this represents an ongoing
+                  // commitment, not a per-month variance. If Operator Cost hasn't
+                  // loaded yet, shows $0 momentarily then re-renders.
                   return {
-                    last_actual: variableAmt,
-                    projected: variableAmt,
-                    prior_actual: variableAmt,
+                    last_actual: operatorCostAmount,
+                    projected: operatorCostAmount,
+                    prior_actual: operatorCostAmount,
                     overridden: false,
                     label: 'Labor (variable, client work)',
                   };
@@ -386,7 +390,7 @@ export default function FinanceDashboard() {
                   // (Client tab tile), Fixed Labor mirrors the fixed_costs table.
                   // Editing happens on those source-of-truth surfaces, not here.
                   const isLaborFixed = cat === 'Labor' && typeKey === 'Fixed';
-                  const isLaborVariable = cat === 'Labor' && typeKey === 'Variable' && operatorCostAmount > 0;
+                  const isLaborVariable = cat === 'Labor' && typeKey === 'Variable';
                   const isLaborRow = isLaborFixed || isLaborVariable;
                   const delta = prior_month ? amounts.last_actual - amounts.prior_actual : 0;
                   const isEditing = !isLaborRow && editingCategory === cat;
