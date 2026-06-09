@@ -113,6 +113,10 @@ export default function FinanceDashboard() {
   // Used to split the accounting Labor category between fixed and variable in the
   // expense breakdown table.
   const [fixedLaborAmount, setFixedLaborAmount] = useState<number>(0);
+  // Operator cost total from the Client tab — the actual variable labor commitment
+  // (sum of client_labor_allocations + bonuses + per-client software). Used as the
+  // 'Labor (variable)' amount so the Finance tab matches the Client tab tile.
+  const [operatorCostAmount, setOperatorCostAmount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
@@ -134,6 +138,15 @@ export default function FinanceDashboard() {
         if (laborAmount > 0) setFixedLaborAmount(laborAmount);
       })
       .catch(() => { /* keep default 0; Labor stays unsplit */ });
+    // Pull total operator cost so the Variable Labor row matches the Client tab tile.
+    fetch('/api/clients/profitability')
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled) return;
+        const opCost = Number(d?.totals?.operator_cost ?? 0);
+        if (opCost > 0) setOperatorCostAmount(opCost);
+      })
+      .catch(() => { /* keep default 0 */ });
     return () => { cancelled = true; };
   }, []);
 
@@ -298,19 +311,24 @@ export default function FinanceDashboard() {
           {(['Variable', 'Fixed'] as const).map(typeKey => {
             const catsInType = categories.filter(c => expenseType(c) === typeKey);
             if (catsInType.length === 0 && typeKey !== 'Fixed') return null;
-            // For each category, compute amounts. Labor is split: the fixed-cost-table
-            // labor (Cade + Peterson + Melvin + Queenie + Cyndi) goes to the Fixed section;
-            // the remainder of the accounting Labor category goes to Variable.
+            // For each category, compute amounts.
+            // Labor split (per Cade — Jun 8 2026):
+            //   - Variable Labor = current Operator Cost (matches Client tab tile)
+            //   - Fixed Labor    = fixed_costs table total ($20,572: Cade + Peterson +
+            //                      Melvin + Queenie + Cyndi)
+            // Both are treated as constant across months because they represent
+            // ongoing commitments, not historical accounting variance.
             const computeAmounts = (cat: string) => {
               const p = this_month.projected_expenses_by_category[cat];
               if (!p) return null;
               if (cat === 'Labor' && fixedLaborAmount > 0) {
                 if (typeKey === 'Variable') {
+                  const variableAmt = operatorCostAmount > 0 ? operatorCostAmount : Math.max(0, p.last_actual - fixedLaborAmount);
                   return {
-                    last_actual: Math.max(0, p.last_actual - fixedLaborAmount),
-                    projected: Math.max(0, p.projected - fixedLaborAmount),
-                    prior_actual: Math.max(0, p.prior_actual - fixedLaborAmount),
-                    overridden: p.overridden,
+                    last_actual: variableAmt,
+                    projected: variableAmt,
+                    prior_actual: variableAmt,
+                    overridden: false,
                     label: 'Labor (variable, client work)',
                   };
                 }
@@ -364,11 +382,14 @@ export default function FinanceDashboard() {
                   </td>
                 </tr>
                 {rows.map(({ cat, amounts }) => {
-                  // Only the editable amount is the variable Labor portion since the
-                  // fixed labor amount is fixed via fixed_costs (not via projection override).
+                  // Both Labor rows are read-only — Variable Labor mirrors Operator Cost
+                  // (Client tab tile), Fixed Labor mirrors the fixed_costs table.
+                  // Editing happens on those source-of-truth surfaces, not here.
                   const isLaborFixed = cat === 'Labor' && typeKey === 'Fixed';
+                  const isLaborVariable = cat === 'Labor' && typeKey === 'Variable' && operatorCostAmount > 0;
+                  const isLaborRow = isLaborFixed || isLaborVariable;
                   const delta = prior_month ? amounts.last_actual - amounts.prior_actual : 0;
-                  const isEditing = !isLaborFixed && editingCategory === cat;
+                  const isEditing = !isLaborRow && editingCategory === cat;
                   // Use the unique row key (label distinguishes Labor variants)
                   const rowKey = `${typeKey}::${cat}`;
                   return (
@@ -376,10 +397,12 @@ export default function FinanceDashboard() {
                       <td className="px-6 py-3 text-sm font-medium text-slate-900 pl-10">{amounts.label}</td>
                       <td className="px-6 py-3 text-right text-sm text-slate-700">{formatCurrency(amounts.last_actual)}</td>
                       <td className="px-6 py-3 text-right text-sm">
-                        {isLaborFixed ? (
+                        {isLaborRow ? (
                           <span
                             className="text-slate-900 font-medium px-2 py-1 inline-block"
-                            title="Fixed labor = Cade + Peterson + Melvin + Queenie + Cyndi. Edit from the Client tab's Fixed Costs panel — this row reflects that source of truth."
+                            title={isLaborFixed
+                              ? 'Fixed labor = Cade + Peterson + Melvin + Queenie + Cyndi. Edit from the Client tab\'s Fixed Costs panel — this row reflects that source of truth.'
+                              : 'Variable labor = the Operator Cost figure on the Client tab (sum of client_labor_allocations + bonuses + per-client software). Edit per-client allocations on the Client tab.'}
                           >
                             {formatCurrency(amounts.projected)}
                           </span>
