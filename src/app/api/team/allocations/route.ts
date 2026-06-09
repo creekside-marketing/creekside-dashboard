@@ -204,7 +204,10 @@ export async function GET() {
     const allocByMember = new Map<string, AllocationRow[]>();
     for (const row of allLaborResult.data ?? []) {
       if (!row.team_member_id || !row.client_id) continue;
-      if (clientStatusById[row.client_id] === 'churned') continue;
+      // Skip orphan allocations on inactive/paused/churned canonical clients
+      // — these have no revenue and just create noise on the Team tab.
+      const cStatus = clientStatusById[row.client_id];
+      if (cStatus === 'churned' || cStatus === 'inactive' || cStatus === 'paused') continue;
 
       const memberLabor = Number(row.monthly_amount ?? 0);
       if (memberLabor === 0) continue;
