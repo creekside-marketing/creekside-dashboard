@@ -275,15 +275,49 @@ export default function FinanceDashboard() {
 
   const { last_month, prior_month, this_month, categories } = data;
 
+  // Adjusted totals that match the visible row subtotals in the table below.
+  // The API's projected_total_expenses uses raw category projections, but our
+  // table displays a Labor split (Variable = Operator Cost, Fixed = fixed_costs)
+  // — these two views need to agree for the tiles + Total row to be consistent
+  // with the per-row math. We rebuild totals here using the same formulas
+  // computeAmounts uses in the table.
+  const labelLaborAdjustedLast = fixedLaborAmount > 0
+    ? Math.max(0, (this_month.projected_expenses_by_category.Labor?.last_actual ?? 0) - fixedLaborAmount) + fixedLaborAmount
+    : (this_month.projected_expenses_by_category.Labor?.last_actual ?? 0);
+  const labelLaborAdjustedProj = fixedLaborAmount > 0
+    ? operatorCostAmount + fixedLaborAmount
+    : (this_month.projected_expenses_by_category.Labor?.projected ?? 0);
+  let adjustedLastTotal = 0;
+  let adjustedProjectedTotal = 0;
+  for (const cat of categories) {
+    const p = this_month.projected_expenses_by_category[cat];
+    if (!p) continue;
+    if (cat === 'Labor') {
+      adjustedLastTotal += labelLaborAdjustedLast;
+      adjustedProjectedTotal += labelLaborAdjustedProj;
+    } else {
+      adjustedLastTotal += p.last_actual;
+      adjustedProjectedTotal += p.projected;
+    }
+  }
+  const adjustedProjectedProfit = this_month.projected_revenue - adjustedProjectedTotal;
+  const adjustedProjectedMargin = this_month.projected_revenue > 0
+    ? (adjustedProjectedProfit / this_month.projected_revenue) * 100
+    : 0;
+  const adjustedLastProfit = last_month.revenue - adjustedLastTotal;
+  const adjustedLastMargin = last_month.revenue > 0
+    ? (adjustedLastProfit / last_month.revenue) * 100
+    : 0;
+
   return (
     <div className="space-y-6">
       {/* Top tiles */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <Tile label={`Expenses (${monthLabel(this_month.month_date)} projected)`} value={formatCurrency(this_month.projected_total_expenses)} valueColor="text-slate-900" />
-        <Tile label="This month projected profit" value={formatCurrency(this_month.projected_profit)} valueColor={this_month.projected_profit >= 0 ? 'text-emerald-600' : 'text-red-600'} />
-        <Tile label="This month projected margin" value={`${this_month.projected_margin_pct.toFixed(1)}%`} valueColor={this_month.projected_margin_pct >= 0 ? 'text-emerald-600' : 'text-red-600'} />
-        <Tile label={`Last month margin (${monthLabel(last_month.month_date)})`} value={`${last_month.margin_pct.toFixed(1)}%`} valueColor={last_month.margin_pct >= 0 ? 'text-emerald-600' : 'text-red-600'} />
-        <Tile label={`Last month expenses (${monthLabel(last_month.month_date)})`} value={formatCurrency(last_month.total_expenses)} valueColor="text-slate-900" />
+        <Tile label={`Expenses (${monthLabel(this_month.month_date)} projected)`} value={formatCurrency(adjustedProjectedTotal)} valueColor="text-slate-900" />
+        <Tile label="This month projected profit" value={formatCurrency(adjustedProjectedProfit)} valueColor={adjustedProjectedProfit >= 0 ? 'text-emerald-600' : 'text-red-600'} />
+        <Tile label="This month projected margin" value={`${adjustedProjectedMargin.toFixed(1)}%`} valueColor={adjustedProjectedMargin >= 0 ? 'text-emerald-600' : 'text-red-600'} />
+        <Tile label={`Last month margin (${monthLabel(last_month.month_date)})`} value={`${adjustedLastMargin.toFixed(1)}%`} valueColor={adjustedLastMargin >= 0 ? 'text-emerald-600' : 'text-red-600'} />
+        <Tile label={`Last month expenses (${monthLabel(last_month.month_date)})`} value={formatCurrency(adjustedLastTotal)} valueColor="text-slate-900" />
       </div>
 
       {/* Expense breakdown table */}
@@ -323,15 +357,15 @@ export default function FinanceDashboard() {
               if (!p) return null;
               if (cat === 'Labor' && fixedLaborAmount > 0) {
                 if (typeKey === 'Variable') {
-                  // Variable Labor ALWAYS mirrors the live Operator Cost from the
-                  // Client tab — no historical subtraction, no fallback. All three
-                  // columns show the same value because this represents an ongoing
-                  // commitment, not a per-month variance. If Operator Cost hasn't
-                  // loaded yet, shows $0 momentarily then re-renders.
+                  // Per-column formula:
+                  //  - Actual columns (May / April) = historical accounting Labor − fixed
+                  //    (the variable portion of what we actually paid that month)
+                  //  - Projected column (June) = current Operator Cost commitment
+                  //    (matches the Client tab Operator Costs tile)
                   return {
-                    last_actual: operatorCostAmount,
+                    last_actual: Math.max(0, p.last_actual - fixedLaborAmount),
                     projected: operatorCostAmount,
-                    prior_actual: operatorCostAmount,
+                    prior_actual: Math.max(0, p.prior_actual - fixedLaborAmount),
                     overridden: false,
                     label: 'Labor (variable, client work)',
                   };
@@ -456,16 +490,16 @@ export default function FinanceDashboard() {
           <tfoot className="bg-slate-50 font-semibold">
             <tr>
               <td className="px-6 py-3 text-sm text-slate-900">Total expenses</td>
-              <td className="px-6 py-3 text-right text-sm text-slate-900">{formatCurrency(last_month.total_expenses)}</td>
-              <td className="px-6 py-3 text-right text-sm text-slate-900">{formatCurrency(this_month.projected_total_expenses)}</td>
+              <td className="px-6 py-3 text-right text-sm text-slate-900">{formatCurrency(adjustedLastTotal)}</td>
+              <td className="px-6 py-3 text-right text-sm text-slate-900">{formatCurrency(adjustedProjectedTotal)}</td>
               <td className={`px-6 py-3 text-right text-sm ${
                 prior_month
-                  ? (last_month.total_expenses - prior_month.total_expenses > 0 ? 'text-red-600' : 'text-emerald-700')
+                  ? (adjustedLastTotal - prior_month.total_expenses > 0 ? 'text-red-600' : 'text-emerald-700')
                   : 'text-slate-400'
               }`}>
                 {(() => {
                   if (!prior_month) return '—';
-                  const d = last_month.total_expenses - prior_month.total_expenses;
+                  const d = adjustedLastTotal - prior_month.total_expenses;
                   if (d === 0) return '—';
                   return `${d > 0 ? '+' : ''}${formatCurrency(d)}`;
                 })()}
@@ -516,16 +550,16 @@ export default function FinanceDashboard() {
             </tr>
             <tr>
               <td className="px-6 py-3 text-sm text-slate-900">Profit</td>
-              <td className={`px-6 py-3 text-right text-sm font-bold ${last_month.profit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{formatCurrency(last_month.profit)}</td>
-              <td className={`px-6 py-3 text-right text-sm font-bold ${this_month.projected_profit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{formatCurrency(this_month.projected_profit)}</td>
+              <td className={`px-6 py-3 text-right text-sm font-bold ${adjustedLastProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{formatCurrency(adjustedLastProfit)}</td>
+              <td className={`px-6 py-3 text-right text-sm font-bold ${adjustedProjectedProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{formatCurrency(adjustedProjectedProfit)}</td>
               <td className={`px-6 py-3 text-right text-sm font-bold ${
                 prior_month
-                  ? (last_month.profit - prior_month.profit >= 0 ? 'text-emerald-700' : 'text-red-600')
+                  ? (adjustedLastProfit - prior_month.profit >= 0 ? 'text-emerald-700' : 'text-red-600')
                   : 'text-slate-400'
               }`}>
                 {(() => {
                   if (!prior_month) return '—';
-                  const d = last_month.profit - prior_month.profit;
+                  const d = adjustedLastProfit - prior_month.profit;
                   if (d === 0) return '—';
                   return `${d > 0 ? '+' : ''}${formatCurrency(d)}`;
                 })()}
