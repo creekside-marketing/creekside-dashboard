@@ -1,0 +1,66 @@
+name: Contractor File Scope
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-file-scope:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify contractor changes are within allowed paths
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const author = pr.user.login;
+
+            // Only enforce for contractor accounts
+            const contractors = ['ads-jpg'];
+            if (!contractors.includes(author)) {
+              console.log(`Author ${author} is not a contractor -- skipping scope check`);
+              return;
+            }
+
+            // Get all files changed in this PR
+            const files = await github.paginate(
+              github.rest.pulls.listFiles,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+              }
+            );
+
+            const allowedPrefixes = [
+              'src/components/reports/custom/',
+              'src/app/report/',
+              'src/app/api/',
+            ];
+
+            // Shared report templates and internal files are NOT allowed
+            // even though they're under reports/ -- matches CODEOWNERS overrides
+            const blockedExact = [
+              'src/components/reports/ReportLinkWidget.tsx',
+              'src/components/reports/LeadGenGoogleReport.tsx',
+              'src/components/reports/LeadGenMetaReport.tsx',
+              'src/components/reports/EcomGoogleReport.tsx',
+              'src/components/reports/EcomMetaReport.tsx',
+            ];
+
+            const blocked = files.filter(f => {
+              if (blockedExact.includes(f.filename)) return true;
+              return !allowedPrefixes.some(p => f.filename.startsWith(p));
+            });
+
+            if (blocked.length > 0) {
+              const list = blocked.map(f => `- \`${f.filename}\``).join('\n');
+              core.setFailed(
+                `Contractor ${author} modified files outside allowed paths:\n${list}\n\n` +
+                `Allowed paths:\n` +
+                allowedPrefixes.map(p => `- ${p}`).join('\n') + '\n\n' +
+                `This PR needs Peterson or Cade to review and merge.`
+              );
+            } else {
+              console.log(`All ${files.length} changed file(s) are within allowed contractor paths`);
+            }
