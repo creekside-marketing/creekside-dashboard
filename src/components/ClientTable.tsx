@@ -864,6 +864,13 @@ export default function ClientTable() {
     totals: { operator_cost: number; labor_cost?: number; bonus_cost?: number; software_cost?: number };
   } | null>(null);
 
+  // Fixed costs (internal-only labor, software, marketing, processing fees, misc).
+  // Sourced from the fixed_costs table — distinct from per-client variable costs.
+  const [fixedCosts, setFixedCosts] = useState<{
+    totals: { all: number; by_category: Record<string, number> };
+    items: Array<{ id: string; category: string; name: string; monthly_amount: number; notes: string | null }>;
+  } | null>(null);
+
   useEffect(() => {
     fetch('/api/team')
       .then(res => res.json())
@@ -879,6 +886,12 @@ export default function ClientTable() {
       .then(res => res.json())
       .then(data => {
         if (data && !data.error && data.clients) setOperatorCosts(data);
+      })
+      .catch(() => {});
+    fetch('/api/finance/fixed-costs')
+      .then(res => res.json())
+      .then(data => {
+        if (data && !data.error && data.items) setFixedCosts(data);
       })
       .catch(() => {});
   }, []);
@@ -1343,7 +1356,7 @@ export default function ClientTable() {
   return (
     <div className="space-y-6">
       {/* Summary Stats */}
-      <div className="grid grid-cols-4 lg:grid-cols-8 gap-4">
+      <div className="grid grid-cols-4 lg:grid-cols-9 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
           <p className="text-sm font-medium text-slate-500">Active Clients</p>
           <p className="text-2xl font-bold text-slate-900 mt-1">{stats.uniqueClients}</p>
@@ -1357,6 +1370,14 @@ export default function ClientTable() {
           <p className="text-2xl font-bold text-slate-700 mt-1">
             {operatorCosts ? formatCurrency(stats.totalOperatorCost) : <span className="text-slate-300">--</span>}
           </p>
+          <p className="text-xs text-slate-400 mt-0.5">Variable (per-client)</p>
+        </div>
+        <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
+          <p className="text-sm font-medium text-slate-500">Fixed Costs</p>
+          <p className="text-2xl font-bold text-slate-700 mt-1">
+            {fixedCosts ? formatCurrency(fixedCosts.totals.all) : <span className="text-slate-300">--</span>}
+          </p>
+          <p className="text-xs text-slate-400 mt-0.5">Internal (non-variable)</p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
           <p className="text-sm font-medium text-slate-500">Profit / Margin</p>
@@ -1366,6 +1387,27 @@ export default function ClientTable() {
             {formatCurrency(stats.profit)}
             <span className="text-sm font-semibold ml-1">({stats.marginPct}%)</span>
           </p>
+          {fixedCosts && (() => {
+            const fixedTotal = fixedCosts.totals.all;
+            const netProfit = stats.profit - fixedTotal;
+            const netMarginPct = stats.totalEstRevenue > 0
+              ? Math.round((netProfit / stats.totalEstRevenue) * 1000) / 10
+              : 0;
+            const netColor = netProfit >= 0 ? 'text-emerald-700' : 'text-red-600';
+            return (
+              <div className="mt-2 pt-2 border-t border-slate-100 space-y-0.5">
+                <p className="text-[11px] text-slate-500 leading-tight">
+                  − Operator: <span className="font-medium text-slate-700">{formatCurrency(stats.totalOperatorCost)}</span>
+                </p>
+                <p className="text-[11px] text-slate-500 leading-tight">
+                  − Fixed: <span className="font-medium text-slate-700">{formatCurrency(fixedTotal)}</span>
+                </p>
+                <p className={`text-[11px] font-semibold leading-tight ${netColor}`}>
+                  Net Profit: {formatCurrency(netProfit)} <span className="font-normal">({netMarginPct}%)</span>
+                </p>
+              </div>
+            );
+          })()}
         </div>
         <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
           <p className="text-sm font-medium text-slate-500">Google Revenue</p>
