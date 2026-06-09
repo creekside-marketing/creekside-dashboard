@@ -248,3 +248,4 @@ Key columns: `primary_contact_name`, `primary_contact_email`, `gdrive_folder_id`
 - `last-contact` API has missing table/column errors (`gmail_messages`, `gchat_summaries.summary_date`, `fathom_entries.call_date`). Pre-existing, doesn't crash anything.
 - `next start` shows a warning about standalone mode. Harmless.
 - ROAS in Current column only shows when conversion value data is available. Google accounts need conversion value tracking configured.
+
