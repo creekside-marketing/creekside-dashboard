@@ -109,6 +109,10 @@ export default function FinanceDashboard() {
   const [data, setData] = useState<FinanceData | null>(null);
   const [acq, setAcq] = useState<AcquisitionData | null>(null);
   const [netNew, setNetNew] = useState<NetNewMrrData | null>(null);
+  // Fixed costs (internal labor + internal SaaS + marketing + processing + other).
+  // Used to split the accounting Labor category between fixed and variable in the
+  // expense breakdown table.
+  const [fixedLaborAmount, setFixedLaborAmount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
@@ -124,13 +128,17 @@ export default function FinanceDashboard() {
       fetch('/api/finance/expenses').then(r => r.json()),
       fetch('/api/finance/acquisition').then(r => r.json()),
       fetch('/api/finance/net-new-mrr').then(r => r.json()),
+      fetch('/api/finance/fixed-costs').then(r => r.json()).catch(() => null),
     ])
-      .then(([expData, acqData, mrrData]) => {
+      .then(([expData, acqData, mrrData, fixedData]) => {
         if (expData?.error) {
           setErr(expData.error);
           setData(null);
         } else {
           setData(expData);
+        }
+        if (fixedData && !fixedData.error) {
+          setFixedLaborAmount(Number(fixedData?.totals?.by_category?.Labor ?? 0));
         }
         if (acqData?.error) {
           // Non-fatal: show expense data even if acquisition fails
@@ -278,25 +286,65 @@ export default function FinanceDashboard() {
           </thead>
           {(['Variable', 'Fixed'] as const).map(typeKey => {
             const catsInType = categories.filter(c => expenseType(c) === typeKey);
-            if (catsInType.length === 0) return null;
-            // Subtotal across this type
-            let typeLastActual = 0;
-            let typeProjected = 0;
-            let typePriorActual = 0;
+            if (catsInType.length === 0 && typeKey !== 'Fixed') return null;
+            // For each category, compute amounts. Labor is split: the fixed-cost-table
+            // labor (Cade + Peterson + Melvin + Queenie + Cyndi) goes to the Fixed section;
+            // the remainder of the accounting Labor category goes to Variable.
+            const computeAmounts = (cat: string) => {
+              const p = this_month.projected_expenses_by_category[cat];
+              if (!p) return null;
+              if (cat === 'Labor' && fixedLaborAmount > 0) {
+                if (typeKey === 'Variable') {
+                  return {
+                    last_actual: Math.max(0, p.last_actual - fixedLaborAmount),
+                    projected: Math.max(0, p.projected - fixedLaborAmount),
+                    prior_actual: Math.max(0, p.prior_actual - fixedLaborAmount),
+                    overridden: p.overridden,
+                    label: 'Labor (variable, client work)',
+                  };
+                }
+                // Fixed bucket gets the fixed labor allocation (constant across months).
+                return {
+                  last_actual: fixedLaborAmount,
+                  projected: fixedLaborAmount,
+                  prior_actual: fixedLaborAmount,
+                  overridden: false,
+                  label: 'Labor (fixed, internal team)',
+                };
+              }
+              return { last_actual: p.last_actual, projected: p.projected, prior_actual: p.prior_actual, overridden: p.overridden, label: cat };
+            };
+            // Build the row list. Variable doesn't have Labor's fixed portion. Fixed gets
+            // a synthetic Labor row when fixedLaborAmount > 0.
+            const rows: Array<{ cat: string; amounts: NonNullable<ReturnType<typeof computeAmounts>> }> = [];
             for (const c of catsInType) {
-              const p = this_month.projected_expenses_by_category[c];
-              if (!p) continue;
-              typeLastActual += p.last_actual;
-              typeProjected += p.projected;
-              typePriorActual += p.prior_actual;
+              const a = computeAmounts(c);
+              if (a) rows.push({ cat: c, amounts: a });
             }
+            if (typeKey === 'Fixed' && fixedLaborAmount > 0) {
+              // Synthetic fixed-labor row at the top of Fixed section
+              rows.unshift({
+                cat: 'Labor',
+                amounts: {
+                  last_actual: fixedLaborAmount,
+                  projected: fixedLaborAmount,
+                  prior_actual: fixedLaborAmount,
+                  overridden: false,
+                  label: 'Labor (fixed, internal team)',
+                },
+              });
+            }
+            if (rows.length === 0) return null;
+            const typeLastActual = rows.reduce((s, r) => s + r.amounts.last_actual, 0);
+            const typeProjected = rows.reduce((s, r) => s + r.amounts.projected, 0);
+            const typePriorActual = rows.reduce((s, r) => s + r.amounts.prior_actual, 0);
             const typeDelta = prior_month ? typeLastActual - typePriorActual : 0;
             const isVariable = typeKey === 'Variable';
             const headerBg = isVariable ? 'bg-amber-50' : 'bg-sky-50';
             const headerText = isVariable ? 'text-amber-700' : 'text-sky-700';
             const headerLabel = isVariable
-              ? 'Variable (scales with business — Labor, Taxes)'
-              : 'Fixed (controllable — Marketing, Software, Processing Fee, Other)';
+              ? 'Variable (scales with business — Labor & Taxes)'
+              : 'Fixed (controllable — Labor (internal), Marketing, Software, Processing Fee, Other)';
             return (
               <tbody key={typeKey} className="divide-y divide-slate-100">
                 <tr className={headerBg}>
@@ -304,17 +352,27 @@ export default function FinanceDashboard() {
                     {headerLabel}
                   </td>
                 </tr>
-                {catsInType.map(cat => {
-                  const proj = this_month.projected_expenses_by_category[cat];
-                  if (!proj) return null;
-                  const delta = prior_month ? proj.last_actual - proj.prior_actual : 0;
-                  const isEditing = editingCategory === cat;
+                {rows.map(({ cat, amounts }) => {
+                  // Only the editable amount is the variable Labor portion since the
+                  // fixed labor amount is fixed via fixed_costs (not via projection override).
+                  const isLaborFixed = cat === 'Labor' && typeKey === 'Fixed';
+                  const delta = prior_month ? amounts.last_actual - amounts.prior_actual : 0;
+                  const isEditing = !isLaborFixed && editingCategory === cat;
+                  // Use the unique row key (label distinguishes Labor variants)
+                  const rowKey = `${typeKey}::${cat}`;
                   return (
-                    <tr key={cat} className="hover:bg-slate-50">
-                      <td className="px-6 py-3 text-sm font-medium text-slate-900 pl-10">{cat}</td>
-                      <td className="px-6 py-3 text-right text-sm text-slate-700">{formatCurrency(proj.last_actual)}</td>
+                    <tr key={rowKey} className="hover:bg-slate-50">
+                      <td className="px-6 py-3 text-sm font-medium text-slate-900 pl-10">{amounts.label}</td>
+                      <td className="px-6 py-3 text-right text-sm text-slate-700">{formatCurrency(amounts.last_actual)}</td>
                       <td className="px-6 py-3 text-right text-sm">
-                        {isEditing ? (
+                        {isLaborFixed ? (
+                          <span
+                            className="text-slate-500"
+                            title="Fixed labor = sum of internal-only people in the fixed_costs table (Cade + Peterson + Melvin + Queenie + Cyndi). Edit on the Client tab's Fixed Costs panel."
+                          >
+                            {formatCurrency(amounts.projected)}
+                          </span>
+                        ) : isEditing ? (
                           <input
                             autoFocus
                             type="text"
@@ -332,11 +390,11 @@ export default function FinanceDashboard() {
                           />
                         ) : (
                           <button
-                            onClick={() => startEdit(cat, proj.projected)}
-                            className={`px-2 py-1 rounded hover:bg-emerald-50 ${proj.overridden ? 'text-emerald-700 font-semibold' : 'text-slate-700'}`}
-                            title={proj.overridden ? 'Manually overridden' : 'Default = last month actual. Click to override.'}
+                            onClick={() => startEdit(cat, amounts.projected)}
+                            className={`px-2 py-1 rounded hover:bg-emerald-50 ${amounts.overridden ? 'text-emerald-700 font-semibold' : 'text-slate-700'}`}
+                            title={amounts.overridden ? 'Manually overridden' : 'Default = last month actual. Click to override.'}
                           >
-                            {formatCurrency(proj.projected)}
+                            {formatCurrency(amounts.projected)}
                           </button>
                         )}
                       </td>
