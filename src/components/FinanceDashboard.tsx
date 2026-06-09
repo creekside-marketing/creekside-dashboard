@@ -122,23 +122,34 @@ export default function FinanceDashboard() {
   const [mrrEditValue, setMrrEditValue] = useState<string>('');
   const [mrrSaving, setMrrSaving] = useState(false);
 
+  // Fetch fixed-costs separately so it doesn't ride on the main Promise.all — keeps
+  // the Labor split working even if one of the other expense endpoints fails.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/finance/fixed-costs')
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled) return;
+        const laborAmount = Number(d?.totals?.by_category?.Labor ?? 0);
+        if (laborAmount > 0) setFixedLaborAmount(laborAmount);
+      })
+      .catch(() => { /* keep default 0; Labor stays unsplit */ });
+    return () => { cancelled = true; };
+  }, []);
+
   const load = () => {
     setLoading(true);
     Promise.all([
       fetch('/api/finance/expenses').then(r => r.json()),
       fetch('/api/finance/acquisition').then(r => r.json()),
       fetch('/api/finance/net-new-mrr').then(r => r.json()),
-      fetch('/api/finance/fixed-costs').then(r => r.json()).catch(() => null),
     ])
-      .then(([expData, acqData, mrrData, fixedData]) => {
+      .then(([expData, acqData, mrrData]) => {
         if (expData?.error) {
           setErr(expData.error);
           setData(null);
         } else {
           setData(expData);
-        }
-        if (fixedData && !fixedData.error) {
-          setFixedLaborAmount(Number(fixedData?.totals?.by_category?.Labor ?? 0));
         }
         if (acqData?.error) {
           // Non-fatal: show expense data even if acquisition fails
@@ -367,8 +378,8 @@ export default function FinanceDashboard() {
                       <td className="px-6 py-3 text-right text-sm">
                         {isLaborFixed ? (
                           <span
-                            className="text-slate-500"
-                            title="Fixed labor = sum of internal-only people in the fixed_costs table (Cade + Peterson + Melvin + Queenie + Cyndi). Edit on the Client tab's Fixed Costs panel."
+                            className="text-slate-900 font-medium px-2 py-1 inline-block"
+                            title="Fixed labor = Cade + Peterson + Melvin + Queenie + Cyndi. Edit from the Client tab's Fixed Costs panel — this row reflects that source of truth."
                           >
                             {formatCurrency(amounts.projected)}
                           </span>
