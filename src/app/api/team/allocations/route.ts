@@ -9,8 +9,8 @@ import { createServiceClient } from '@/lib/supabase';
 // Bandwidth remaining (hours/week) per Peterson + Cade — May 18 2026 call.
 // Single source of truth lives here; edit in code if it changes.
 const BANDWIDTH_REMAINING_HOURS: Record<string, number> = {
-  'Scott Caldwell': 10,
-  'Trent Lucas': 18,  // -2 from Mark Wolf 2-hr allocation
+  'Scott Caldwell': 35,  // Cade Jun 9: Scott freed up significant bandwidth
+  'Trent Lucas': 18,
   'Ahmed Imran': 15,
   'Ade Aderibigbe': 10,
   'Baran Eris': 20,
@@ -40,7 +40,14 @@ interface AllocationRow {
   client_name: string;
   platform: string | null;
   hours_per_week: number | null;
-  monthly_amount: number;
+  monthly_amount: number;        // member's labor cost on this (client, platform)
+  bonus_amount: number;          // member's bonus on this (client, platform), 0 if none
+  cost: number;                  // monthly_amount + bonus_amount
+  client_revenue: number;        // total revenue from this (client, platform)
+  client_total_labor: number;    // total labor across all members on this (client, platform)
+  attributed_revenue: number;    // member's share = monthly_amount / client_total_labor × client_revenue
+  profit: number;                // attributed_revenue − cost
+  margin_pct: number;            // profit / attributed_revenue × 100
 }
 
 interface TeamMemberPayload {
@@ -53,68 +60,192 @@ interface TeamMemberPayload {
   bandwidth_remaining_hours: number | null;
   current_hours_per_week: number;
   total_monthly_pay: number;
+  // Per-member profitability totals (sum across all allocations)
+  total_attributed_revenue: number;
+  total_cost: number;
+  total_profit: number;
+  margin_pct: number;
   allocations: AllocationRow[];
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 
 export async function GET() {
   try {
     const supabase = createServiceClient();
 
-    const { data: members, error: membersError } = await supabase
-      .from('team_members')
-      .select('id, name, role, hourly_rate, monthly_retainer, status')
-      .in('name', DISPLAY_ORDER);
+    // Parallel fetch: team members, ALL labor allocations (not just ours — we need
+    // the total cost per client to compute attribution shares), bonuses,
+    // reporting_clients (for revenue per platform), and clients (for names/status).
+    const [
+      membersResult,
+      allLaborResult,
+      bonusesResult,
+      reportingClientsResult,
+      clientsResult,
+    ] = await Promise.all([
+      supabase
+        .from('team_members')
+        .select('id, name, role, hourly_rate, monthly_retainer, status')
+        .in('name', DISPLAY_ORDER),
+      supabase
+        .from('client_labor_allocations')
+        .select('team_member_id, client_id, platform, avg_hours_per_week, monthly_amount'),
+      supabase
+        .from('client_bonuses')
+        .select('team_member_id, client_id, platform, expected_monthly_amount'),
+      supabase
+        .from('reporting_clients')
+        .select('client_id, platform, monthly_revenue, status, client_category'),
+      supabase
+        .from('clients')
+        .select('id, name, status'),
+    ]);
 
-    if (membersError) {
-      return NextResponse.json({ error: membersError.message }, { status: 500 });
+    const errors = [membersResult, allLaborResult, bonusesResult, reportingClientsResult, clientsResult]
+      .map(r => r.error?.message)
+      .filter(Boolean);
+    if (errors.length) {
+      return NextResponse.json({ error: errors.join('; ') }, { status: 500 });
     }
 
-    const memberIds = (members ?? []).map(m => m.id);
+    const members = membersResult.data ?? [];
 
-    const { data: allocations, error: allocError } = await supabase
-      .from('client_labor_allocations')
-      .select(`
-        team_member_id,
-        platform,
-        avg_hours_per_week,
-        monthly_amount,
-        clients ( name, status )
-      `)
-      .in('team_member_id', memberIds);
-
-    if (allocError) {
-      return NextResponse.json({ error: allocError.message }, { status: 500 });
+    // Build lookups
+    const clientNameById: Record<string, string> = {};
+    const clientStatusById: Record<string, string> = {};
+    for (const c of clientsResult.data ?? []) {
+      clientNameById[c.id] = c.name;
+      clientStatusById[c.id] = c.status;
     }
 
-    // Group allocations by team_member_id, excluding churned clients.
-    // Supabase returns the joined `clients` as either a single object or an
-    // array depending on FK introspection; normalize before reading.
+    // Revenue per (client_id, platform). Excludes churned reporting rows.
+    const revenueByCP: Record<string, number> = {};
+    // Active platforms per client (for splitting platform=null allocations)
+    const activePlatformsByClient: Record<string, string[]> = {};
+    for (const r of reportingClientsResult.data ?? []) {
+      if (!r.client_id || !r.platform) continue;
+      if (r.status === 'churned') continue;
+      const cpKey = `${r.client_id}::${r.platform}`;
+      revenueByCP[cpKey] = (revenueByCP[cpKey] ?? 0) + Number(r.monthly_revenue ?? 0);
+      if (!activePlatformsByClient[r.client_id]) activePlatformsByClient[r.client_id] = [];
+      if (!activePlatformsByClient[r.client_id].includes(r.platform)) {
+        activePlatformsByClient[r.client_id].push(r.platform);
+      }
+    }
+
+    // Total labor per (client_id, platform). Splits platform=null evenly across the
+    // client's active platforms (same convention the profitability route uses).
+    const totalLaborByCP: Record<string, number> = {};
+    for (const l of allLaborResult.data ?? []) {
+      if (!l.client_id) continue;
+      const amount = Number(l.monthly_amount ?? 0);
+      if (amount === 0) continue;
+      if (l.platform) {
+        const cpKey = `${l.client_id}::${l.platform}`;
+        totalLaborByCP[cpKey] = (totalLaborByCP[cpKey] ?? 0) + amount;
+      } else {
+        const platforms = activePlatformsByClient[l.client_id] ?? [];
+        if (platforms.length > 0) {
+          const split = amount / platforms.length;
+          for (const p of platforms) {
+            const cpKey = `${l.client_id}::${p}`;
+            totalLaborByCP[cpKey] = (totalLaborByCP[cpKey] ?? 0) + split;
+          }
+        }
+      }
+    }
+
+    // Bonuses per (member_id, client_id, platform)
+    const bonusByMCP: Record<string, number> = {};
+    for (const b of bonusesResult.data ?? []) {
+      if (!b.team_member_id || !b.client_id) continue;
+      const amount = Number(b.expected_monthly_amount ?? 0);
+      if (amount === 0) continue;
+      if (b.platform) {
+        const key = `${b.team_member_id}::${b.client_id}::${b.platform}`;
+        bonusByMCP[key] = (bonusByMCP[key] ?? 0) + amount;
+      } else {
+        // Untagged bonus → split across active platforms
+        const platforms = activePlatformsByClient[b.client_id] ?? [];
+        if (platforms.length > 0) {
+          const split = amount / platforms.length;
+          for (const p of platforms) {
+            const key = `${b.team_member_id}::${b.client_id}::${p}`;
+            bonusByMCP[key] = (bonusByMCP[key] ?? 0) + split;
+          }
+        }
+      }
+    }
+
+    // For each member, build enriched allocations with attribution.
+    // Untagged member allocations get split across the client's active platforms;
+    // each split shows as its own row so attribution math is clean.
     const allocByMember = new Map<string, AllocationRow[]>();
-    for (const row of allocations ?? []) {
-      const raw = (row as { clients: { name: string; status: string } | { name: string; status: string }[] | null }).clients;
-      const client = Array.isArray(raw) ? raw[0] ?? null : raw;
-      if (!client || client.status === 'churned') continue;
-      const list = allocByMember.get(row.team_member_id) ?? [];
-      list.push({
-        client_name: client.name,
-        platform: row.platform,
-        hours_per_week: row.avg_hours_per_week !== null ? Number(row.avg_hours_per_week) : null,
-        monthly_amount: Number(row.monthly_amount ?? 0),
-      });
-      allocByMember.set(row.team_member_id, list);
+    for (const row of allLaborResult.data ?? []) {
+      if (!row.team_member_id || !row.client_id) continue;
+      if (clientStatusById[row.client_id] === 'churned') continue;
+
+      const memberLabor = Number(row.monthly_amount ?? 0);
+      if (memberLabor === 0) continue;
+      const hours = row.avg_hours_per_week !== null ? Number(row.avg_hours_per_week) : null;
+
+      // Determine platforms this allocation contributes to + the split amount per
+      const platforms: string[] = row.platform
+        ? [row.platform]
+        : (activePlatformsByClient[row.client_id] ?? []);
+      if (platforms.length === 0) continue;
+      const splitLabor = row.platform ? memberLabor : memberLabor / platforms.length;
+      const splitHours = hours !== null && !row.platform ? hours / platforms.length : hours;
+
+      for (const platform of platforms) {
+        const cpKey = `${row.client_id}::${platform}`;
+        const revenue = revenueByCP[cpKey] ?? 0;
+        const totalLabor = totalLaborByCP[cpKey] ?? 0;
+        const share = totalLabor > 0 ? splitLabor / totalLabor : 0;
+        const attributedRevenue = revenue * share;
+
+        const bonusKey = `${row.team_member_id}::${row.client_id}::${platform}`;
+        const bonus = bonusByMCP[bonusKey] ?? 0;
+        const cost = splitLabor + bonus;
+        const profit = attributedRevenue - cost;
+        const marginPct = attributedRevenue > 0 ? (profit / attributedRevenue) * 100 : 0;
+
+        const list = allocByMember.get(row.team_member_id) ?? [];
+        list.push({
+          client_name: clientNameById[row.client_id] ?? 'Unknown',
+          platform,
+          hours_per_week: splitHours,
+          monthly_amount: round2(splitLabor),
+          bonus_amount: round2(bonus),
+          cost: round2(cost),
+          client_revenue: round2(revenue),
+          client_total_labor: round2(totalLabor),
+          attributed_revenue: round2(attributedRevenue),
+          profit: round2(profit),
+          margin_pct: round2(marginPct),
+        });
+        allocByMember.set(row.team_member_id, list);
+      }
     }
 
-    const payload: TeamMemberPayload[] = (members ?? []).map(m => {
+    const payload: TeamMemberPayload[] = members.map(m => {
       const allocs = (allocByMember.get(m.id) ?? []).sort((a, b) =>
         a.client_name.localeCompare(b.client_name)
       );
       const totalHours = allocs.reduce((sum, a) => sum + (a.hours_per_week ?? 0), 0);
       const totalPay = allocs.reduce((sum, a) => sum + a.monthly_amount, 0);
-      // Lindsey gets a dynamic bandwidth computed from her allocations; everyone
-      // else uses the static map (their bandwidth is set by Peterson + Cade).
+      const totalAttributedRevenue = allocs.reduce((sum, a) => sum + a.attributed_revenue, 0);
+      const totalCost = allocs.reduce((sum, a) => sum + a.cost, 0);
+      const totalProfit = totalAttributedRevenue - totalCost;
+      const marginPct = totalAttributedRevenue > 0 ? (totalProfit / totalAttributedRevenue) * 100 : 0;
+
       const bandwidth_remaining_hours = m.name === 'Lindsey Bouffard'
         ? Math.round((LINDSEY_WEEKLY_CAPACITY - LINDSEY_ADMIN_BUFFER - totalHours) * 10) / 10
         : (BANDWIDTH_REMAINING_HOURS[m.name] ?? null);
+
       return {
         id: m.id,
         name: m.name,
@@ -123,13 +254,16 @@ export async function GET() {
         monthly_retainer: m.monthly_retainer !== null ? Number(m.monthly_retainer) : null,
         status: m.status,
         bandwidth_remaining_hours,
-        current_hours_per_week: totalHours,
-        total_monthly_pay: totalPay,
+        current_hours_per_week: round2(totalHours),
+        total_monthly_pay: round2(totalPay),
+        total_attributed_revenue: round2(totalAttributedRevenue),
+        total_cost: round2(totalCost),
+        total_profit: round2(totalProfit),
+        margin_pct: round2(marginPct),
         allocations: allocs,
       };
     });
 
-    // Sort to match DISPLAY_ORDER.
     payload.sort(
       (a, b) => DISPLAY_ORDER.indexOf(a.name) - DISPLAY_ORDER.indexOf(b.name)
     );

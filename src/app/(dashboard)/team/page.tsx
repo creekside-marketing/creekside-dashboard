@@ -8,6 +8,13 @@ interface AllocationRow {
   platform: string | null;
   hours_per_week: number | null;
   monthly_amount: number;
+  bonus_amount: number;
+  cost: number;
+  client_revenue: number;
+  client_total_labor: number;
+  attributed_revenue: number;
+  profit: number;
+  margin_pct: number;
 }
 
 interface TeamMemberPayload {
@@ -20,6 +27,10 @@ interface TeamMemberPayload {
   bandwidth_remaining_hours: number | null;
   current_hours_per_week: number;
   total_monthly_pay: number;
+  total_attributed_revenue: number;
+  total_cost: number;
+  total_profit: number;
+  margin_pct: number;
   allocations: AllocationRow[];
 }
 
@@ -82,13 +93,22 @@ function MemberCard({ m }: { m: TeamMemberPayload }) {
 
   const totalRow = (
     <tr className="bg-slate-50 font-semibold border-t-2 border-slate-300">
-      <td className="px-4 py-2 text-sm text-slate-900">Total</td>
-      <td className="px-4 py-2"></td>
-      <td className="px-4 py-2 text-sm text-slate-900 tabular-nums text-right">
+      <td className="px-3 py-2 text-sm text-slate-900">Total</td>
+      <td className="px-3 py-2"></td>
+      <td className="px-3 py-2 text-sm text-slate-900 tabular-nums text-right">
         {m.current_hours_per_week > 0 ? formatHours(m.current_hours_per_week) : '--'}
       </td>
-      <td className="px-4 py-2 text-sm text-slate-900 tabular-nums text-right">
-        {m.total_monthly_pay > 0 ? formatCurrency(m.total_monthly_pay) : '--'}
+      <td className="px-3 py-2 text-sm text-slate-900 tabular-nums text-right">
+        {m.total_cost > 0 ? formatCurrency(m.total_cost) : '--'}
+      </td>
+      <td className="px-3 py-2 text-sm text-slate-900 tabular-nums text-right">
+        {m.total_attributed_revenue > 0 ? formatCurrency(m.total_attributed_revenue) : '--'}
+      </td>
+      <td className={`px-3 py-2 text-sm tabular-nums text-right font-bold ${m.total_profit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+        {formatCurrency(m.total_profit)}
+      </td>
+      <td className={`px-3 py-2 text-sm tabular-nums text-right font-bold ${m.margin_pct >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+        {m.total_attributed_revenue > 0 ? `${m.margin_pct.toFixed(1)}%` : '--'}
       </td>
     </tr>
   );
@@ -111,6 +131,21 @@ function MemberCard({ m }: { m: TeamMemberPayload }) {
               label="Pay / Mo"
               value={formatCurrency(m.monthly_retainer ?? m.total_monthly_pay)}
               accent="green"
+            />
+            <StatPill
+              label="Attrib. Rev / Mo"
+              value={m.total_attributed_revenue > 0 ? formatCurrency(m.total_attributed_revenue) : '--'}
+              accent="slate"
+            />
+            <StatPill
+              label="Profit / Mo"
+              value={formatCurrency(m.total_profit)}
+              accent={m.total_profit >= 0 ? 'green' : 'amber'}
+            />
+            <StatPill
+              label="Margin %"
+              value={m.total_attributed_revenue > 0 ? `${m.margin_pct.toFixed(1)}%` : '--'}
+              accent={m.margin_pct >= 0 ? 'green' : 'amber'}
             />
             <StatPill
               label="Current Hrs / Wk"
@@ -144,22 +179,40 @@ function MemberCard({ m }: { m: TeamMemberPayload }) {
           <table className="w-full">
             <thead>
               <tr className="bg-white border-b border-slate-200">
-                <th className="px-4 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">Client</th>
-                <th className="px-4 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">Platform</th>
-                <th className="px-4 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500">Hrs / Wk</th>
-                <th className="px-4 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500">Pay / Mo</th>
+                <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">Client</th>
+                <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">Platform</th>
+                <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500">Hrs / Wk</th>
+                <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500" title="Member's cost = labor + bonus on this (client, platform)">Cost</th>
+                <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500" title="Attributed revenue = member labor share × client revenue on this (client, platform)">Attrib. Rev</th>
+                <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500" title="Profit = attributed revenue − member's cost">Profit</th>
+                <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500">Margin %</th>
               </tr>
             </thead>
             <tbody>
               {m.allocations.map((a, idx) => (
                 <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50">
-                  <td className="px-4 py-2 text-sm text-slate-900">{a.client_name}</td>
-                  <td className="px-4 py-2"><PlatformBadge platform={a.platform} /></td>
-                  <td className="px-4 py-2 text-sm text-slate-700 tabular-nums text-right">
+                  <td className="px-3 py-2 text-sm text-slate-900">{a.client_name}</td>
+                  <td className="px-3 py-2"><PlatformBadge platform={a.platform} /></td>
+                  <td className="px-3 py-2 text-sm text-slate-700 tabular-nums text-right">
                     {a.hours_per_week != null ? formatHours(a.hours_per_week) : <span className="text-slate-300">--</span>}
                   </td>
-                  <td className="px-4 py-2 text-sm text-slate-700 tabular-nums text-right">
-                    {formatCurrency(a.monthly_amount)}
+                  <td
+                    className="px-3 py-2 text-sm text-slate-700 tabular-nums text-right"
+                    title={a.bonus_amount > 0 ? `Labor ${formatCurrency(a.monthly_amount)} + Bonus ${formatCurrency(a.bonus_amount)}` : `Labor ${formatCurrency(a.monthly_amount)}`}
+                  >
+                    {formatCurrency(a.cost)}
+                  </td>
+                  <td
+                    className="px-3 py-2 text-sm text-slate-700 tabular-nums text-right"
+                    title={a.client_total_labor > 0 ? `Client total revenue ${formatCurrency(a.client_revenue)} × share ${(100 * a.monthly_amount / a.client_total_labor).toFixed(1)}%` : 'No labor on this row'}
+                  >
+                    {a.attributed_revenue > 0 ? formatCurrency(a.attributed_revenue) : <span className="text-slate-300">--</span>}
+                  </td>
+                  <td className={`px-3 py-2 text-sm tabular-nums text-right ${a.profit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                    {formatCurrency(a.profit)}
+                  </td>
+                  <td className={`px-3 py-2 text-sm tabular-nums text-right ${a.margin_pct >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                    {a.attributed_revenue > 0 ? `${a.margin_pct.toFixed(1)}%` : <span className="text-slate-300">--</span>}
                   </td>
                 </tr>
               ))}
