@@ -20,5 +20,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!report|api|login|tools|roas-calculator|_next|favicon\\.ico).*)'],
+  matcher: ['/((?!report|api|login|tools|roas-calculator|upwork-view|_next|favicon\\.ico).*)'],
 };
