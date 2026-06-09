@@ -139,11 +139,13 @@ export default function FinanceDashboard() {
       })
       .catch(() => { /* keep default 0; Labor stays unsplit */ });
     // Pull total operator cost so the Variable Labor row matches the Client tab tile.
+    // Use active_operator_cost (excludes 'other' platform / AI Agent work, includes
+    // Lindsey's salary gap) so both tabs show the same headline number.
     fetch('/api/clients/profitability')
       .then(r => r.json())
       .then(d => {
         if (cancelled) return;
-        const opCost = Number(d?.totals?.operator_cost ?? 0);
+        const opCost = Number(d?.totals?.active_operator_cost ?? d?.totals?.operator_cost ?? 0);
         if (opCost > 0) setOperatorCostAmount(opCost);
       })
       .catch(() => { /* keep default 0 */ });

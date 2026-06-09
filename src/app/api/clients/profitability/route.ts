@@ -241,10 +241,23 @@ export async function GET() {
     }
     totalLabor += salaryGap;
 
+    // 'Other' platform (AI Agent / Toby work) is tracked separately on the
+    // dashboard and is excluded from the headline Operator Costs number that
+    // drives the Client tab tile and the Finance tab Variable Labor row.
+    // Salary gap stays IN — Lindsey's $671 of admin/overhead is part of what
+    // we pay her, just not allocated to any specific client.
+    let otherPlatformOperatorCost = 0;
+    for (const clientName of Object.keys(result)) {
+      const otherRow = result[clientName]['other'];
+      if (otherRow) otherPlatformOperatorCost += otherRow.operator_cost;
+    }
+    const active_operator_cost = (totalLabor + totalBonus + totalSoftware) - otherPlatformOperatorCost;
+
     return NextResponse.json({
       clients: result,
       totals: {
         operator_cost: round2(totalLabor + totalBonus + totalSoftware),
+        active_operator_cost: round2(active_operator_cost),
         labor_cost: round2(totalLabor),
         bonus_cost: round2(totalBonus),
         software_cost: round2(totalSoftware),

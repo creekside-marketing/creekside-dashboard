@@ -861,7 +861,7 @@ export default function ClientTable() {
       software_cost?: number;
       labor_by_member?: Array<{ member: string; amount: number }>;
     }>>;
-    totals: { operator_cost: number; labor_cost?: number; bonus_cost?: number; software_cost?: number };
+    totals: { operator_cost: number; active_operator_cost?: number; labor_cost?: number; bonus_cost?: number; software_cost?: number };
   } | null>(null);
 
   // Fixed costs (internal-only labor, software, marketing, processing fees, misc).
@@ -1284,7 +1284,13 @@ export default function ClientTable() {
     const metaProfit = metaRevenue - metaCost;
     const chatgptProfit = chatgptRevenue - chatgptCost;
     const otherProfit = otherRevenue - otherCost;
-    const totalOperatorCost = activeFiltered.reduce((sum, c) => sum + costFor(c), 0);
+    // Total Operator Cost: use the API's active_operator_cost field which
+    // INCLUDES Lindsey's salary gap (her admin/overhead time we pay for but
+    // don't allocate to specific clients) and EXCLUDES 'other' platform
+    // (AI Agent / Toby work). Fall back to summing per-row costs if the
+    // field isn't present (older API response).
+    const perRowOperatorCost = activeFiltered.reduce((sum, c) => sum + costFor(c), 0);
+    const totalOperatorCost = operatorCosts?.totals?.active_operator_cost ?? perRowOperatorCost;
     const profit = totalEstRevenue - totalOperatorCost;
     const marginPct = totalEstRevenue > 0 ? Math.round((profit / totalEstRevenue) * 10000) / 100 : 0;
     return { uniqueClients, googleCount, metaCount, chatgptCount, otherCount, total: activeFiltered.length, totalEstRevenue, googleRevenue, metaRevenue, chatgptRevenue, otherRevenue, googleProfit, metaProfit, chatgptProfit, otherProfit, totalOperatorCost, profit, marginPct };
