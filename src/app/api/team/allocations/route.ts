@@ -9,7 +9,7 @@ import { createServiceClient } from '@/lib/supabase';
 // Bandwidth remaining (hours/week) per Peterson + Cade — May 18 2026 call.
 // Single source of truth lives here; edit in code if it changes.
 const BANDWIDTH_REMAINING_HOURS: Record<string, number> = {
-  'Scott Caldwell': 35,  // Cade Jun 9: Scott freed up significant bandwidth
+  'Scott Caldwell': 0,   // Cade Jun 9 clarification: current hours ~35, bandwidth gone
   'Trent Lucas': 18,
   'Ahmed Imran': 15,
   'Ade Aderibigbe': 10,
@@ -122,14 +122,24 @@ export async function GET() {
     }
 
     // Revenue per (client_id, platform). Excludes churned reporting rows.
+    // Retainer-category rows are special: their stored monthly_revenue is the FLAT
+    // retainer dollar amount, but per Cade's rule "all retainer clients should be
+    // 25% anyway" — Creekside's standing convention is a uniform 25% margin on
+    // retainers. So we compute their revenue as totalLabor / 0.75 in a second pass
+    // (below, after totalLaborByCP is built).
     const revenueByCP: Record<string, number> = {};
+    const retainerCP = new Set<string>();
     // Active platforms per client (for splitting platform=null allocations)
     const activePlatformsByClient: Record<string, string[]> = {};
     for (const r of reportingClientsResult.data ?? []) {
       if (!r.client_id || !r.platform) continue;
       if (r.status === 'churned') continue;
       const cpKey = `${r.client_id}::${r.platform}`;
-      revenueByCP[cpKey] = (revenueByCP[cpKey] ?? 0) + Number(r.monthly_revenue ?? 0);
+      if (r.client_category === 'retainer') {
+        retainerCP.add(cpKey);
+      } else {
+        revenueByCP[cpKey] = (revenueByCP[cpKey] ?? 0) + Number(r.monthly_revenue ?? 0);
+      }
       if (!activePlatformsByClient[r.client_id]) activePlatformsByClient[r.client_id] = [];
       if (!activePlatformsByClient[r.client_id].includes(r.platform)) {
         activePlatformsByClient[r.client_id].push(r.platform);
@@ -155,6 +165,16 @@ export async function GET() {
             totalLaborByCP[cpKey] = (totalLaborByCP[cpKey] ?? 0) + split;
           }
         }
+      }
+    }
+
+    // Apply Cade's "retainers are 25% margin" rule: revenue = totalLabor / 0.75
+    // for every retainer (client_id, platform). Done AFTER totalLaborByCP is built
+    // so we have the full labor figure to invert.
+    for (const cpKey of retainerCP) {
+      const totalLabor = totalLaborByCP[cpKey] ?? 0;
+      if (totalLabor > 0) {
+        revenueByCP[cpKey] = round2(totalLabor / 0.75);
       }
     }
 
