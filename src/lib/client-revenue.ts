@@ -80,3 +80,64 @@ export async function computeRevenueByClientId(supabase: SupabaseClient): Promis
 
   return revenueByClientId;
 }
+
+/**
+ * Same logic as computeRevenueByClientId but returns per-(client_id, platform)
+ * revenue keyed as `${client_id}::${platform}`. Used by the Team tab's per-
+ * freelancer attribution so labor share gets multiplied by the SAME revenue
+ * number the Client tab displays per row.
+ */
+export async function computeRevenueByClientPlatform(supabase: SupabaseClient): Promise<Record<string, number>> {
+  const { data, error } = await supabase
+    .from('reporting_clients')
+    .select('id, client_id, client_name, platform, ad_account_id, fee_config, monthly_budget, monthly_revenue, revenue_override, status')
+    .eq('status', 'active');
+
+  if (error || !data) return {};
+
+  const rows = data as ReportingRow[];
+
+  const liveSpend = await fetchLiveSpend(
+    rows
+      .filter(r => !!r.ad_account_id && !!r.platform)
+      .map(r => ({ ad_account_id: r.ad_account_id as string, platform: r.platform as string }))
+  );
+
+  const platformCountByName: Record<string, number> = {};
+  const totalSpendByName: Record<string, number> = {};
+  const totalBudgetByName: Record<string, number> = {};
+  for (const row of rows) {
+    const name = row.client_name;
+    platformCountByName[name] = (platformCountByName[name] ?? 0) + 1;
+    const live = row.ad_account_id ? liveSpend.get(row.ad_account_id) : undefined;
+    const spendOrBudget = live ?? Number(row.monthly_budget ?? 0);
+    totalSpendByName[name] = (totalSpendByName[name] ?? 0) + spendOrBudget;
+    totalBudgetByName[name] = (totalBudgetByName[name] ?? 0) + Number(row.monthly_budget ?? 0);
+  }
+
+  const revenueByCP: Record<string, number> = {};
+  for (const row of rows) {
+    if (!row.client_id || !row.platform) continue;
+    const platformCount = platformCountByName[row.client_name] ?? 1;
+    const live = row.ad_account_id ? liveSpend.get(row.ad_account_id) : undefined;
+    const monthlyRev = row.monthly_revenue == null ? null : Number(row.monthly_revenue);
+
+    let value = 0;
+    if (row.revenue_override && monthlyRev != null) {
+      value = monthlyRev;
+    } else if (row.fee_config && live !== undefined) {
+      const totalSpend = totalSpendByName[row.client_name] ?? live;
+      value = calculatePlatformRevenue(row.fee_config, live, totalSpend, platformCount);
+    } else if (row.fee_config && Number(row.monthly_budget ?? 0) > 0) {
+      const thisBudget = Number(row.monthly_budget ?? 0);
+      const totalBudget = totalBudgetByName[row.client_name] ?? thisBudget;
+      value = calculatePlatformRevenue(row.fee_config, thisBudget, totalBudget, platformCount);
+    } else if (monthlyRev != null && monthlyRev > 0) {
+      value = monthlyRev;
+    }
+    const key = `${row.client_id}::${row.platform}`;
+    revenueByCP[key] = (revenueByCP[key] ?? 0) + value;
+  }
+
+  return revenueByCP;
+}

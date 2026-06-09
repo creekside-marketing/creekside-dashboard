@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
+import { computeRevenueByClientPlatform } from '@/lib/client-revenue';
 
 // New endpoint powering the redesigned Team tab.
 // Returns one entry per team member (filtered to active people we currently
@@ -121,15 +122,17 @@ export async function GET() {
       clientStatusById[c.id] = c.status;
     }
 
-    // Revenue per (client_id, platform). Excludes churned reporting rows.
-    // Retainer-category rows are special: their stored monthly_revenue is the FLAT
-    // retainer dollar amount, but per Cade's rule "all retainer clients should be
-    // 25% anyway" — Creekside's standing convention is a uniform 25% margin on
-    // retainers. So we compute their revenue as totalLabor / 0.75 in a second pass
-    // (below, after totalLaborByCP is built).
-    const revenueByCP: Record<string, number> = {};
+    // Revenue per (client_id, platform) — uses the SAME live fee engine the
+    // Client tab uses for "Est. Revenue" so attribution math matches the per-
+    // client revenue numbers you see there (Blush Camera $2,632, AIW ≈$517 live,
+    // Fusion DI Meta $5,237, etc.) rather than stale stored values.
+    const revenueByCP = await computeRevenueByClientPlatform(supabase);
+    // Retainer (client, platform) rows — excluded entirely from Team profitability
+    // per Cade. Retainer clients live on the Client tab Retainer section with
+    // a separate 25% margin assumption; they don't roll up into freelancer P&L.
     const retainerCP = new Set<string>();
-    // Active platforms per client (for splitting platform=null allocations)
+    // Active (non-retainer, non-churned) platforms per client — for splitting
+    // platform=null allocations.
     const activePlatformsByClient: Record<string, string[]> = {};
     for (const r of reportingClientsResult.data ?? []) {
       if (!r.client_id || !r.platform) continue;
@@ -137,8 +140,7 @@ export async function GET() {
       const cpKey = `${r.client_id}::${r.platform}`;
       if (r.client_category === 'retainer') {
         retainerCP.add(cpKey);
-      } else {
-        revenueByCP[cpKey] = (revenueByCP[cpKey] ?? 0) + Number(r.monthly_revenue ?? 0);
+        continue;
       }
       if (!activePlatformsByClient[r.client_id]) activePlatformsByClient[r.client_id] = [];
       if (!activePlatformsByClient[r.client_id].includes(r.platform)) {
@@ -168,15 +170,11 @@ export async function GET() {
       }
     }
 
-    // Apply Cade's "retainers are 25% margin" rule: revenue = totalLabor / 0.75
-    // for every retainer (client_id, platform). Done AFTER totalLaborByCP is built
-    // so we have the full labor figure to invert.
-    for (const cpKey of retainerCP) {
-      const totalLabor = totalLaborByCP[cpKey] ?? 0;
-      if (totalLabor > 0) {
-        revenueByCP[cpKey] = round2(totalLabor / 0.75);
-      }
-    }
+    // Retainer (client, platform) rows: excluded entirely from the Team tab
+    // per-freelancer profitability view. They live on the Client tab Retainer
+    // section with their own 25% margin treatment and shouldn't roll up into
+    // freelancer P&L. No revenue override needed here — the cpKey simply gets
+    // skipped when building enriched allocations below.
 
     // Bonuses per (member_id, client_id, platform)
     const bonusByMCP: Record<string, number> = {};
@@ -222,6 +220,8 @@ export async function GET() {
 
       for (const platform of platforms) {
         const cpKey = `${row.client_id}::${platform}`;
+        // Skip retainer-category (client, platform) rows entirely.
+        if (retainerCP.has(cpKey)) continue;
         const revenue = revenueByCP[cpKey] ?? 0;
         const totalLabor = totalLaborByCP[cpKey] ?? 0;
         const share = totalLabor > 0 ? splitLabor / totalLabor : 0;
