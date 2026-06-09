@@ -43,6 +43,25 @@ function monthLabel(isoDate: string): string {
   return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 
+// Fixed vs Variable category classification (per Cade — Jun 8 2026).
+// Variable = scales with business activity / not directly controllable (Labor, Taxes).
+// Fixed    = predictable, controllable spend (Software, Marketing, Processing Fee, Other).
+// Labor sits on the Variable side at the accounting-category level even though a chunk
+// of it (founders + internal-only people) is captured separately in the fixed_costs table.
+const EXPENSE_TYPE_BY_CATEGORY: Record<string, 'Variable' | 'Fixed'> = {
+  Labor: 'Variable',
+  Taxes: 'Variable',
+  Marketing: 'Fixed',
+  Software: 'Fixed',
+  'Processing Fee': 'Fixed',
+  Others: 'Fixed',
+  Other: 'Fixed',
+};
+
+function expenseType(category: string): 'Variable' | 'Fixed' {
+  return EXPENSE_TYPE_BY_CATEGORY[category] ?? 'Fixed';
+}
+
 type NewClient = { name: string; first_payment_date: string; monthly_mrr: number; mrr_source: 'manual' | 'auto' | 'none' };
 type WindowMetrics = {
   start: string;
@@ -257,51 +276,87 @@ export default function FinanceDashboard() {
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
-            {categories.map(cat => {
-              const proj = this_month.projected_expenses_by_category[cat];
-              if (!proj) return null;
-              // Change column: last_actual − prior_actual (actual-to-actual, e.g. May − April)
-              const delta = prior_month ? proj.last_actual - proj.prior_actual : 0;
-              const isEditing = editingCategory === cat;
-              return (
-                <tr key={cat} className="hover:bg-slate-50">
-                  <td className="px-6 py-3 text-sm font-medium text-slate-900">{cat}</td>
-                  <td className="px-6 py-3 text-right text-sm text-slate-700">{formatCurrency(proj.last_actual)}</td>
-                  <td className="px-6 py-3 text-right text-sm">
-                    {isEditing ? (
-                      <input
-                        autoFocus
-                        type="text"
-                        inputMode="decimal"
-                        value={editValue}
-                        onFocus={e => e.currentTarget.select()}
-                        onChange={e => setEditValue(e.target.value)}
-                        onBlur={saveEdit}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') saveEdit();
-                          if (e.key === 'Escape') setEditingCategory(null);
-                        }}
-                        disabled={saving}
-                        className="w-32 px-2 py-1 border border-emerald-500 rounded text-right"
-                      />
-                    ) : (
-                      <button
-                        onClick={() => startEdit(cat, proj.projected)}
-                        className={`px-2 py-1 rounded hover:bg-emerald-50 ${proj.overridden ? 'text-emerald-700 font-semibold' : 'text-slate-700'}`}
-                        title={proj.overridden ? 'Manually overridden' : 'Default = last month actual. Click to override.'}
-                      >
-                        {formatCurrency(proj.projected)}
-                      </button>
-                    )}
-                  </td>
-                  <td className={`px-6 py-3 text-right text-sm ${delta > 0 ? 'text-red-600' : delta < 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
-                    {delta === 0 ? '—' : `${delta > 0 ? '+' : ''}${formatCurrency(delta)}`}
+          {(['Variable', 'Fixed'] as const).map(typeKey => {
+            const catsInType = categories.filter(c => expenseType(c) === typeKey);
+            if (catsInType.length === 0) return null;
+            // Subtotal across this type
+            let typeLastActual = 0;
+            let typeProjected = 0;
+            let typePriorActual = 0;
+            for (const c of catsInType) {
+              const p = this_month.projected_expenses_by_category[c];
+              if (!p) continue;
+              typeLastActual += p.last_actual;
+              typeProjected += p.projected;
+              typePriorActual += p.prior_actual;
+            }
+            const typeDelta = prior_month ? typeLastActual - typePriorActual : 0;
+            const isVariable = typeKey === 'Variable';
+            const headerBg = isVariable ? 'bg-amber-50' : 'bg-sky-50';
+            const headerText = isVariable ? 'text-amber-700' : 'text-sky-700';
+            const headerLabel = isVariable
+              ? 'Variable (scales with business — Labor, Taxes)'
+              : 'Fixed (controllable — Marketing, Software, Processing Fee, Other)';
+            return (
+              <tbody key={typeKey} className="divide-y divide-slate-100">
+                <tr className={headerBg}>
+                  <td colSpan={4} className={`px-6 py-2 text-xs font-semibold uppercase tracking-wider ${headerText}`}>
+                    {headerLabel}
                   </td>
                 </tr>
-              );
-            })}
-          </tbody>
+                {catsInType.map(cat => {
+                  const proj = this_month.projected_expenses_by_category[cat];
+                  if (!proj) return null;
+                  const delta = prior_month ? proj.last_actual - proj.prior_actual : 0;
+                  const isEditing = editingCategory === cat;
+                  return (
+                    <tr key={cat} className="hover:bg-slate-50">
+                      <td className="px-6 py-3 text-sm font-medium text-slate-900 pl-10">{cat}</td>
+                      <td className="px-6 py-3 text-right text-sm text-slate-700">{formatCurrency(proj.last_actual)}</td>
+                      <td className="px-6 py-3 text-right text-sm">
+                        {isEditing ? (
+                          <input
+                            autoFocus
+                            type="text"
+                            inputMode="decimal"
+                            value={editValue}
+                            onFocus={e => e.currentTarget.select()}
+                            onChange={e => setEditValue(e.target.value)}
+                            onBlur={saveEdit}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') saveEdit();
+                              if (e.key === 'Escape') setEditingCategory(null);
+                            }}
+                            disabled={saving}
+                            className="w-32 px-2 py-1 border border-emerald-500 rounded text-right"
+                          />
+                        ) : (
+                          <button
+                            onClick={() => startEdit(cat, proj.projected)}
+                            className={`px-2 py-1 rounded hover:bg-emerald-50 ${proj.overridden ? 'text-emerald-700 font-semibold' : 'text-slate-700'}`}
+                            title={proj.overridden ? 'Manually overridden' : 'Default = last month actual. Click to override.'}
+                          >
+                            {formatCurrency(proj.projected)}
+                          </button>
+                        )}
+                      </td>
+                      <td className={`px-6 py-3 text-right text-sm ${delta > 0 ? 'text-red-600' : delta < 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
+                        {delta === 0 ? '—' : `${delta > 0 ? '+' : ''}${formatCurrency(delta)}`}
+                      </td>
+                    </tr>
+                  );
+                })}
+                <tr className="bg-slate-50/60">
+                  <td className="px-6 py-2 text-xs font-semibold text-slate-600 pl-10">{typeKey} subtotal</td>
+                  <td className="px-6 py-2 text-right text-xs font-semibold text-slate-700">{formatCurrency(typeLastActual)}</td>
+                  <td className="px-6 py-2 text-right text-xs font-semibold text-slate-700">{formatCurrency(typeProjected)}</td>
+                  <td className={`px-6 py-2 text-right text-xs font-semibold ${typeDelta > 0 ? 'text-red-600' : typeDelta < 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
+                    {typeDelta === 0 ? '—' : `${typeDelta > 0 ? '+' : ''}${formatCurrency(typeDelta)}`}
+                  </td>
+                </tr>
+              </tbody>
+            );
+          })}
           <tfoot className="bg-slate-50 font-semibold">
             <tr>
               <td className="px-6 py-3 text-sm text-slate-900">Total expenses</td>

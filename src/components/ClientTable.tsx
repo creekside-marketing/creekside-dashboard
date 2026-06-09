@@ -1355,60 +1355,83 @@ export default function ClientTable() {
 
   return (
     <div className="space-y-6">
-      {/* Summary Stats */}
-      <div className="grid grid-cols-4 lg:grid-cols-9 gap-4">
-        <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
+      {/* Summary Stats — two rows: top = headline, bottom = per-platform */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        <div className="bg-white rounded-xl border border-slate-200 px-5 py-4">
           <p className="text-sm font-medium text-slate-500">Active Clients</p>
-          <p className="text-2xl font-bold text-slate-900 mt-1">{stats.uniqueClients}</p>
+          <p className="text-2xl font-bold text-slate-900 mt-1 whitespace-nowrap">{stats.uniqueClients}</p>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
+        <div className="bg-white rounded-xl border border-slate-200 px-5 py-4">
           <p className="text-sm font-medium text-slate-500">Est. Monthly Revenue</p>
-          <p className="text-2xl font-bold text-emerald-600 mt-1">{formatCurrency(stats.totalEstRevenue)}</p>
+          <p className="text-2xl font-bold text-emerald-600 mt-1 whitespace-nowrap">{formatCurrency(stats.totalEstRevenue)}</p>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
+        <div className="bg-white rounded-xl border border-slate-200 px-5 py-4">
           <p className="text-sm font-medium text-slate-500">Operator Costs</p>
-          <p className="text-2xl font-bold text-slate-700 mt-1">
+          <p className="text-2xl font-bold text-slate-700 mt-1 whitespace-nowrap">
             {operatorCosts ? formatCurrency(stats.totalOperatorCost) : <span className="text-slate-300">--</span>}
           </p>
           <p className="text-xs text-slate-400 mt-0.5">Variable (per-client)</p>
+          {operatorCosts && (() => {
+            const profitAfterOp = stats.totalEstRevenue - stats.totalOperatorCost;
+            const pct = stats.totalEstRevenue > 0
+              ? Math.round((profitAfterOp / stats.totalEstRevenue) * 1000) / 10
+              : 0;
+            const color = profitAfterOp >= 0 ? 'text-emerald-700' : 'text-red-600';
+            return (
+              <p className={`text-[11px] font-semibold mt-2 pt-2 border-t border-slate-100 leading-tight ${color}`}>
+                Profit after operator: <br className="sm:hidden" />
+                {formatCurrency(profitAfterOp)} <span className="font-normal text-slate-400">({pct}%)</span>
+              </p>
+            );
+          })()}
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
+        <div className="bg-white rounded-xl border border-slate-200 px-5 py-4">
           <p className="text-sm font-medium text-slate-500">Fixed Costs</p>
-          <p className="text-2xl font-bold text-slate-700 mt-1">
+          <p className="text-2xl font-bold text-slate-700 mt-1 whitespace-nowrap">
             {fixedCosts ? formatCurrency(fixedCosts.totals.all) : <span className="text-slate-300">--</span>}
           </p>
           <p className="text-xs text-slate-400 mt-0.5">Internal (non-variable)</p>
+          {fixedCosts && (() => {
+            const profitAfterFixed = stats.totalEstRevenue - fixedCosts.totals.all;
+            const pct = stats.totalEstRevenue > 0
+              ? Math.round((profitAfterFixed / stats.totalEstRevenue) * 1000) / 10
+              : 0;
+            const color = profitAfterFixed >= 0 ? 'text-emerald-700' : 'text-red-600';
+            return (
+              <p className={`text-[11px] font-semibold mt-2 pt-2 border-t border-slate-100 leading-tight ${color}`}>
+                Profit after fixed: <br className="sm:hidden" />
+                {formatCurrency(profitAfterFixed)} <span className="font-normal text-slate-400">({pct}%)</span>
+              </p>
+            );
+          })()}
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
+        <div className="bg-white rounded-xl border border-slate-200 px-5 py-4">
           <p className="text-sm font-medium text-slate-500">Profit / Margin</p>
-          <p className={`text-2xl font-bold mt-1 ${
+          <p className={`text-2xl font-bold mt-1 whitespace-nowrap ${
             stats.marginPct >= 30 ? 'text-emerald-600' : stats.marginPct >= 15 ? 'text-amber-600' : 'text-red-600'
           }`}>
             {formatCurrency(stats.profit)}
             <span className="text-sm font-semibold ml-1">({stats.marginPct}%)</span>
           </p>
+          <p className="text-xs text-slate-400 mt-0.5">Revenue − operator</p>
           {fixedCosts && (() => {
-            const fixedTotal = fixedCosts.totals.all;
-            const netProfit = stats.profit - fixedTotal;
+            const netProfit = stats.profit - fixedCosts.totals.all;
             const netMarginPct = stats.totalEstRevenue > 0
               ? Math.round((netProfit / stats.totalEstRevenue) * 1000) / 10
               : 0;
             const netColor = netProfit >= 0 ? 'text-emerald-700' : 'text-red-600';
             return (
-              <div className="mt-2 pt-2 border-t border-slate-100 space-y-0.5">
-                <p className="text-[11px] text-slate-500 leading-tight">
-                  − Operator: <span className="font-medium text-slate-700">{formatCurrency(stats.totalOperatorCost)}</span>
-                </p>
-                <p className="text-[11px] text-slate-500 leading-tight">
-                  − Fixed: <span className="font-medium text-slate-700">{formatCurrency(fixedTotal)}</span>
-                </p>
-                <p className={`text-[11px] font-semibold leading-tight ${netColor}`}>
-                  Net Profit: {formatCurrency(netProfit)} <span className="font-normal">({netMarginPct}%)</span>
-                </p>
-              </div>
+              <p className={`text-[11px] font-semibold mt-2 pt-2 border-t border-slate-100 leading-tight ${netColor}`}>
+                Net Profit (after both): <br className="sm:hidden" />
+                {formatCurrency(netProfit)} <span className="font-normal text-slate-400">({netMarginPct}%)</span>
+              </p>
             );
           })()}
         </div>
+      </div>
+
+      {/* Per-platform breakdown row */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
           <p className="text-sm font-medium text-slate-500">Google Revenue</p>
           <p className="text-2xl font-bold text-emerald-600 mt-1">{formatCurrency(stats.googleRevenue)}</p>
