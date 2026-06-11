@@ -13,7 +13,13 @@ export default function ReportGate() {
     e.preventDefault();
     if (password === CORRECT_PASSWORD) {
       document.cookie = `${COOKIE_NAME}=true; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`;
-      window.location.reload();
+      // If they were redirected here from a report page, send them back to it
+      const next = new URLSearchParams(window.location.search).get('next');
+      if (next && next.startsWith('/') && !next.startsWith('//')) {
+        window.location.href = next;
+      } else {
+        window.location.reload();
+      }
     } else {
       setError(true);
       setPassword('');

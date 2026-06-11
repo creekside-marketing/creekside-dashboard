@@ -26,6 +26,10 @@ interface Props {
 
 const NOTES_PER_PAGE = 5;
 
+function draftKey(clientId: string): string {
+  return `report_note_draft_${clientId}`;
+}
+
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
@@ -74,6 +78,18 @@ export default function ReportNotesTimeline({ clientId }: Props) {
 
   useEffect(() => { fetchNotes(); }, [fetchNotes]);
 
+  // Restore a draft stashed before an auth redirect (see handleSave 401 path)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(draftKey(clientId));
+      if (raw) {
+        const draft = JSON.parse(raw) as Partial<SectionState>;
+        setSections({ ...EMPTY_SECTIONS, ...draft });
+        setShowEditor(true);
+      }
+    } catch { /* silent */ }
+  }, [clientId]);
+
   const allFilled = SECTIONS.every(s => sections[s.key].trim());
   const emptySections = SECTIONS.filter(s => !sections[s.key].trim()).map(s => s.label);
 
@@ -91,10 +107,17 @@ export default function ReportNotesTimeline({ clientId }: Props) {
         body: JSON.stringify({ client_id: clientId, author: 'Creekside', content: buildContent(sections) }),
       });
       if (res.ok) {
+        try { localStorage.removeItem(draftKey(clientId)); } catch { /* silent */ }
         setSections({ ...EMPTY_SECTIONS });
         setShowEditor(false);
         setPage(0);
         await fetchNotes();
+      } else if (res.status === 401) {
+        // Not signed in — stash the draft, send them to the password page,
+        // and bounce them back here afterward. Draft is restored on return.
+        try { localStorage.setItem(draftKey(clientId), JSON.stringify(sections)); } catch { /* silent */ }
+        window.location.href = `/report?next=${encodeURIComponent(window.location.pathname)}`;
+        return;
       } else {
         setSaveError('Unable to save. Please try again.');
       }
@@ -167,7 +190,10 @@ export default function ReportNotesTimeline({ clientId }: Props) {
               {saving ? 'Saving...' : 'Save'}
             </button>
             <button
-              onClick={() => { setShowEditor(false); setSections({ ...EMPTY_SECTIONS }); setSaveError(''); }}
+              onClick={() => {
+                try { localStorage.removeItem(draftKey(clientId)); } catch { /* silent */ }
+                setShowEditor(false); setSections({ ...EMPTY_SECTIONS }); setSaveError('');
+              }}
               className="px-4 py-2 rounded-lg text-sm font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
             >
               Cancel
