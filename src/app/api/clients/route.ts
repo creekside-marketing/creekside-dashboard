@@ -44,8 +44,8 @@ export async function GET() {
   try {
     const supabase = createServiceClient();
 
-    // Fetch reporting_clients and contact names in parallel
-    const [rcResult, contactsResult] = await Promise.all([
+    // Fetch reporting_clients, contact names, and monitoring rules in parallel
+    const [rcResult, contactsResult, monitoringResult] = await Promise.all([
       supabase
         .from('reporting_clients')
         .select('*')
@@ -55,6 +55,9 @@ export async function GET() {
         .from('clients')
         .select('id, name, primary_contact_name')
         .eq('status', 'active'),
+      supabase
+        .from('client_monitoring_rules')
+        .select('reporting_client_id, monitoring_enabled, status'),
     ]);
 
     const { data, error } = rcResult;
@@ -63,6 +66,19 @@ export async function GET() {
       if (c.primary_contact_name) {
         contactMap.set(c.id, c.primary_contact_name);
         contactMap.set(c.name, c.primary_contact_name);
+      }
+    }
+
+    // Build monitoring status map: reporting_client_id -> 'active' | 'paused' | 'skipped'
+    // No row = client needs info (handled in the .map below).
+    const monitoringMap = new Map<string, string>();
+    for (const m of monitoringResult.data ?? []) {
+      if (m.status === 'skipped') {
+        monitoringMap.set(m.reporting_client_id, 'skipped');
+      } else if (m.status === 'configured' && m.monitoring_enabled) {
+        monitoringMap.set(m.reporting_client_id, 'active');
+      } else {
+        monitoringMap.set(m.reporting_client_id, 'paused');
       }
     }
 
@@ -79,12 +95,13 @@ export async function GET() {
       return (a.client_name ?? '').localeCompare(b.client_name ?? '');
     });
 
-    // Attach contact names
+    // Attach contact names and monitoring status
     const enriched = sorted.map((row) => ({
       ...row,
       contact_name: (row.client_id && contactMap.get(row.client_id))
         || contactMap.get(row.client_name)
         || null,
+      monitoring_status: monitoringMap.get(row.id) ?? 'needs_info',
     }));
 
     return NextResponse.json(enriched);

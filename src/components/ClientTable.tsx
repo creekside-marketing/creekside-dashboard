@@ -25,7 +25,37 @@ interface Client {
   goal_target: number | null;
   client_category: string | null;
   notes: string | null;
+  monitoring_status: 'active' | 'paused' | 'skipped' | 'needs_info' | null;
   [key: string]: unknown;
+}
+
+// Rules Agent badge — visual status for client_monitoring_rules per reporting_client.
+// 'active' = monitoring agent is checking this client daily (green)
+// 'needs_info' = no monitoring_rules row exists yet (amber, action required)
+// 'paused' / 'skipped' = explicitly opted out (slate)
+function RulesAgentBadge({ status }: { status: string }) {
+  if (status === 'active') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+        Active
+      </span>
+    );
+  }
+  if (status === 'paused' || status === 'skipped') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-50 text-slate-600 ring-1 ring-inset ring-slate-400/20">
+        <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+        {status === 'paused' ? 'Paused' : 'Skipped'}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20">
+      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+      Needs Info
+    </span>
+  );
 }
 
 interface ClientGroup {
@@ -678,7 +708,7 @@ function SortHeader({ label, sortKey: key, currentKey, direction, onSort }: {
   return (
     <th
       onClick={() => onSort(key)}
-      className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6 cursor-pointer select-none hover:text-slate-900 transition-colors group"
+      className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 cursor-pointer select-none hover:text-slate-900 transition-colors group"
     >
       <span className="inline-flex items-center gap-1">
         {label}
@@ -1543,26 +1573,27 @@ export default function ClientTable() {
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/80">
                 <SortHeader label="Client" sortKey="client_name" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
-                <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Platform</th>
+                <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4">Platform</th>
                 <SortHeader label="Est. Revenue" sortKey="est_revenue" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
-                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Labor</th>
-                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Bonuses</th>
-                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Software</th>
-                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Profit</th>
-                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Profit %</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4">Labor</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4">Bonuses</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4">Software</th>
+                <th className="text-center text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4">Rules Agent</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4">Profit</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4">Profit %</th>
                 <SortHeader label="Priority" sortKey="priority" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <SortHeader label="Manager" sortKey="account_manager" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <SortHeader label="Operator" sortKey="platform_operator" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <SortHeader label="Budget" sortKey="monthly_budget" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
-                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Spend</th>
-                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Target</th>
-                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-4 px-6">Current</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4">Spend</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4">Target</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4">Current</th>
               </tr>
             </thead>
             <tbody>
               {activeGroups.length === 0 ? (
                 <tr>
-                  <td colSpan={15} className="text-center text-slate-400 py-16 text-sm">
+                  <td colSpan={16} className="text-center text-slate-400 py-16 text-sm">
                     No clients match the current filters.
                   </td>
                 </tr>
@@ -1579,7 +1610,7 @@ export default function ClientTable() {
                         } ${!isFirstInGroup ? 'border-t border-slate-100' : ''}`}
                       >
                         {/* Client Name — only show for first row in group */}
-                        <td className="py-4 px-6">
+                        <td className="py-3 px-4">
                           {isFirstInGroup ? (
                             <div>
                               <div className="flex items-center gap-2">
@@ -1602,7 +1633,7 @@ export default function ClientTable() {
                             </div>
                           ) : null}
                         </td>
-                        <td className="py-4 px-6">
+                        <td className="py-3 px-4">
                           <div className="flex items-center gap-2">
                             <PlatformBadge platform={client.platform} />
                             {(client.segment_name as string) && (
@@ -1611,7 +1642,7 @@ export default function ClientTable() {
                           </div>
                         </td>
                         {/* Est. Revenue — per-row, calculated from fee_config + live spend */}
-                        <td className="py-4 px-6 text-right text-sm font-medium text-slate-900" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-3 px-4 text-right text-sm font-medium text-slate-900" onClick={(e) => e.stopPropagation()}>
                           {(() => {
                             const rev = calculatedRevenue[client.id];
                             if (!rev || rev.value == null) {
@@ -1664,7 +1695,7 @@ export default function ClientTable() {
                           })()}
                         </td>
                         {/* Labor — per-row. Total on top, color-coded per-member chips below. */}
-                        <td className="py-4 px-6 text-right text-sm text-slate-600 tabular-nums">
+                        <td className="py-3 px-4 text-right text-sm text-slate-600 tabular-nums">
                           {(() => {
                             const costs = operatorCosts?.clients[client.client_name]?.[client.platform];
                             const value = costs?.labor_cost ?? 0;
@@ -1701,7 +1732,7 @@ export default function ClientTable() {
                           })()}
                         </td>
                         {/* Bonuses — per-row */}
-                        <td className="py-4 px-6 text-right text-sm text-slate-600 tabular-nums">
+                        <td className="py-3 px-4 text-right text-sm text-slate-600 tabular-nums">
                           {(() => {
                             const costs = operatorCosts?.clients[client.client_name]?.[client.platform];
                             const value = costs?.bonus_cost ?? 0;
@@ -1712,7 +1743,7 @@ export default function ClientTable() {
                           })()}
                         </td>
                         {/* Software — per-row */}
-                        <td className="py-4 px-6 text-right text-sm text-slate-600 tabular-nums">
+                        <td className="py-3 px-4 text-right text-sm text-slate-600 tabular-nums">
                           {(() => {
                             const costs = operatorCosts?.clients[client.client_name]?.[client.platform];
                             const value = costs?.software_cost ?? 0;
@@ -1722,8 +1753,12 @@ export default function ClientTable() {
                               : `$${Math.round(value)}`;
                           })()}
                         </td>
+                        {/* Rules Agent — per-row monitoring status */}
+                        <td className="py-3 px-4 text-center">
+                          <RulesAgentBadge status={(client.monitoring_status as string) ?? 'needs_info'} />
+                        </td>
                         {/* Profit — per-row (revenue - operating cost) */}
-                        <td className="py-4 px-6 text-right text-sm font-semibold">
+                        <td className="py-3 px-4 text-right text-sm font-semibold">
                           {(() => {
                             const costs = operatorCosts?.clients[client.client_name]?.[client.platform];
                             if (!costs) {
@@ -1744,7 +1779,7 @@ export default function ClientTable() {
                           })()}
                         </td>
                         {/* Profit % — per-row (profit / revenue) */}
-                        <td className="py-4 px-6 text-right text-sm font-semibold tabular-nums">
+                        <td className="py-3 px-4 text-right text-sm font-semibold tabular-nums">
                           {(() => {
                             const costs = operatorCosts?.clients[client.client_name]?.[client.platform];
                             if (!costs) {
@@ -1760,7 +1795,7 @@ export default function ClientTable() {
                           })()}
                         </td>
                         {/* Priority — per-row */}
-                        <td className="py-4 px-6" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
                           <InlinePrioritySelect
                             clientId={client.id}
                             value={client.priority}
@@ -1768,7 +1803,7 @@ export default function ClientTable() {
                           />
                         </td>
                         {/* Manager — grouped (first row only) */}
-                        <td className="py-4 px-6 text-sm text-slate-600" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-3 px-4 text-sm text-slate-600" onClick={(e) => e.stopPropagation()}>
                           {isFirstInGroup ? (
                             <InlineTableSelect
                               clientId={client.id}
@@ -1782,7 +1817,7 @@ export default function ClientTable() {
                             />
                           ) : null}
                         </td>
-                        <td className="py-4 px-6 text-sm text-slate-600" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-3 px-4 text-sm text-slate-600" onClick={(e) => e.stopPropagation()}>
                           <InlineTableSelect
                             clientId={client.id}
                             field="platform_operator"
@@ -1794,7 +1829,7 @@ export default function ClientTable() {
                             onSaved={handleFieldSaved}
                           />
                         </td>
-                        <td className="py-4 px-6 text-sm text-slate-700 font-medium" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-3 px-4 text-sm text-slate-700 font-medium" onClick={(e) => e.stopPropagation()}>
                           <InlineCurrencyInput
                             clientId={client.id}
                             field="monthly_budget"
@@ -1802,7 +1837,7 @@ export default function ClientTable() {
                             onSaved={handleFieldSaved}
                           />
                         </td>
-                        <td className="py-4 px-6 text-right text-sm font-medium">
+                        <td className="py-3 px-4 text-right text-sm font-medium">
                           {(() => {
                             const accountId = client.ad_account_id;
                             const budget = client.monthly_budget;
@@ -1827,7 +1862,7 @@ export default function ClientTable() {
                           })()}
                         </td>
                         {/* Target — goal type + target value, inline editable */}
-                        <td className="py-4 px-6 text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-3 px-4 text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
                           <InlineGoalEditor
                             clientId={client.id}
                             goalType={client.goal_type}
@@ -1836,7 +1871,7 @@ export default function ClientTable() {
                           />
                         </td>
                         {/* Current — auto-calculated from live data based on goal type */}
-                        <td className="py-4 px-6 text-right text-sm font-medium">
+                        <td className="py-3 px-4 text-right text-sm font-medium">
                           {(() => {
                             const goalType = client.goal_type;
                             if (!goalType) return <span className="text-slate-300">--</span>;
