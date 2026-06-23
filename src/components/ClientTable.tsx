@@ -708,7 +708,7 @@ function SortHeader({ label, sortKey: key, currentKey, direction, onSort }: {
   return (
     <th
       onClick={() => onSort(key)}
-      className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 cursor-pointer select-none hover:text-slate-900 transition-colors group"
+      className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-2 px-3 cursor-pointer select-none hover:text-slate-900 transition-colors group"
     >
       <span className="inline-flex items-center gap-1">
         {label}
@@ -901,6 +901,18 @@ export default function ClientTable() {
     items: Array<{ id: string; category: string; name: string; monthly_amount: number; notes: string | null }>;
   } | null>(null);
 
+  // Overdue invoice rollup per client (Square data, $1K+ UNPAID invoices only).
+  const [overdueInvoices, setOverdueInvoices] = useState<{
+    clients: Record<string, {
+      total_outstanding: number;
+      invoice_count: number;
+      oldest_days_since: number;
+      status: 'current' | 'overdue' | 'severe';
+      invoices: Array<{ amount: number; date: string; days_since: number; title: string | null; status: 'current' | 'overdue' | 'severe' }>;
+    }>;
+    totals: { invoice_count: number; total_outstanding: number };
+  } | null>(null);
+
   useEffect(() => {
     fetch('/api/team')
       .then(res => res.json())
@@ -916,6 +928,12 @@ export default function ClientTable() {
       .then(res => res.json())
       .then(data => {
         if (data && !data.error && data.clients) setOperatorCosts(data);
+      })
+      .catch(() => {});
+    fetch('/api/clients/overdue-invoices')
+      .then(res => res.json())
+      .then(data => {
+        if (data && !data.error && data.clients) setOverdueInvoices(data);
       })
       .catch(() => {});
     fetch('/api/finance/fixed-costs')
@@ -1573,21 +1591,22 @@ export default function ClientTable() {
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/80">
                 <SortHeader label="Client" sortKey="client_name" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
-                <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4">Platform</th>
+                <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-2 px-3">Platform</th>
                 <SortHeader label="Est. Revenue" sortKey="est_revenue" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
-                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4">Labor</th>
-                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4">Bonuses</th>
-                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4">Software</th>
-                <th className="text-center text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4">Rules Agent</th>
-                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4">Profit</th>
-                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4">Profit %</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-2 px-3">Labor</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-2 px-3">Bonuses</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-2 px-3">Software</th>
+                <th className="text-center text-xs font-semibold text-slate-500 uppercase tracking-wider py-2 px-3">Rules Agent</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-2 px-3">Profit</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-2 px-3">Profit %</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-2 px-3" title="Outstanding Square invoices ≥$1,000 (UNPAID). Yellow = 14+ days past invoice. Red = 30+ days.">Overdue</th>
                 <SortHeader label="Priority" sortKey="priority" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <SortHeader label="Manager" sortKey="account_manager" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <SortHeader label="Operator" sortKey="platform_operator" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
                 <SortHeader label="Budget" sortKey="monthly_budget" currentKey={sortKey} direction={sortDir} onSort={handleSort} />
-                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4">Spend</th>
-                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4">Target</th>
-                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4">Current</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-2 px-3">Spend</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-2 px-3">Target</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-2 px-3">Current</th>
               </tr>
             </thead>
             <tbody>
@@ -1610,7 +1629,7 @@ export default function ClientTable() {
                         } ${!isFirstInGroup ? 'border-t border-slate-100' : ''}`}
                       >
                         {/* Client Name — only show for first row in group */}
-                        <td className="py-3 px-4">
+                        <td className="py-2 px-3">
                           {isFirstInGroup ? (
                             <div>
                               <div className="flex items-center gap-2">
@@ -1633,7 +1652,7 @@ export default function ClientTable() {
                             </div>
                           ) : null}
                         </td>
-                        <td className="py-3 px-4">
+                        <td className="py-2 px-3">
                           <div className="flex items-center gap-2">
                             <PlatformBadge platform={client.platform} />
                             {(client.segment_name as string) && (
@@ -1642,7 +1661,7 @@ export default function ClientTable() {
                           </div>
                         </td>
                         {/* Est. Revenue — per-row, calculated from fee_config + live spend */}
-                        <td className="py-3 px-4 text-right text-sm font-medium text-slate-900" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-2 px-3 text-right text-sm font-medium text-slate-900" onClick={(e) => e.stopPropagation()}>
                           {(() => {
                             const rev = calculatedRevenue[client.id];
                             if (!rev || rev.value == null) {
@@ -1695,7 +1714,7 @@ export default function ClientTable() {
                           })()}
                         </td>
                         {/* Labor — per-row. Total on top, color-coded per-member chips below. */}
-                        <td className="py-3 px-4 text-right text-sm text-slate-600 tabular-nums">
+                        <td className="py-2 px-3 text-right text-sm text-slate-600 tabular-nums">
                           {(() => {
                             const costs = operatorCosts?.clients[client.client_name]?.[client.platform];
                             const value = costs?.labor_cost ?? 0;
@@ -1732,7 +1751,7 @@ export default function ClientTable() {
                           })()}
                         </td>
                         {/* Bonuses — per-row */}
-                        <td className="py-3 px-4 text-right text-sm text-slate-600 tabular-nums">
+                        <td className="py-2 px-3 text-right text-sm text-slate-600 tabular-nums">
                           {(() => {
                             const costs = operatorCosts?.clients[client.client_name]?.[client.platform];
                             const value = costs?.bonus_cost ?? 0;
@@ -1743,7 +1762,7 @@ export default function ClientTable() {
                           })()}
                         </td>
                         {/* Software — per-row */}
-                        <td className="py-3 px-4 text-right text-sm text-slate-600 tabular-nums">
+                        <td className="py-2 px-3 text-right text-sm text-slate-600 tabular-nums">
                           {(() => {
                             const costs = operatorCosts?.clients[client.client_name]?.[client.platform];
                             const value = costs?.software_cost ?? 0;
@@ -1754,11 +1773,11 @@ export default function ClientTable() {
                           })()}
                         </td>
                         {/* Rules Agent — per-row monitoring status */}
-                        <td className="py-3 px-4 text-center">
+                        <td className="py-2 px-3 text-center">
                           <RulesAgentBadge status={(client.monitoring_status as string) ?? 'needs_info'} />
                         </td>
                         {/* Profit — per-row (revenue - operating cost) */}
-                        <td className="py-3 px-4 text-right text-sm font-semibold">
+                        <td className="py-2 px-3 text-right text-sm font-semibold">
                           {(() => {
                             const costs = operatorCosts?.clients[client.client_name]?.[client.platform];
                             if (!costs) {
@@ -1779,7 +1798,7 @@ export default function ClientTable() {
                           })()}
                         </td>
                         {/* Profit % — per-row (profit / revenue) */}
-                        <td className="py-3 px-4 text-right text-sm font-semibold tabular-nums">
+                        <td className="py-2 px-3 text-right text-sm font-semibold tabular-nums">
                           {(() => {
                             const costs = operatorCosts?.clients[client.client_name]?.[client.platform];
                             if (!costs) {
@@ -1794,8 +1813,24 @@ export default function ClientTable() {
                             return <span className={color}>{pct}%</span>;
                           })()}
                         </td>
+                        {/* Overdue — grouped (first row only). Outstanding Square invoices ≥$1K. */}
+                        <td className="py-2 px-3 text-right text-sm font-semibold tabular-nums">
+                          {isFirstInGroup ? (() => {
+                            const canonicalId = (client.client_id as string | null | undefined) ?? '';
+                            const od = canonicalId ? overdueInvoices?.clients[canonicalId] : undefined;
+                            if (!od || od.total_outstanding <= 0) return <span className="text-slate-300">—</span>;
+                            const color = od.status === 'severe' ? 'text-red-600' : od.status === 'overdue' ? 'text-amber-600' : 'text-slate-500';
+                            const titleText = od.invoices.map((i: { date: string; days_since: number; amount: number }) => `${i.date} (${i.days_since}d): ${formatCurrency(i.amount)}`).join('\n');
+                            return (
+                              <span className={color} title={titleText}>
+                                {formatCurrency(od.total_outstanding)}
+                                <span className="ml-1 text-[10px] font-normal text-slate-400">({od.oldest_days_since}d)</span>
+                              </span>
+                            );
+                          })() : null}
+                        </td>
                         {/* Priority — per-row */}
-                        <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-2 px-3" onClick={(e) => e.stopPropagation()}>
                           <InlinePrioritySelect
                             clientId={client.id}
                             value={client.priority}
@@ -1803,7 +1838,7 @@ export default function ClientTable() {
                           />
                         </td>
                         {/* Manager — grouped (first row only) */}
-                        <td className="py-3 px-4 text-sm text-slate-600" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-2 px-3 text-sm text-slate-600" onClick={(e) => e.stopPropagation()}>
                           {isFirstInGroup ? (
                             <InlineTableSelect
                               clientId={client.id}
@@ -1817,7 +1852,7 @@ export default function ClientTable() {
                             />
                           ) : null}
                         </td>
-                        <td className="py-3 px-4 text-sm text-slate-600" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-2 px-3 text-sm text-slate-600" onClick={(e) => e.stopPropagation()}>
                           <InlineTableSelect
                             clientId={client.id}
                             field="platform_operator"
@@ -1829,7 +1864,7 @@ export default function ClientTable() {
                             onSaved={handleFieldSaved}
                           />
                         </td>
-                        <td className="py-3 px-4 text-sm text-slate-700 font-medium" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-2 px-3 text-sm text-slate-700 font-medium" onClick={(e) => e.stopPropagation()}>
                           <InlineCurrencyInput
                             clientId={client.id}
                             field="monthly_budget"
@@ -1837,7 +1872,7 @@ export default function ClientTable() {
                             onSaved={handleFieldSaved}
                           />
                         </td>
-                        <td className="py-3 px-4 text-right text-sm font-medium">
+                        <td className="py-2 px-3 text-right text-sm font-medium">
                           {(() => {
                             const accountId = client.ad_account_id;
                             const budget = client.monthly_budget;
@@ -1862,7 +1897,7 @@ export default function ClientTable() {
                           })()}
                         </td>
                         {/* Target — goal type + target value, inline editable */}
-                        <td className="py-3 px-4 text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-2 px-3 text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
                           <InlineGoalEditor
                             clientId={client.id}
                             goalType={client.goal_type}
@@ -1871,7 +1906,7 @@ export default function ClientTable() {
                           />
                         </td>
                         {/* Current — auto-calculated from live data based on goal type */}
-                        <td className="py-3 px-4 text-right text-sm font-medium">
+                        <td className="py-2 px-3 text-right text-sm font-medium">
                           {(() => {
                             const goalType = client.goal_type;
                             if (!goalType) return <span className="text-slate-300">--</span>;
@@ -2169,7 +2204,7 @@ export default function ClientTable() {
           className="fixed z-[9999] pointer-events-none"
           style={{ left: tooltip.x, top: tooltip.y - 12, transform: 'translate(-50%, -100%)' }}
         >
-          <div className="bg-slate-900 text-white text-xs rounded-lg py-3 px-4 whitespace-nowrap shadow-xl">
+          <div className="bg-slate-900 text-white text-xs rounded-lg py-2 px-3 whitespace-nowrap shadow-xl">
             <div className="font-semibold text-slate-300 mb-1.5 text-[10px] uppercase tracking-wider">Conversion Breakdown</div>
             {tooltip.breakdown.map((entry) => (
               <div key={entry.type} className="flex items-center justify-between gap-6 py-0.5">
