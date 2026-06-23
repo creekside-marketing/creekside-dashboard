@@ -1820,7 +1820,7 @@ export default function ClientTable() {
                             const od = canonicalId ? overdueInvoices?.clients[canonicalId] : undefined;
                             if (!od || od.total_outstanding <= 0) return <span className="text-slate-300">—</span>;
                             const color = od.status === 'severe' ? 'text-red-600' : od.status === 'overdue' ? 'text-amber-600' : 'text-slate-500';
-                            const fmt = (n: number) => `$${Math.round(n).toLocaleString()}`;
+                            const fmt = (n: number) => `$${(Math.round(n / 10) * 10).toLocaleString()}`;
                             const titleText = od.invoices.map((i: { date: string; days_since: number; amount: number }) => `${i.date} (${i.days_since}d): ${fmt(i.amount)}`).join('\n');
                             return (
                               <span className={color} title={titleText}>
