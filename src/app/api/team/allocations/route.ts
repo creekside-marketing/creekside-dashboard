@@ -15,7 +15,7 @@ const BANDWIDTH_REMAINING_HOURS: Record<string, number> = {
   'Ahmed Imran': 15,
   'Ade Aderibigbe': 10,
   'Baran Eris': 20,
-  'David': 0,            // Onboarding: at/over 15 hrs/mo capacity. Will adjust as he gets more efficient.
+  'David': 11,           // 15 hrs/wk capacity − 4.5 currently allocated = ~11 hrs/wk available
   // Lindsey is dynamic: 45-hr weekly capacity − 5-hr admin buffer − allocated hours.
   // Jordan Tryon + Aamir: bandwidth not yet specified — will show as `--` until set.
 };
