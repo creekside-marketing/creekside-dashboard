@@ -1274,6 +1274,13 @@ export default function ClientTable() {
     [grouped]
   );
 
+  const aiAgentGroups = useMemo(() =>
+    grouped
+      .map(g => ({ ...g, rows: g.rows.filter(r => r.platform === 'other' && r.client_category !== 'retainer') }))
+      .filter(g => g.rows.length > 0),
+    [grouped]
+  );
+
   const handleSort = useCallback((key: SortKey) => {
     if (sortKey === key) {
       setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -2030,6 +2037,120 @@ export default function ClientTable() {
                         </td>
                         <td className="py-3 px-6 text-right text-sm tabular-nums text-slate-700">
                           {client.monthly_budget != null ? `$${Number(client.monthly_budget).toLocaleString()}` : '--'}
+                        </td>
+                      </tr>
+                    );
+                  })
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* AI Agent Clients Section */}
+      {aiAgentGroups.length > 0 && (() => {
+        const aiRevenue = aiAgentGroups.reduce(
+          (sum, g) => sum + g.rows.reduce((s, r) => s + (calculatedRevenue[r.id]?.value ?? 0), 0),
+          0,
+        );
+        const costFor = (c: Client) =>
+          operatorCosts?.clients[c.client_name]?.[c.platform]?.operator_cost ?? 0;
+        const aiCost = aiAgentGroups.reduce(
+          (sum, g) => sum + g.rows.reduce((s, r) => s + costFor(r), 0),
+          0,
+        );
+        const aiProfit = aiRevenue - aiCost;
+        return (
+        <div className="mt-8">
+          <div className="flex items-center gap-3 mb-4 px-2">
+            <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Other Clients</h2>
+            <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+              {new Set(aiAgentGroups.flatMap(g => g.rows.map(r => r.client_name))).size} clients
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+            <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+              <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Est. Revenue</div>
+              <div className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
+                {formatCurrency(aiRevenue)}
+              </div>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+              <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Cost</div>
+              <div className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
+                {formatCurrency(aiCost)}
+              </div>
+            </div>
+            <div className="rounded-lg border border-emerald-300 bg-white px-4 py-3 shadow-sm">
+              <div className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wider">Profit</div>
+              <div className="mt-1 text-lg font-bold tabular-nums text-emerald-700">
+                {formatCurrency(aiProfit)}
+              </div>
+            </div>
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">
+            <table className="w-full bg-white">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Client</th>
+                  <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Revenue</th>
+                  <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Cost</th>
+                  <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Profit</th>
+                  <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Profit %</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Manager</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-6">Operator</th>
+                </tr>
+              </thead>
+              <tbody>
+                {aiAgentGroups.map((group, groupIdx) => (
+                  group.rows.map((client, rowIdx) => {
+                    const isFirstInGroup = rowIdx === 0;
+                    const rev = calculatedRevenue[client.id]?.value ?? 0;
+                    const cost = costFor(client);
+                    const profit = rev - cost;
+                    return (
+                      <tr
+                        key={client.id}
+                        onClick={() => router.push(`/client/${client.id}`)}
+                        className={`cursor-pointer transition-colors duration-150 hover:bg-blue-50/50 ${
+                          isFirstInGroup && groupIdx > 0 ? 'border-t border-slate-200' : ''
+                        } ${!isFirstInGroup ? 'border-t border-slate-100' : ''}`}
+                      >
+                        <td className="py-3 px-6">
+                          {isFirstInGroup ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-slate-900">{client.client_name}</span>
+                              <span className="text-[10px] font-medium text-red-600 bg-red-50 px-1.5 py-0.5 rounded">AI AGENT</span>
+                            </div>
+                          ) : null}
+                        </td>
+                        <td className="py-3 px-6 text-right text-sm tabular-nums text-slate-700">
+                          {rev > 0 ? formatCurrency(rev) : '--'}
+                        </td>
+                        <td className="py-3 px-6 text-right text-sm tabular-nums text-slate-700">
+                          {cost > 0 ? formatCurrency(cost) : '--'}
+                        </td>
+                        <td className="py-3 px-6 text-right text-sm tabular-nums font-medium">
+                          {rev > 0 ? (
+                            <span className={profit >= 0 ? 'text-emerald-700' : 'text-red-600'}>{formatCurrency(profit)}</span>
+                          ) : '--'}
+                        </td>
+                        <td className="py-3 px-6 text-right text-sm font-semibold tabular-nums">
+                          {(() => {
+                            if (rev <= 0) return <span className="text-slate-300">--</span>;
+                            const pct = Math.round((profit / rev) * 100);
+                            if (pct >= 100) return <span className="text-slate-400">N/A</span>;
+                            const color = pct >= 70 ? 'text-emerald-700' : pct >= 50 ? 'text-amber-600' : 'text-red-600';
+                            return <span className={color}>{pct}%</span>;
+                          })()}
+                        </td>
+                        <td className="py-3 px-6 text-sm text-slate-700">
+                          {isFirstInGroup ? (client.account_manager ?? '--') : null}
+                        </td>
+                        <td className="py-3 px-6 text-sm text-slate-700">
+                          {client.platform_operator ?? '--'}
                         </td>
                       </tr>
                     );
