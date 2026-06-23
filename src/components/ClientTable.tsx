@@ -1813,17 +1813,18 @@ export default function ClientTable() {
                             return <span className={color}>{pct}%</span>;
                           })()}
                         </td>
-                        {/* Overdue — grouped (first row only). Outstanding Square invoices ≥$1K. */}
+                        {/* Overdue — grouped (first row only). Outstanding Square invoices, client total ≥$1K. */}
                         <td className="py-2 px-3 text-right text-sm font-semibold tabular-nums">
                           {isFirstInGroup ? (() => {
                             const canonicalId = (client.client_id as string | null | undefined) ?? '';
                             const od = canonicalId ? overdueInvoices?.clients[canonicalId] : undefined;
                             if (!od || od.total_outstanding <= 0) return <span className="text-slate-300">—</span>;
                             const color = od.status === 'severe' ? 'text-red-600' : od.status === 'overdue' ? 'text-amber-600' : 'text-slate-500';
-                            const titleText = od.invoices.map((i: { date: string; days_since: number; amount: number }) => `${i.date} (${i.days_since}d): ${formatCurrency(i.amount)}`).join('\n');
+                            const fmt = (n: number) => `$${Math.round(n).toLocaleString()}`;
+                            const titleText = od.invoices.map((i: { date: string; days_since: number; amount: number }) => `${i.date} (${i.days_since}d): ${fmt(i.amount)}`).join('\n');
                             return (
                               <span className={color} title={titleText}>
-                                {formatCurrency(od.total_outstanding)}
+                                {fmt(od.total_outstanding)}
                                 <span className="ml-1 text-[10px] font-normal text-slate-400">({od.oldest_days_since}d)</span>
                               </span>
                             );

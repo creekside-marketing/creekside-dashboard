@@ -3,15 +3,19 @@
  *
  * Returns per-client outstanding-invoice rollup from Square.
  *
- * Filter:
- *   - payment_status = 'UNPAID' (or NULL with '(unpaid)' in title)
- *   - amount >= $1,000 (filters out small one-off charges)
- *   - source_timestamp within last 180 days (cutoff to avoid stale data)
+ * Filters (per Cade's spec):
+ *   - payment_status = 'UNPAID' OR (NULL status with '(unpaid)' in title)
+ *   - source_timestamp within last 60 days (older invoices are stale receivables / write-offs)
+ *   - Client must have at least one ACTIVE, non-retainer, non-'other' reporting_clients row
+ *     (excludes Jybr AI clients, churned clients, retainer-only clients like Dominnik)
+ *   - Per-client total outstanding >= $1,000 (small balances ignored)
  *
  * Color thresholds:
  *   - < 14 days since invoice  → 'current' (no flag)
  *   - 14 - 29 days             → 'overdue' (yellow)
  *   - 30+ days                 → 'severe'  (red)
+ *
+ * Amounts rounded to whole dollars (no decimals).
  *
  * Response shape:
  *   {
@@ -68,12 +72,31 @@ export async function GET() {
   try {
     const supabase = createServiceClient();
 
+    // Build set of eligible client_ids: at least one ACTIVE, non-retainer, non-'other' reporting_clients row.
+    // Excludes Jybr AI agent clients, retainer-only clients, churned clients.
+    const { data: rcRows } = await supabase
+      .from('reporting_clients')
+      .select('client_id, client_category, status, platform');
+
+    const eligibleClientIds = new Set<string>();
+    for (const r of rcRows ?? []) {
+      const id = r.client_id as string | null;
+      if (!id) continue;
+      const cat = (r.client_category ?? 'active') as string;
+      const status = (r.status ?? 'active') as string;
+      const platform = (r.platform ?? '') as string;
+      if (cat !== 'retainer' && status === 'active' && platform !== 'other') {
+        eligibleClientIds.add(id);
+      }
+    }
+
+    // Pull all candidate Square invoices in last 60 days
+    const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
     const { data: rows, error } = await supabase
       .from('square_entries')
       .select('client_id, customer_name, amount_cents, source_timestamp, payment_status, title')
       .or('payment_status.eq.UNPAID,and(payment_status.is.null,title.ilike.%unpaid%)')
-      .gte('amount_cents', 100000)
-      .gte('source_timestamp', new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString())
+      .gte('source_timestamp', sixtyDaysAgo)
       .order('source_timestamp', { ascending: false });
 
     if (error) {
@@ -84,12 +107,9 @@ export async function GET() {
     const unmatched: Array<InvoiceRow & { customer_name: string | null }> = [];
     const today = new Date();
 
-    let totalCount = 0;
-    let totalOutstanding = 0;
-
     for (const r of rows ?? []) {
-      const amount = Number(r.amount_cents ?? 0) / 100;
-      if (amount < 1000) continue;
+      const amount = Math.round(Number(r.amount_cents ?? 0) / 100);
+      if (amount <= 0) continue;
       const ts = r.source_timestamp as string;
       const date = ts.slice(0, 10);
       const daysSince = Math.floor((today.getTime() - new Date(date).getTime()) / (1000 * 60 * 60 * 24));
@@ -103,14 +123,14 @@ export async function GET() {
         status,
       };
 
-      totalCount++;
-      totalOutstanding += amount;
-
       const clientId = r.client_id as string | null;
       if (!clientId) {
         unmatched.push({ ...inv, customer_name: (r.customer_name as string | null) ?? null });
         continue;
       }
+
+      // Skip if client isn't eligible (retainer-only, AI agent, churned, inactive)
+      if (!eligibleClientIds.has(clientId)) continue;
 
       if (!clients[clientId]) {
         clients[clientId] = {
@@ -129,9 +149,16 @@ export async function GET() {
       if (rankStatus(status) > rankStatus(c.status)) c.status = status;
     }
 
-    // Round totals
+    // Per-client threshold: only include clients whose TOTAL outstanding >= $1,000
+    let totalCount = 0;
+    let totalOutstanding = 0;
     for (const id of Object.keys(clients)) {
-      clients[id].total_outstanding = Math.round(clients[id].total_outstanding * 100) / 100;
+      if (clients[id].total_outstanding < 1000) {
+        delete clients[id];
+        continue;
+      }
+      totalCount += clients[id].invoice_count;
+      totalOutstanding += clients[id].total_outstanding;
     }
 
     return NextResponse.json({
@@ -139,7 +166,7 @@ export async function GET() {
       unmatched,
       totals: {
         invoice_count: totalCount,
-        total_outstanding: Math.round(totalOutstanding * 100) / 100,
+        total_outstanding: totalOutstanding,
       },
     });
   } catch (err) {
