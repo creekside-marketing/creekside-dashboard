@@ -32,6 +32,7 @@ import BreakdownTable from './BreakdownTable';
 import ReportNotesTimeline from './ReportNotesTimeline';
 import { SparklineKpiCard } from './shared';
 import { ReportingClient } from './types';
+import ReferralBanner from './shared/ReferralBanner';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -193,6 +194,8 @@ export default function EcomGoogleReport({ client, mode }: { client: ReportingCl
   return (
     <div className="space-y-6">
       <ReportHeader clientName={client.client_name} platform={client.platform} dateRangeIndex={drIdx} onDateRangeChange={onRangeChange} loading={loading} onRefresh={fetchData} lastRefreshed={lastRefreshed} cooldownRemaining={cooldown} />
+
+      <ReferralBanner />
 
       {error && (<div className="bg-red-50 text-red-700 p-4 rounded-xl border border-red-200"><p className="font-semibold">Error loading data</p><p className="text-sm mt-1 text-red-600">{error}</p></div>)}
 

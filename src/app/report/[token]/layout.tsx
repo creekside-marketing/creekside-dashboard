@@ -11,9 +11,7 @@ export default function ReportLayout({ children }: { children: React.ReactNode }
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <header className="bg-white border-b border-slate-200">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-[#2563eb] flex items-center justify-center shrink-0">
-            <span className="text-white font-bold text-sm">CM</span>
-          </div>
+          <img src="/branding/creekside-mark.png" alt="Creekside Marketing" className="h-9 w-auto shrink-0" />
           <div>
             <span className="text-slate-900 font-semibold text-lg leading-tight">
               Creekside Marketing

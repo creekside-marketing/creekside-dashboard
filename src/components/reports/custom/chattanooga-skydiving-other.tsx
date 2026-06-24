@@ -35,6 +35,7 @@
 
 import CampaignsTable from '@/components/CampaignsTable';
 import ReportHeader, { DATE_RANGES, fmt, fmtMoney, fmtPct } from './_chattanooga-skydiving-other/ReportHeader';
+import ReferralBanner from '../shared/ReferralBanner';
 import ReportChart from './_chattanooga-skydiving-other/ReportChart';
 import BreakdownTable from './_chattanooga-skydiving-other/BreakdownTable';
 import ReportNotesTimeline from './_chattanooga-skydiving-other/ReportNotesTimeline';
@@ -138,6 +139,8 @@ export default function ChattanoogaSkydivingOtherReport({
         lastRefreshed={lastRefreshed}
         cooldownRemaining={cooldownRemaining}
       />
+
+      <ReferralBanner />
 
       {error && (
         <div className="bg-red-50 text-red-700 p-4 rounded-xl border border-red-200">

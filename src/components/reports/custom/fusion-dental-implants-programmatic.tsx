@@ -35,6 +35,7 @@
 
 import CampaignsTable from '@/components/CampaignsTable';
 import ReportHeader, { DATE_RANGES, fmt, fmtMoney, fmtPct } from './_fusion-dental-implants-programmatic/ReportHeader';
+import ReferralBanner from '../shared/ReferralBanner';
 import ReportChart from './_fusion-dental-implants-programmatic/ReportChart';
 import BreakdownTable from './_fusion-dental-implants-programmatic/BreakdownTable';
 import ReportNotesTimeline from './_fusion-dental-implants-programmatic/ReportNotesTimeline';
@@ -138,6 +139,8 @@ export default function FusionDentalImplantsProgrammaticReport({
         lastRefreshed={lastRefreshed}
         cooldownRemaining={cooldownRemaining}
       />
+
+      <ReferralBanner />
 
       {error && (
         <div className="bg-red-50 text-red-700 p-4 rounded-xl border border-red-200">

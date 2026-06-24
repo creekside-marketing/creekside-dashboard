@@ -37,6 +37,7 @@ import {
 } from './shared';
 import { useGoogleAdsData } from '@/hooks/useGoogleAdsData';
 import { ReportingClient } from './types';
+import ReferralBanner from './shared/ReferralBanner';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -131,6 +132,8 @@ export default function LeadGenGoogleReport({
         lastRefreshed={lastRefreshed}
         cooldownRemaining={cooldownRemaining}
       />
+
+      <ReferralBanner />
 
       {error && (
         <div className="bg-red-50 text-red-700 p-4 rounded-xl border border-red-200">

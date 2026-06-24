@@ -39,6 +39,7 @@
 
 import CampaignsTable from '@/components/CampaignsTable';
 import ReportHeader, { DATE_RANGES, fmt, fmtMoney, fmtPct } from './_perfect-parking-google/ReportHeader';
+import ReferralBanner from '../shared/ReferralBanner';
 import ReportChart from './_perfect-parking-google/ReportChart';
 import BreakdownTable from './_perfect-parking-google/BreakdownTable';
 import ReportNotesTimeline from './_perfect-parking-google/ReportNotesTimeline';
@@ -142,6 +143,8 @@ export default function PerfectParkingGoogleReport({
         lastRefreshed={lastRefreshed}
         cooldownRemaining={cooldownRemaining}
       />
+
+      <ReferralBanner />
 
       {error && (
         <div className="bg-red-50 text-red-700 p-4 rounded-xl border border-red-200">

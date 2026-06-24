@@ -412,6 +412,8 @@ export default function BlushCameraMetaReport({
         cooldownRemaining={cooldownRemaining}
       />
 
+      <ReferralBanner />
+
       {error && (
         <div className="bg-red-50 text-red-700 p-4 rounded-xl border border-red-200">
           <p className="font-semibold">Error loading data</p>
@@ -629,9 +631,6 @@ export default function BlushCameraMetaReport({
 
         </>
       )}
-
-      {/* Referral Program Banner */}
-      <ReferralBanner />
 
       {/* 11. Notes */}
       <ReportNotesTimeline clientId={client.id} mode={mode} />

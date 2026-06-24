@@ -16,6 +16,7 @@ import ReportChart from './ReportChart';
 import BreakdownTable from './BreakdownTable';
 import ReportNotesTimeline from './ReportNotesTimeline';
 import { ReportingClient } from './types';
+import ReferralBanner from './shared/ReferralBanner';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -281,6 +282,8 @@ export default function LeadGenReport({
         lastRefreshed={lastRefreshed}
         cooldownRemaining={cooldownRemaining}
       />
+
+      <ReferralBanner />
 
       {error && (
         <div className="bg-red-50 text-red-700 p-4 rounded-xl border border-red-200">

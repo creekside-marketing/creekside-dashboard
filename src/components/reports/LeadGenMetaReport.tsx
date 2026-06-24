@@ -35,6 +35,7 @@ import BreakdownTable from './BreakdownTable';
 import ReportNotesTimeline from './ReportNotesTimeline';
 import { SparklineKpiCard } from './shared';
 import { ReportingClient } from './types';
+import ReferralBanner from './shared/ReferralBanner';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -248,6 +249,8 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
       <ReportHeader clientName={client.client_name} platform={client.platform}
         dateRangeIndex={dateRangeIndex} onDateRangeChange={handleDateRangeChange}
         loading={loading} onRefresh={fetchData} lastRefreshed={lastRefreshed} cooldownRemaining={cooldownRemaining} />
+
+      <ReferralBanner />
 
       {error && (
         <div className="bg-red-50 text-red-700 p-4 rounded-xl border border-red-200">

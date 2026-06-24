@@ -37,6 +37,7 @@ import ReportHeader, {
   DATE_RANGES, DEFAULT_RANGE_INDEX, computePriorPeriod,
   calcChange, fmt, fmtMoney, fmtPct, unwrapPipeboardResponse,
 } from './_chattanooga-skydiving-meta/ReportHeader';
+import ReferralBanner from '../shared/ReferralBanner';
 import ReportChart from './_chattanooga-skydiving-meta/ReportChart';
 import BreakdownTable from './_chattanooga-skydiving-meta/BreakdownTable';
 import ReportNotesTimeline from './_chattanooga-skydiving-meta/ReportNotesTimeline';
@@ -255,6 +256,8 @@ export default function ChattanoogaSkydivingMetaReport({ client, mode }: { clien
       <ReportHeader clientName={client.client_name} platform={client.platform}
         dateRangeIndex={dateRangeIndex} onDateRangeChange={handleDateRangeChange}
         loading={loading} onRefresh={fetchData} lastRefreshed={lastRefreshed} cooldownRemaining={cooldownRemaining} />
+
+      <ReferralBanner />
 
       {error && (
         <div className="bg-red-50 text-red-700 p-4 rounded-xl border border-red-200">
