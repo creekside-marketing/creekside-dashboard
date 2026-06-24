@@ -48,6 +48,7 @@ import {
   SparklineKpiCard,
 } from './_blush-camera-meta/shared';
 import { ReportingClient } from './_blush-camera-meta/types';
+import ReferralBanner from '../shared/ReferralBanner';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -628,6 +629,9 @@ export default function BlushCameraMetaReport({
 
         </>
       )}
+
+      {/* Referral Program Banner */}
+      <ReferralBanner />
 
       {/* 11. Notes */}
       <ReportNotesTimeline clientId={client.id} mode={mode} />
