@@ -38,7 +38,7 @@ export default function ReferralBanner() {
 
           {/* Right: highlight card */}
           <div className="shrink-0 flex flex-col items-center gap-1 rounded-lg bg-white border border-blue-100 px-5 py-4 shadow-sm text-center min-w-[140px]">
-            <span className="text-sm font-bold text-[#2563eb]">10% recurring</span>
+            <span className="text-sm font-bold text-[#2563eb]">10% commission</span>
             <span className="text-xs text-slate-500">every month, no cap</span>
             <div className="w-8 h-px bg-slate-200 my-1" />
             <span className="text-2xl font-extrabold text-[#2563eb]">+ $1,000</span>
