@@ -3,8 +3,9 @@
 /**
  * ReferralBanner — Promotional banner for Creekside's client referral program.
  *
- * Displays the referral offer ($1,000 cash + 10% off for 6 months) in a
- * visually distinct card that sits within the report layout.
+ * Displays the tiered referral offer (ongoing 10% commission, plus $1,000
+ * upfront for $10k+ ad-spend referrals) in a visually distinct card that
+ * sits within the report layout.
  *
  * CANNOT: Track referrals or handle submissions — display only.
  */
@@ -26,21 +27,22 @@ export default function ReferralBanner() {
               Know someone who could use results like yours?
             </p>
             <p className="text-sm text-slate-600 max-w-xl leading-relaxed">
-              Refer a business to Creekside Marketing and receive{' '}
-              <span className="font-semibold text-slate-900">$1,000 cash</span>{' '}
-              plus{' '}
-              <span className="font-semibold text-slate-900">10% off your bill for 6 months</span>.
-              {' '}Just let your account manager know.
+              Refer a business to Creekside Marketing and earn{' '}
+              <span className="font-semibold text-slate-900">10% of what they pay us every month</span>
+              {' '}for as long as they stay a client. If they spend{' '}
+              <span className="font-semibold text-slate-900">$10,000+/mo on ads</span>, you also get{' '}
+              <span className="font-semibold text-slate-900">$1,000 upfront</span>.
+              {' '}No cap, no expiration. Just send them our way or make an intro.
             </p>
           </div>
 
           {/* Right: highlight card */}
           <div className="shrink-0 flex flex-col items-center gap-1 rounded-lg bg-white border border-blue-100 px-5 py-4 shadow-sm text-center min-w-[140px]">
-            <span className="text-2xl font-extrabold text-[#2563eb]">$1,000</span>
-            <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">per referral</span>
+            <span className="text-sm font-bold text-[#2563eb]">10% recurring</span>
+            <span className="text-xs text-slate-500">every month, no cap</span>
             <div className="w-8 h-px bg-slate-200 my-1" />
-            <span className="text-sm font-bold text-[#2563eb]">+ 10% off</span>
-            <span className="text-xs text-slate-500">for 6 months</span>
+            <span className="text-2xl font-extrabold text-[#2563eb]">+ $1,000</span>
+            <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">for $10k+ ad spend</span>
           </div>
         </div>
       </div>
