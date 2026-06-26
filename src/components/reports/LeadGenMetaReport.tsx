@@ -42,6 +42,7 @@ import ReferralBanner from './shared/ReferralBanner';
 interface LeadGenRow {
   name: string; impressions: number; linkClicks: number; spend: number;
   leads: number; reach: number; frequency: number; cpm: number; cpl: number; lctr: number;
+  pql?: number; cpql?: number;
 }
 
 interface DailyRow {
@@ -131,7 +132,7 @@ const ZERO: Omit<LeadGenRow, 'name'> = { impressions: 0, linkClicks: 0, spend: 0
 
 // ── Component ────────────────────────────────────────────────────────────
 
-export default function LeadGenMetaReport({ client, mode, leadConversionTypes }: { client: ReportingClient; mode: 'internal' | 'public'; leadConversionTypes?: string[] }) {
+export default function LeadGenMetaReport({ client, mode, leadConversionTypes, pqlConversionType }: { client: ReportingClient; mode: 'internal' | 'public'; leadConversionTypes?: string[]; pqlConversionType?: string }) {
   const [campaigns, setCampaigns] = useState<LeadGenRow[]>([]);
   const [totals, setTotals] = useState(ZERO);
   const [dailyData, setDailyData] = useState<DailyRow[]>([]);
@@ -186,7 +187,17 @@ export default function LeadGenMetaReport({ client, mode, leadConversionTypes }:
       if (!cj || typeof cj !== 'object') throw new Error('Invalid API response');
       cj = unwrapPipeboardResponse(cj);
       const dataArr = Array.isArray(cj.data ?? cj) ? (cj.data ?? cj) : [];
-      const norm = (dataArr as unknown[]).map((r) => normalize(r, countLeads));
+      const norm = (dataArr as unknown[]).map((r, i) => {
+        const row = normalize(r, countLeads);
+        if (pqlConversionType) {
+          const raw = dataArr[i] as Record<string, unknown>;
+          const conversions = (raw.conversions ?? []) as MetaAction[];
+          const match = conversions.find((a) => a.action_type === pqlConversionType);
+          row.pql = match ? Math.round(Number(match.value) || 0) : 0;
+          row.cpql = row.pql > 0 ? row.spend / row.pql : 0;
+        }
+        return row;
+      });
       setCampaigns(norm);
       const t = computeTotals(norm); setTotals(t);
 
@@ -333,6 +344,10 @@ export default function LeadGenMetaReport({ client, mode, leadConversionTypes }:
           { key: 'spend', label: 'Spent', align: 'right', format: moneyCol },
           { key: 'leads', label: 'Leads', align: 'right', format: numCol },
           { key: 'cpl', label: 'CPL', align: 'right', format: nullMoney },
+          ...(pqlConversionType ? [
+            { key: 'pql', label: 'PQL', align: 'right' as const, format: numCol },
+            { key: 'cpql', label: 'Cost/PQL', align: 'right' as const, format: nullMoney },
+          ] : []),
           { key: 'cpm', label: 'CPM', align: 'right', format: moneyCol },
           { key: 'frequency', label: 'Freq.', align: 'right', format: (v: unknown) => Number(v ?? 0).toFixed(2) },
         ]} />
