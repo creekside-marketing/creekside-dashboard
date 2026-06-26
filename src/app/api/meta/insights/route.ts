@@ -32,12 +32,19 @@ export async function GET(request: NextRequest) {
 
     const breakdownConfig = breakdownLevels[level];
     const time_breakdown = searchParams.get('time_breakdown');
+    const extraFields = searchParams.get('fields');
 
     // Build PipeBoard args — explicit date range overrides preset time_range
     const pipeboardArgs: Record<string, unknown> = {
       object_id: account_id,
       level: breakdownConfig?.pipeboardLevel ?? level,
     };
+
+    // When extra fields are requested (e.g. "conversions"), pass them to PipeBoard.
+    // PipeBoard merges these with its defaults.
+    if (extraFields) {
+      pipeboardArgs.fields = extraFields.split(',').map((f) => f.trim());
+    }
 
     if (time_breakdown) {
       pipeboardArgs.time_breakdown = time_breakdown;

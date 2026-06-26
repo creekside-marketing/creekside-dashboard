@@ -7,10 +7,10 @@
  * Meta report. The strip pulls conversion data LIVE from the Meta campaigns
  * via PipeBoard (no Google Sheet dependency).
  *
- * Data sources:
- *   - Pricing Qualified Leads: Meta campaign actions matching "(JTC) Pricing Qualified"
- *   - Pre-Qualified Leads: Meta campaign actions matching "(JTC) Pre-qualified Lead"
- *   - Spend: Meta account-level insights (same API the standard report uses)
+ * Data sources (all from the `conversions` field, NOT `actions`):
+ *   - Pricing Qualified Leads: offsite_conversion.fb_pixel_custom.(JTC) Pricing Qualified
+ *   - Pre-Qualified Leads: offsite_conversion.fb_pixel_custom.(JTC) Pre-qualified Lead
+ *   - Spend: from the same campaign-level response
  *
  * Defaults to 7-day view (index 0).
  */
@@ -44,18 +44,24 @@ const ZERO_KPI: KpiData = {
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-/** Search the actions array for an action_type containing the given name. */
-function actionValByName(actions: MetaAction[] | undefined, name: string): number {
-  if (!actions) return 0;
-  const match = actions.find((a) => a.action_type.includes(name));
+/**
+ * The `actions` field lumps all custom pixel events under `offsite_conversion.fb_pixel_custom`.
+ * The `conversions` field breaks them out with full event names:
+ *   offsite_conversion.fb_pixel_custom.(JTC) Pricing Qualified
+ *   offsite_conversion.fb_pixel_custom.(JTC) Pre-qualified Lead
+ */
+const PQL_ACTION = 'offsite_conversion.fb_pixel_custom.(JTC) Pricing Qualified';
+const PREQ_ACTION = 'offsite_conversion.fb_pixel_custom.(JTC) Pre-qualified Lead';
+
+function conversionVal(conversions: MetaAction[] | undefined, actionType: string): number {
+  if (!conversions) return 0;
+  const match = conversions.find((a) => a.action_type === actionType);
   return match ? Math.round(Number(match.value) || 0) : 0;
 }
 
-const PQL_EVENT = '(JTC) Pricing Qualified';
-const PREQ_EVENT = '(JTC) Pre-qualified Lead';
-
 /**
  * Extract PQL, Pre-Q, and spend totals from a campaign-level PipeBoard response.
+ * Uses the `conversions` field (not `actions`) for granular custom event counts.
  * Sums across all campaigns (per-campaign total).
  */
 function extractMetrics(json: Record<string, unknown>): { pql: number; preq: number; spend: number } {
@@ -67,9 +73,9 @@ function extractMetrics(json: Record<string, unknown>): { pql: number; preq: num
   let pql = 0, preq = 0, spend = 0;
   for (const row of arr) {
     const r = row as Record<string, unknown>;
-    const actions = (r.actions ?? []) as MetaAction[];
-    pql += actionValByName(actions, PQL_EVENT);
-    preq += actionValByName(actions, PREQ_EVENT);
+    const conversions = (r.conversions ?? []) as MetaAction[];
+    pql += conversionVal(conversions, PQL_ACTION);
+    preq += conversionVal(conversions, PREQ_ACTION);
     spend += Number(r.spend ?? 0);
   }
   return { pql, preq, spend };
@@ -127,7 +133,7 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
     setError(false);
     const periods = computePriorPeriod(dateRangeIndex);
     const aid = encodeURIComponent(client.ad_account_id);
-    const base = `/api/meta/insights?account_id=${aid}&level=campaign`;
+    const base = `/api/meta/insights?account_id=${aid}&level=campaign&fields=conversions`;
     try {
       const [curRes, priorRes] = await Promise.all([
         fetch(`${base}&since=${periods.currentSince}&until=${periods.currentUntil}`),
@@ -237,7 +243,7 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
       </div>
 
       {/* ── Standard LeadGen Meta Report (overridden to count JTC Pre-Q leads) */}
-      <LeadGenMetaReport client={client} mode={mode} leadActions={[PREQ_EVENT]} />
+      <LeadGenMetaReport client={client} mode={mode} leadConversionTypes={[PREQ_ACTION]} />
     </div>
   );
 }

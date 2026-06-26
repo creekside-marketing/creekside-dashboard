@@ -63,24 +63,31 @@ function getLeads(actions: MetaAction[] | undefined): number {
   return actionVal(actions, 'lead') + actionVal(actions, 'offsite_conversion.fb_pixel_lead');
 }
 
-/** Count leads using custom action type names (substring match). */
-function getLeadsCustom(actions: MetaAction[] | undefined, actionNames: string[]): number {
-  if (!actions) return 0;
-  return actionNames.reduce((sum, name) => {
-    const match = actions.find((a) => a.action_type.includes(name));
+/** Count leads from the `conversions` array using exact action_type match. */
+function getLeadsFromConversions(conversions: MetaAction[] | undefined, conversionTypes: string[]): number {
+  if (!conversions) return 0;
+  return conversionTypes.reduce((sum, type) => {
+    const match = conversions.find((a) => a.action_type === type);
     return sum + (match ? Math.round(Number(match.value) || 0) : 0);
   }, 0);
 }
 
-type LeadCounter = (actions: MetaAction[] | undefined) => number;
+/**
+ * LeadCounter takes the full row so it can read from `actions` or `conversions`.
+ * Default implementation reads from `actions`; custom implementations can read `conversions`.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type LeadCounter = (row: any) => number;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function normalize(row: any, countLeads: LeadCounter = getLeads): LeadGenRow {
-  const actions = (row.actions ?? []) as MetaAction[];
+const defaultLeadCounter: LeadCounter = (row: any) => getLeads((row.actions ?? []) as MetaAction[]);
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalize(row: any, countLeads: LeadCounter = defaultLeadCounter): LeadGenRow {
   const impressions = Number(row.impressions ?? 0);
   const linkClicks = Number(row.inline_link_clicks ?? row.clicks ?? 0);
   const spend = Number(row.spend ?? 0);
-  const leads = countLeads(actions);
+  const leads = countLeads(row);
   const reach = Number(row.reach ?? 0);
   return {
     name: row.campaign_name ?? row.adset_name ?? row.ad_name ?? 'Unknown',
@@ -104,13 +111,12 @@ function computeTotals(rows: LeadGenRow[]): Omit<LeadGenRow, 'name'> {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseDailyRows(rows: any[], countLeads: LeadCounter = getLeads): DailyRow[] {
+function parseDailyRows(rows: any[], countLeads: LeadCounter = defaultLeadCounter): DailyRow[] {
   return rows.map((row) => {
-    const actions = (row.actions ?? []) as MetaAction[];
     const impressions = Number(row.impressions ?? 0);
     const spend = Number(row.spend ?? 0);
     const linkClicks = Number(row.inline_link_clicks ?? row.clicks ?? 0);
-    const leads = countLeads(actions);
+    const leads = countLeads(row);
     const reach = Number(row.reach ?? 0);
     return { date: row.date_start ?? row.date ?? '', impressions, linkClicks, spend, leads, reach,
       frequency: reach > 0 ? impressions / reach : 0,
@@ -125,7 +131,7 @@ const ZERO: Omit<LeadGenRow, 'name'> = { impressions: 0, linkClicks: 0, spend: 0
 
 // ── Component ────────────────────────────────────────────────────────────
 
-export default function LeadGenMetaReport({ client, mode, leadActions }: { client: ReportingClient; mode: 'internal' | 'public'; leadActions?: string[] }) {
+export default function LeadGenMetaReport({ client, mode, leadConversionTypes }: { client: ReportingClient; mode: 'internal' | 'public'; leadConversionTypes?: string[] }) {
   const [campaigns, setCampaigns] = useState<LeadGenRow[]>([]);
   const [totals, setTotals] = useState(ZERO);
   const [dailyData, setDailyData] = useState<DailyRow[]>([]);
@@ -140,9 +146,13 @@ export default function LeadGenMetaReport({ client, mode, leadActions }: { clien
   const [dateRangeIndex, setDateRangeIndex] = useState(DEFAULT_RANGE_INDEX);
   const currentRange = DATE_RANGES[dateRangeIndex];
 
-  const countLeads: LeadCounter = leadActions
-    ? (actions) => getLeadsCustom(actions, leadActions)
-    : getLeads;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const countLeads: LeadCounter = leadConversionTypes
+    ? (row: any) => {
+        const conversions = (row.conversions ?? []) as MetaAction[];
+        return getLeadsFromConversions(conversions, leadConversionTypes);
+      }
+    : defaultLeadCounter;
 
   const startCooldown = useCallback(() => {
     setCooldownRemaining(COOLDOWN_MS);
@@ -161,7 +171,8 @@ export default function LeadGenMetaReport({ client, mode, leadActions }: { clien
     try {
       const aid = encodeURIComponent(client.ad_account_id);
       const tr = DATE_RANGES[dateRangeIndex].metaParam;
-      const base = `/api/meta/insights?account_id=${aid}`;
+      const extraFields = leadConversionTypes ? '&fields=conversions' : '';
+      const base = `/api/meta/insights?account_id=${aid}${extraFields}`;
       const periods = computePriorPeriod(dateRangeIndex);
       const [campaignRes, accountRes, priorRes, adRes] = await Promise.all([
         fetch(`${base}&level=campaign&time_range=${tr}`),
@@ -330,8 +341,7 @@ export default function LeadGenMetaReport({ client, mode, leadActions }: { clien
         {adsData.length > 0 && (() => {
           const processedAds = adsData.map((row) => {
             const r = row as Record<string, unknown>;
-            const actions = (r.actions ?? []) as MetaAction[];
-            const leads = countLeads(actions);
+            const leads = countLeads(r);
             const spend = Number(r.spend ?? 0);
             return {
               adId: String(r.ad_id ?? r.id ?? ''),
