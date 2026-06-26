@@ -1,60 +1,78 @@
 'use client';
 
 /**
- * SRMMetaReport -- Wraps the default LeadGenMetaReport with a prequalified-leads
- * KPI strip above it. The strip shows: Prequalified Leads, Spend, CPL, and
- * period-over-period deltas for Leads and CPL.
+ * SRMMetaReport -- Custom report for South River Mortgage (Meta).
+ *
+ * Renders a Pricing Qualified Leads KPI strip above the standard LeadGen
+ * Meta report. The strip pulls conversion data LIVE from the Meta campaigns
+ * via PipeBoard (no Google Sheet dependency).
  *
  * Data sources:
- *   - Prequalified leads: /api/leads/srm-prequalified (Google Sheet, fbclid filter)
- *   - Spend: /api/meta/insights (account-level, same API the standard report uses)
+ *   - Pricing Qualified Leads: Meta campaign actions matching "(JTC) Pricing Qualified"
+ *   - Pre-Qualified Leads: Meta campaign actions matching "(JTC) Pre-qualified Lead"
+ *   - Spend: Meta account-level insights (same API the standard report uses)
  *
- * The KPI strip manages its own date range state. The standard report below
- * operates independently with its own date range tabs.
+ * Defaults to 7-day view (index 0).
  */
 
 import { useEffect, useState, useCallback } from 'react';
 import LeadGenMetaReport from '../../LeadGenMetaReport';
 import {
-  DATE_RANGES, DEFAULT_RANGE_INDEX, computePriorPeriod,
-  calcChange, fmt, fmtMoney, unwrapPipeboardResponse,
+  DATE_RANGES, computePriorPeriod,
+  calcChange, fmt, fmtMoney, fmtPct, unwrapPipeboardResponse,
 } from '../../ReportHeader';
 import type { ReportProps } from '../../types';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
-interface SheetLead {
-  event_time: string; // ISO 8601
-  fbclid: string;
-}
+type MetaAction = { action_type: string; value: string };
 
 interface KpiData {
-  currentLeads: number;
-  priorLeads: number;
+  currentPql: number;
+  priorPql: number;
+  currentPreq: number;
+  priorPreq: number;
   currentSpend: number;
   priorSpend: number;
 }
 
+const ZERO_KPI: KpiData = {
+  currentPql: 0, priorPql: 0,
+  currentPreq: 0, priorPreq: 0,
+  currentSpend: 0, priorSpend: 0,
+};
+
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-function countLeadsInRange(leads: SheetLead[], since: string, until: string): number {
-  return leads.filter((l) => {
-    const d = l.event_time.slice(0, 10); // YYYY-MM-DD
-    return d >= since && d <= until;
-  }).length;
+/** Search the actions array for an action_type containing the given name. */
+function actionValByName(actions: MetaAction[] | undefined, name: string): number {
+  if (!actions) return 0;
+  const match = actions.find((a) => a.action_type.includes(name));
+  return match ? Math.round(Number(match.value) || 0) : 0;
 }
 
-function extractSpend(json: Record<string, unknown>): number {
+const PQL_EVENT = '(JTC) Pricing Qualified';
+const PREQ_EVENT = '(JTC) Pre-qualified Lead';
+
+/**
+ * Extract PQL, Pre-Q, and spend totals from a campaign-level PipeBoard response.
+ * Sums across all campaigns (per-campaign total).
+ */
+function extractMetrics(json: Record<string, unknown>): { pql: number; preq: number; spend: number } {
   const unwrapped = unwrapPipeboardResponse(json);
-  // Account-level response: { data: [{ spend: "123.45", ... }] } or segmented_metrics
   const arr = unwrapped.data ?? unwrapped.segmented_metrics ?? unwrapped;
-  if (Array.isArray(arr)) {
-    return arr.reduce((sum: number, row: Record<string, unknown>) => {
-      const metrics = (row.metrics ?? row) as Record<string, unknown>;
-      return sum + Number(metrics.spend ?? 0);
-    }, 0);
+  if (!Array.isArray(arr)) {
+    return { pql: 0, preq: 0, spend: Number((unwrapped as Record<string, unknown>).spend ?? 0) };
   }
-  return Number((unwrapped as Record<string, unknown>).spend ?? 0);
+  let pql = 0, preq = 0, spend = 0;
+  for (const row of arr) {
+    const r = row as Record<string, unknown>;
+    const actions = (r.actions ?? []) as MetaAction[];
+    pql += actionValByName(actions, PQL_EVENT);
+    preq += actionValByName(actions, PREQ_EVENT);
+    spend += Number(r.spend ?? 0);
+  }
+  return { pql, preq, spend };
 }
 
 // ── KPI Strip ────────────────────────────────────────────────────────────
@@ -95,28 +113,21 @@ function KpiCard({
 
 // ── Component ────────────────────────────────────────────────────────────
 
+const SRM_DEFAULT_RANGE_INDEX = 0; // 7d
+
 export default function SRMMetaReport({ client, mode }: ReportProps) {
-  const [leads, setLeads] = useState<SheetLead[]>([]);
-  const [kpi, setKpi] = useState<KpiData>({ currentLeads: 0, priorLeads: 0, currentSpend: 0, priorSpend: 0 });
-  const [dateRangeIndex, setDateRangeIndex] = useState(DEFAULT_RANGE_INDEX);
+  const [kpi, setKpi] = useState<KpiData>(ZERO_KPI);
+  const [dateRangeIndex, setDateRangeIndex] = useState(SRM_DEFAULT_RANGE_INDEX);
   const [loading, setLoading] = useState(true);
-  const [sheetError, setSheetError] = useState(false);
+  const [error, setError] = useState(false);
 
-  // Fetch all sheet leads once on mount
-  useEffect(() => {
-    fetch('/api/leads/srm-prequalified')
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setLeads(d.leads ?? []))
-      .catch(() => setSheetError(true))
-      .finally(() => setLoading(false));
-  }, []);
-
-  // Fetch Meta spend for the current + prior periods whenever date range changes
-  const fetchSpend = useCallback(async () => {
-    if (!client.ad_account_id) return;
+  const fetchData = useCallback(async () => {
+    if (!client.ad_account_id) { setLoading(false); return; }
+    setLoading(true);
+    setError(false);
     const periods = computePriorPeriod(dateRangeIndex);
     const aid = encodeURIComponent(client.ad_account_id);
-    const base = `/api/meta/insights?account_id=${aid}&level=account`;
+    const base = `/api/meta/insights?account_id=${aid}&level=campaign`;
     try {
       const [curRes, priorRes] = await Promise.all([
         fetch(`${base}&since=${periods.currentSince}&until=${periods.currentUntil}`),
@@ -126,41 +137,43 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
         curRes.ok ? curRes.json() : {},
         priorRes.ok ? priorRes.json() : {},
       ]);
-      setKpi((prev) => ({
-        ...prev,
-        currentSpend: extractSpend(curJson),
-        priorSpend: extractSpend(priorJson),
-      }));
-    } catch { /* spend unavailable -- KPI will show dashes */ }
+      const cur = extractMetrics(curJson);
+      const prior = extractMetrics(priorJson);
+      setKpi({
+        currentPql: cur.pql,
+        priorPql: prior.pql,
+        currentPreq: cur.preq,
+        priorPreq: prior.preq,
+        currentSpend: cur.spend,
+        priorSpend: prior.spend,
+      });
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
   }, [client.ad_account_id, dateRangeIndex]);
 
-  useEffect(() => { fetchSpend(); }, [fetchSpend]);
-
-  // Recompute lead counts when leads array or date range changes
-  useEffect(() => {
-    if (loading) return;
-    const periods = computePriorPeriod(dateRangeIndex);
-    setKpi((prev) => ({
-      ...prev,
-      currentLeads: countLeadsInRange(leads, periods.currentSince, periods.currentUntil),
-      priorLeads: countLeadsInRange(leads, periods.priorSince, periods.priorUntil),
-    }));
-  }, [leads, dateRangeIndex, loading]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   // Derived KPIs
-  const currentCPL = kpi.currentLeads > 0 ? kpi.currentSpend / kpi.currentLeads : 0;
-  const priorCPL = kpi.priorLeads > 0 ? kpi.priorSpend / kpi.priorLeads : 0;
-  const leadsChange = calcChange(kpi.currentLeads, kpi.priorLeads);
+  const currentCPL = kpi.currentPql > 0 ? kpi.currentSpend / kpi.currentPql : 0;
+  const priorCPL = kpi.priorPql > 0 ? kpi.priorSpend / kpi.priorPql : 0;
+  const pqlChange = calcChange(kpi.currentPql, kpi.priorPql);
+  const preqChange = calcChange(kpi.currentPreq, kpi.priorPreq);
   const cplChange = calcChange(currentCPL, priorCPL);
+  const convRate = kpi.currentPreq > 0 ? kpi.currentPql / kpi.currentPreq : 0;
+  const priorConvRate = kpi.priorPreq > 0 ? kpi.priorPql / kpi.priorPreq : 0;
+  const convRateChange = calcChange(convRate, priorConvRate);
 
   return (
     <div className="space-y-6">
-      {/* ── Prequalified Leads KPI Strip ─────────────────────────────────── */}
+      {/* ── Pricing Qualified Leads KPI Strip ──────────────────────────────── */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <h2 className="text-base font-semibold text-slate-800">
             Pricing Qualified Leads
-            <span className="ml-2 text-xs font-normal text-slate-400">(Meta-attributed, from lead sheet)</span>
+            <span className="ml-2 text-xs font-normal text-slate-400">(live from Meta campaigns)</span>
           </h2>
           <div className="inline-flex items-center rounded-lg bg-slate-100 p-1 gap-0.5">
             {DATE_RANGES.map((range, i) => (
@@ -184,14 +197,20 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
             <div className="flex items-center justify-center py-4">
               <div className="animate-spin rounded-full h-6 w-6 border-2 border-slate-200 border-t-[#2563eb]" />
             </div>
-          ) : sheetError ? (
-            <p className="text-sm text-red-500">Unable to load prequalified leads from sheet.</p>
+          ) : error ? (
+            <p className="text-sm text-red-500">Unable to load conversion data from Meta.</p>
           ) : (
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
               <KpiCard
                 label="Pricing Qualified Leads"
-                value={fmt(kpi.currentLeads)}
-                change={leadsChange}
+                value={fmt(kpi.currentPql)}
+                change={pqlChange}
+                changeSentiment="positive-up"
+              />
+              <KpiCard
+                label="Pre-Qualified Leads"
+                value={fmt(kpi.currentPreq)}
+                change={preqChange}
                 changeSentiment="positive-up"
               />
               <KpiCard
@@ -201,22 +220,16 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
                 changeSentiment="neutral"
               />
               <KpiCard
-                label="Cost Per Pricing Qualified Lead"
+                label="Cost Per PQL"
                 value={currentCPL > 0 ? fmtMoney(currentCPL) : '--'}
                 change={cplChange}
                 changeSentiment="negative-up"
               />
               <KpiCard
-                label={'\u0394 Leads'}
-                value={leadsChange.pct}
-                change={leadsChange}
+                label="Pre-Q to PQL Rate"
+                value={convRate > 0 ? fmtPct(convRate) : '--'}
+                change={convRateChange}
                 changeSentiment="positive-up"
-              />
-              <KpiCard
-                label={'\u0394 CPL'}
-                value={cplChange.pct}
-                change={cplChange}
-                changeSentiment="negative-up"
               />
             </div>
           )}
