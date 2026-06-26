@@ -36,6 +36,14 @@ interface KpiData {
   priorSpend: number;
 }
 
+interface CampaignPql {
+  name: string;
+  pql: number;
+  preq: number;
+  spend: number;
+  cpql: number;
+}
+
 const ZERO_KPI: KpiData = {
   currentPql: 0, priorPql: 0,
   currentPreq: 0, priorPreq: 0,
@@ -81,6 +89,29 @@ function extractMetrics(json: Record<string, unknown>): { pql: number; preq: num
   return { pql, preq, spend };
 }
 
+/** Extract per-campaign PQL breakdown from a campaign-level PipeBoard response. */
+function extractCampaignPql(json: Record<string, unknown>): CampaignPql[] {
+  const unwrapped = unwrapPipeboardResponse(json);
+  const arr = unwrapped.data ?? unwrapped.segmented_metrics ?? unwrapped;
+  if (!Array.isArray(arr)) return [];
+  return (arr as Record<string, unknown>[])
+    .map((r) => {
+      const conversions = (r.conversions ?? []) as MetaAction[];
+      const pql = conversionVal(conversions, PQL_ACTION);
+      const preq = conversionVal(conversions, PREQ_ACTION);
+      const spend = Number(r.spend ?? 0);
+      return {
+        name: String(r.campaign_name ?? 'Unknown'),
+        pql,
+        preq,
+        spend,
+        cpql: pql > 0 ? spend / pql : 0,
+      };
+    })
+    .filter((c) => c.pql > 0 || c.preq > 0 || c.spend > 0)
+    .sort((a, b) => b.pql - a.pql);
+}
+
 // ── KPI Strip ────────────────────────────────────────────────────────────
 
 function KpiCard({
@@ -123,6 +154,7 @@ const SRM_DEFAULT_RANGE_INDEX = 0; // 7d
 
 export default function SRMMetaReport({ client, mode }: ReportProps) {
   const [kpi, setKpi] = useState<KpiData>(ZERO_KPI);
+  const [campaigns, setCampaigns] = useState<CampaignPql[]>([]);
   const [dateRangeIndex, setDateRangeIndex] = useState(SRM_DEFAULT_RANGE_INDEX);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -145,6 +177,7 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
       ]);
       const cur = extractMetrics(curJson);
       const prior = extractMetrics(priorJson);
+      setCampaigns(extractCampaignPql(curJson));
       setKpi({
         currentPql: cur.pql,
         priorPql: prior.pql,
@@ -241,6 +274,41 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
           )}
         </div>
       </div>
+
+      {/* ── PQL by Campaign ───────────────────────────────────────────────── */}
+      {!loading && !error && campaigns.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-6 py-3 border-b border-slate-200 bg-slate-50/50">
+            <h3 className="text-sm font-semibold text-slate-700">Pricing Qualified Leads by Campaign</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50/80">
+                  <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-left">Campaign</th>
+                  <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-right">Pre-Q</th>
+                  <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-right">PQL</th>
+                  <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-right">Spent</th>
+                  <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-right">Cost / PQL</th>
+                  <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-right">Pre-Q to PQL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {campaigns.map((c, idx) => (
+                  <tr key={idx} className="border-b border-slate-100 hover:bg-blue-50/50 transition-colors">
+                    <td className="text-sm font-medium text-slate-900 py-3 px-4 truncate max-w-[300px]">{c.name}</td>
+                    <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums">{fmt(c.preq)}</td>
+                    <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums font-semibold">{fmt(c.pql)}</td>
+                    <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums">{fmtMoney(c.spend)}</td>
+                    <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums font-semibold">{c.cpql > 0 ? fmtMoney(c.cpql) : '--'}</td>
+                    <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums">{c.preq > 0 ? fmtPct(c.pql / c.preq) : '--'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* ── Standard LeadGen Meta Report (overridden to count JTC Pre-Q leads) */}
       <LeadGenMetaReport client={client} mode={mode} leadConversionTypes={[PREQ_ACTION]} />
