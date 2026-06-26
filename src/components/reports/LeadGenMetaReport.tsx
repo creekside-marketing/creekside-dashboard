@@ -63,13 +63,24 @@ function getLeads(actions: MetaAction[] | undefined): number {
   return actionVal(actions, 'lead') + actionVal(actions, 'offsite_conversion.fb_pixel_lead');
 }
 
+/** Count leads using custom action type names (substring match). */
+function getLeadsCustom(actions: MetaAction[] | undefined, actionNames: string[]): number {
+  if (!actions) return 0;
+  return actionNames.reduce((sum, name) => {
+    const match = actions.find((a) => a.action_type.includes(name));
+    return sum + (match ? Math.round(Number(match.value) || 0) : 0);
+  }, 0);
+}
+
+type LeadCounter = (actions: MetaAction[] | undefined) => number;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function normalize(row: any): LeadGenRow {
+function normalize(row: any, countLeads: LeadCounter = getLeads): LeadGenRow {
   const actions = (row.actions ?? []) as MetaAction[];
   const impressions = Number(row.impressions ?? 0);
   const linkClicks = Number(row.inline_link_clicks ?? row.clicks ?? 0);
   const spend = Number(row.spend ?? 0);
-  const leads = getLeads(actions);
+  const leads = countLeads(actions);
   const reach = Number(row.reach ?? 0);
   return {
     name: row.campaign_name ?? row.adset_name ?? row.ad_name ?? 'Unknown',
@@ -93,13 +104,13 @@ function computeTotals(rows: LeadGenRow[]): Omit<LeadGenRow, 'name'> {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseDailyRows(rows: any[]): DailyRow[] {
+function parseDailyRows(rows: any[], countLeads: LeadCounter = getLeads): DailyRow[] {
   return rows.map((row) => {
     const actions = (row.actions ?? []) as MetaAction[];
     const impressions = Number(row.impressions ?? 0);
     const spend = Number(row.spend ?? 0);
     const linkClicks = Number(row.inline_link_clicks ?? row.clicks ?? 0);
-    const leads = getLeads(actions);
+    const leads = countLeads(actions);
     const reach = Number(row.reach ?? 0);
     return { date: row.date_start ?? row.date ?? '', impressions, linkClicks, spend, leads, reach,
       frequency: reach > 0 ? impressions / reach : 0,
@@ -114,7 +125,7 @@ const ZERO: Omit<LeadGenRow, 'name'> = { impressions: 0, linkClicks: 0, spend: 0
 
 // ── Component ────────────────────────────────────────────────────────────
 
-export default function LeadGenMetaReport({ client, mode }: { client: ReportingClient; mode: 'internal' | 'public' }) {
+export default function LeadGenMetaReport({ client, mode, leadActions }: { client: ReportingClient; mode: 'internal' | 'public'; leadActions?: string[] }) {
   const [campaigns, setCampaigns] = useState<LeadGenRow[]>([]);
   const [totals, setTotals] = useState(ZERO);
   const [dailyData, setDailyData] = useState<DailyRow[]>([]);
@@ -128,6 +139,10 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
   const cooldownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const [dateRangeIndex, setDateRangeIndex] = useState(DEFAULT_RANGE_INDEX);
   const currentRange = DATE_RANGES[dateRangeIndex];
+
+  const countLeads: LeadCounter = leadActions
+    ? (actions) => getLeadsCustom(actions, leadActions)
+    : getLeads;
 
   const startCooldown = useCallback(() => {
     setCooldownRemaining(COOLDOWN_MS);
@@ -160,7 +175,7 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
       if (!cj || typeof cj !== 'object') throw new Error('Invalid API response');
       cj = unwrapPipeboardResponse(cj);
       const dataArr = Array.isArray(cj.data ?? cj) ? (cj.data ?? cj) : [];
-      const norm = (dataArr as unknown[]).map(normalize);
+      const norm = (dataArr as unknown[]).map((r) => normalize(r, countLeads));
       setCampaigns(norm);
       const t = computeTotals(norm); setTotals(t);
 
@@ -174,14 +189,14 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
             setDailyData(parseDailyRows(segments.map((seg: Record<string, unknown>) => {
               const metrics = (seg.metrics ?? seg) as Record<string, unknown>;
               return { ...metrics, date_start: seg.period ?? seg.period_start ?? metrics.date_start ?? metrics.date };
-            })));
+            }), countLeads));
           }
         } catch { /* optional */ }
       }
       if (priorRes.ok) {
         try { let pj = await priorRes.json(); pj = unwrapPipeboardResponse(pj);
           const pa = Array.isArray(pj.data ?? pj) ? (pj.data ?? pj) : [];
-          const pt = computeTotals((pa as unknown[]).map(normalize));
+          const pt = computeTotals((pa as unknown[]).map((r) => normalize(r, countLeads)));
           setKpiChanges({ leads: calcChange(t.leads, pt.leads), cpl: calcChange(t.cpl, pt.cpl),
             spend: calcChange(t.spend, pt.spend), cpm: calcChange(t.cpm, pt.cpm),
             frequency: calcChange(t.frequency, pt.frequency), linkClicks: calcChange(t.linkClicks, pt.linkClicks),
@@ -227,7 +242,7 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
       setLastRefreshed(new Date()); startCooldown();
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed to fetch data'); }
     finally { setLoading(false); }
-  }, [client.ad_account_id, dateRangeIndex, startCooldown]);
+  }, [client.ad_account_id, dateRangeIndex, startCooldown, countLeads]);
 
   useEffect(() => { fetchData(); return () => { if (cooldownTimer.current) clearInterval(cooldownTimer.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -316,7 +331,7 @@ export default function LeadGenMetaReport({ client, mode }: { client: ReportingC
           const processedAds = adsData.map((row) => {
             const r = row as Record<string, unknown>;
             const actions = (r.actions ?? []) as MetaAction[];
-            const leads = getLeads(actions);
+            const leads = countLeads(actions);
             const spend = Number(r.spend ?? 0);
             return {
               adId: String(r.ad_id ?? r.id ?? ''),

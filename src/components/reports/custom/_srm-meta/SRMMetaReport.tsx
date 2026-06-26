@@ -236,8 +236,8 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
         </div>
       </div>
 
-      {/* ── Standard LeadGen Meta Report (untouched) ─────────────────────── */}
-      <LeadGenMetaReport client={client} mode={mode} />
+      {/* ── Standard LeadGen Meta Report (overridden to count JTC Pre-Q leads) */}
+      <LeadGenMetaReport client={client} mode={mode} leadActions={[PREQ_EVENT]} />
     </div>
   );
 }
