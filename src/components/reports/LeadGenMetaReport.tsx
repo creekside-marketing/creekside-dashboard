@@ -172,7 +172,7 @@ export default function LeadGenMetaReport({ client, mode, leadConversionTypes, p
     try {
       const aid = encodeURIComponent(client.ad_account_id);
       const tr = DATE_RANGES[dateRangeIndex].metaParam;
-      const extraFields = leadConversionTypes ? '&fields=conversions' : '';
+      const extraFields = (leadConversionTypes || pqlConversionType) ? '&fields=conversions' : '';
       const base = `/api/meta/insights?account_id=${aid}${extraFields}`;
       const periods = computePriorPeriod(dateRangeIndex);
       const [campaignRes, accountRes, priorRes, adRes] = await Promise.all([
