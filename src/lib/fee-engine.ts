@@ -89,10 +89,6 @@ function proportionalShare(thisPlatformSpend: number, totalClientSpend: number):
  * For "fixed" and "tiered" with scope "total", the caller must provide
  * totalClientSpend (sum of spend across all platform rows for the same client).
  * For per-platform types, totalClientSpend is ignored.
- *
- * platformCount: number of active platform rows for this client. Used by "tiered"
- * with scope "total" to scale the minimum and waiver threshold per platform.
- * Defaults to 1 (backward-compatible).
  */
 export function calculatePlatformRevenue(
   feeConfig: FeeConfig,
@@ -121,10 +117,9 @@ export function calculatePlatformRevenue(
         return Math.max(raw, effectiveMin);
       }
       // scope === "total": calculate on combined spend, split proportionally.
-      // Scale minimum and waiver threshold by platformCount (e.g. $1K min × 2 platforms = $2K).
-      const scaledWaiverThreshold = (feeConfig.minimum_waiver_threshold ?? 0) * platformCount;
-      const totalWaiverMet = scaledWaiverThreshold > 0 && totalClientSpend >= scaledWaiverThreshold;
-      const totalEffectiveMin = totalWaiverMet ? 0 : ((feeConfig.minimum ?? 0) * platformCount);
+      // Minimum and waiver apply once to the total (not per-platform).
+      const totalWaiverMet = (feeConfig.minimum_waiver_threshold ?? 0) > 0 && totalClientSpend >= (feeConfig.minimum_waiver_threshold ?? 0);
+      const totalEffectiveMin = totalWaiverMet ? 0 : (feeConfig.minimum ?? 0);
       const totalFee = Math.max(
         calcTieredFee(totalClientSpend, feeConfig.tiers),
         totalEffectiveMin,

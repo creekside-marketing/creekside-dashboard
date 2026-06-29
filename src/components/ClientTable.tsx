@@ -1169,16 +1169,25 @@ export default function ClientTable() {
   const calculatedRevenue = useMemo(() => {
     const result: Record<string, { value: number | null; source: 'override' | 'calculated' | 'none' }> = {};
 
-    // Pre-compute total live spend and platform count per client_name
-    const totalSpendByClient: Record<string, number> = {};
+    // Pre-compute effective spend per client using best-available data (live > budget).
+    // Only count active clients — paused/churned generate no revenue.
+    const effectiveSpendByClient: Record<string, number> = {};
     const platformCountByClient: Record<string, number> = {};
     for (const c of clients) {
-      const spend = c.ad_account_id ? (liveData[c.ad_account_id]?.spend ?? 0) : 0;
-      totalSpendByClient[c.client_name] = (totalSpendByClient[c.client_name] ?? 0) + spend;
+      if (c.status === 'paused' || c.status === 'churned') continue;
+      const live = c.ad_account_id ? liveData[c.ad_account_id] : undefined;
+      const spend = (live && !live.error) ? live.spend : Number(c.monthly_budget ?? 0);
+      effectiveSpendByClient[c.client_name] = (effectiveSpendByClient[c.client_name] ?? 0) + spend;
       platformCountByClient[c.client_name] = (platformCountByClient[c.client_name] ?? 0) + 1;
     }
 
     for (const c of clients) {
+      // Paused/churned clients generate no revenue
+      if (c.status === 'paused' || c.status === 'churned') {
+        result[c.id] = { value: null, source: 'none' };
+        continue;
+      }
+
       const platformCount = platformCountByClient[c.client_name] ?? 1;
 
       // 1. If revenue_override is true, use monthly_revenue as-is
@@ -1187,36 +1196,26 @@ export default function ClientTable() {
         continue;
       }
 
-      // 2. If fee_config exists and we have live spend, calculate
-      if (c.fee_config && c.ad_account_id && liveData[c.ad_account_id]) {
-        const live = liveData[c.ad_account_id];
-        if (!live.error) {
-          const thisPlatformSpend = live.spend;
-          const totalClientSpend = totalSpendByClient[c.client_name] ?? thisPlatformSpend;
+      // 2. Calculate from fee_config using best-available spend (live or budget fallback)
+      if (c.fee_config) {
+        const live = c.ad_account_id ? liveData[c.ad_account_id] : undefined;
+        const hasLiveData = live && !live.error;
+        const thisPlatformSpend = hasLiveData ? live.spend : Number(c.monthly_budget ?? 0);
+        const totalClientSpend = effectiveSpendByClient[c.client_name] ?? thisPlatformSpend;
+        if (hasLiveData || Number(c.monthly_budget ?? 0) > 0) {
           const fee = calculatePlatformRevenue(c.fee_config, thisPlatformSpend, totalClientSpend, platformCount);
           result[c.id] = { value: fee, source: 'calculated' };
           continue;
         }
       }
 
-      // 3. Fall back to budget-based calculation when live data is missing or errored
-      if (c.fee_config && c.monthly_budget != null && c.monthly_budget > 0) {
-        const budgetAsSpend = Number(c.monthly_budget);
-        const totalBudgetByClient = clients
-          .filter(cl => cl.client_name === c.client_name)
-          .reduce((sum, cl) => sum + Number(cl.monthly_budget ?? 0), 0);
-        const fee = calculatePlatformRevenue(c.fee_config, budgetAsSpend, totalBudgetByClient, platformCount);
-        result[c.id] = { value: fee, source: 'calculated' };
-        continue;
-      }
-
-      // 4. Fall back to monthly_revenue from DB if it exists
+      // 3. Fall back to monthly_revenue from DB if it exists
       if (c.monthly_revenue != null && Number(c.monthly_revenue) > 0) {
         result[c.id] = { value: Number(c.monthly_revenue), source: 'none' };
         continue;
       }
 
-      // 5. Nothing available
+      // 4. Nothing available
       result[c.id] = { value: null, source: 'none' };
     }
 

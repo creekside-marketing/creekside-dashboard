@@ -45,14 +45,12 @@ export async function computeRevenueByClientId(supabase: SupabaseClient): Promis
   // Pre-compute per-client totals for the fee engine
   const platformCountByName: Record<string, number> = {};
   const totalSpendByName: Record<string, number> = {};
-  const totalBudgetByName: Record<string, number> = {};
   for (const row of rows) {
     const name = row.client_name;
     platformCountByName[name] = (platformCountByName[name] ?? 0) + 1;
     const live = row.ad_account_id ? liveSpend.get(row.ad_account_id) : undefined;
     const spendOrBudget = live ?? Number(row.monthly_budget ?? 0);
     totalSpendByName[name] = (totalSpendByName[name] ?? 0) + spendOrBudget;
-    totalBudgetByName[name] = (totalBudgetByName[name] ?? 0) + Number(row.monthly_budget ?? 0);
   }
 
   const revenueByClientId: Record<string, number> = {};
@@ -70,8 +68,8 @@ export async function computeRevenueByClientId(supabase: SupabaseClient): Promis
       value = calculatePlatformRevenue(row.fee_config, live, totalSpend, platformCount);
     } else if (row.fee_config && Number(row.monthly_budget ?? 0) > 0) {
       const thisBudget = Number(row.monthly_budget ?? 0);
-      const totalBudget = totalBudgetByName[row.client_name] ?? thisBudget;
-      value = calculatePlatformRevenue(row.fee_config, thisBudget, totalBudget, platformCount);
+      const totalSpend = totalSpendByName[row.client_name] ?? thisBudget;
+      value = calculatePlatformRevenue(row.fee_config, thisBudget, totalSpend, platformCount);
     } else if (monthlyRev != null && monthlyRev > 0) {
       value = monthlyRev;
     }
@@ -105,14 +103,12 @@ export async function computeRevenueByClientPlatform(supabase: SupabaseClient): 
 
   const platformCountByName: Record<string, number> = {};
   const totalSpendByName: Record<string, number> = {};
-  const totalBudgetByName: Record<string, number> = {};
   for (const row of rows) {
     const name = row.client_name;
     platformCountByName[name] = (platformCountByName[name] ?? 0) + 1;
     const live = row.ad_account_id ? liveSpend.get(row.ad_account_id) : undefined;
     const spendOrBudget = live ?? Number(row.monthly_budget ?? 0);
     totalSpendByName[name] = (totalSpendByName[name] ?? 0) + spendOrBudget;
-    totalBudgetByName[name] = (totalBudgetByName[name] ?? 0) + Number(row.monthly_budget ?? 0);
   }
 
   const revenueByCP: Record<string, number> = {};
@@ -130,8 +126,8 @@ export async function computeRevenueByClientPlatform(supabase: SupabaseClient): 
       value = calculatePlatformRevenue(row.fee_config, live, totalSpend, platformCount);
     } else if (row.fee_config && Number(row.monthly_budget ?? 0) > 0) {
       const thisBudget = Number(row.monthly_budget ?? 0);
-      const totalBudget = totalBudgetByName[row.client_name] ?? thisBudget;
-      value = calculatePlatformRevenue(row.fee_config, thisBudget, totalBudget, platformCount);
+      const totalSpend = totalSpendByName[row.client_name] ?? thisBudget;
+      value = calculatePlatformRevenue(row.fee_config, thisBudget, totalSpend, platformCount);
     } else if (monthlyRev != null && monthlyRev > 0) {
       value = monthlyRev;
     }
