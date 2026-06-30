@@ -2,6 +2,52 @@ import { NextRequest, NextResponse } from 'next/server';
 import { callPipeboard } from '@/lib/pipeboard';
 import { createServiceClient } from '@/lib/supabase';
 
+/**
+ * Log a PipeBoard error to pipeline_alerts (max 1 per day).
+ * Also sends an email notification via the notify-pipeboard-error edge function.
+ */
+async function logPipeboardAlert(accountId: string, errorMessage: string) {
+  const supabase = createServiceClient();
+  const today = new Date().toISOString().split('T')[0];
+
+  // Dedup: check if we already alerted today for this error type
+  const { data: existing } = await supabase
+    .from('pipeline_alerts')
+    .select('id')
+    .eq('alert_type', 'pipeboard_meta_error')
+    .gte('detected_at', `${today}T00:00:00Z`)
+    .limit(1);
+
+  if (existing && existing.length > 0) return; // already alerted today
+
+  await supabase.from('pipeline_alerts').insert({
+    alert_type: 'pipeboard_meta_error',
+    severity: 'critical',
+    content_table: 'meta_insights_daily',
+    details: { account_id: accountId, error: errorMessage, date: today },
+    acknowledged: false,
+  });
+
+  // Send email notification via Supabase Edge Function (if deployed)
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (supabaseUrl && serviceKey) {
+      await fetch(`${supabaseUrl}/functions/v1/notify-pipeboard-error`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serviceKey}`,
+        },
+        body: JSON.stringify({
+          subject: 'PipeBoard Meta Connection Error',
+          body: `PipeBoard Meta Ads API is returning errors. Client reports are falling back to cached data.\n\nError: ${errorMessage}\nAccount: ${accountId}\nDetected: ${new Date().toISOString()}\n\nFix: Go to https://pipeboard.co/connections and click Reconnect on the Facebook Ads row.`,
+        }),
+      });
+    }
+  } catch { /* edge function may not be deployed yet — alert is still in pipeline_alerts */ }
+}
+
 /** Convert a time_range preset to { since, until } date strings. */
 function resolveTimeRange(
   preset: string,
@@ -100,6 +146,10 @@ export async function GET(request: NextRequest) {
       const result = await callPipeboard('get_insights', pipeboardArgs);
       return NextResponse.json(result);
     } catch (pipeboardError) {
+      // Log to pipeline_alerts (deduped: max 1 per error per day)
+      const errMsg = pipeboardError instanceof Error ? pipeboardError.message : 'Unknown PipeBoard error';
+      logPipeboardAlert(account_id, errMsg).catch(() => {/* fire-and-forget */});
+
       // PipeBoard failed — fall back to cached data via meta_campaigns join
       try {
         const supabase = createServiceClient();

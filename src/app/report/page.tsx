@@ -41,6 +41,7 @@ export default async function ReportIndexPage() {
     .select('id, client_name, platform, ad_account_id, client_type, report_token')
     .not('report_token', 'is', null)
     .not('ad_account_id', 'is', null)
+    .eq('status', 'active')
     .order('client_name', { ascending: true });
 
   if (error) {
