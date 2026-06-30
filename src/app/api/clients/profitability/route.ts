@@ -226,7 +226,7 @@ export async function GET() {
     // in the active client breakdown. Everyone else (Scott/Ahmed/Ade/Jordan/etc) is on
     // per-client fixed rates — their monthly_retainer field is the SUM of those rates,
     // not a cap target, so their allocations naturally equal their retainer with no gap.
-    const FULL_TIME_SALARIED_MEMBERS = new Set(['Lindsey Bouffard', 'David']);
+    const FULL_TIME_SALARIED_MEMBERS = new Set(['Lindsey Bouffard', 'David', 'Jordan Tryon']);
     let salaryGap = 0;
     for (const [memberName, retainer] of Object.entries(retainerByMember)) {
       if (!FULL_TIME_SALARIED_MEMBERS.has(memberName)) continue;
