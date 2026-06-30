@@ -47,24 +47,15 @@ import { ReportingClient } from '../types';
 // ── Constants ──────────────────────────────────────────────────────────────
 
 /**
- * Conversion actions counted as a Pricing Qualified Lead.
- * All three are in the CONVERTED_LEAD goal category and primary_for_goal,
- * representing the pricing-qualified step and the two downstream stages
- * (Clear to Close → Funded). Per Peterson + Ahmed (2026-06).
- *
- * Note: a user who progresses through multiple stages is counted at each
- * stage, so total PQL volume is a weighted sum favouring campaigns that
- * drive downstream outcomes (Clear to Close, Funded). This is intentional
- * for weekly review reporting.
+ * Conversion action counted as a Pricing Qualified Lead.
+ * Only the real-time pricing-qualified action is counted.
+ * Clear to Close and Funded are downstream stages tracked separately.
  */
 const PQL_ACTION_NAMES: readonly string[] = [
   'Pricing Qualified - Realtime (JT)',
-  'Clear to Close - JTC',
-  'Funded (Offline-API) [JTC]',
 ] as const;
 const PQL_ACTION_PARAM = PQL_ACTION_NAMES.join(',');
-/** Short human-readable list for caption text in the UI. */
-const PQL_ACTION_LABELS = 'Realtime (JT), Clear to Close (JTC), Funded (JTC)';
+const PQL_ACTION_LABELS = 'Pricing Qualified - Realtime (JT)';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -630,7 +621,7 @@ export default function SouthRiverMortgageGoogleReport({
               />
             </div>
             <p className="text-[11px] text-slate-500 mt-3">
-              Counts the combined Pricing Qualified conversion actions ({PQL_ACTION_LABELS}). Recent days may rise as conversions finish attributing.
+              Counts the {PQL_ACTION_LABELS} conversion action only. Recent days may rise as conversions finish attributing.
             </p>
           </div>
 
@@ -726,7 +717,7 @@ export default function SouthRiverMortgageGoogleReport({
               )}
 
               <p className="text-[11px] text-amber-700/80 mt-1">
-                Pre-Q → PQL rate measures how many Pre-Qualified Leads (Lead Instant Quote - JTC submissions) progress to any of the combined Pricing Qualified actions ({PQL_ACTION_LABELS}). Recent days may rise as PQL conversions finish attributing (~5-day lag).
+                Pre-Q → PQL rate measures how many Pre-Qualified Leads (Lead Instant Quote - JTC submissions) progress to {PQL_ACTION_LABELS}. Recent days may rise as PQL conversions finish attributing (~5-day lag).
               </p>
             </div>
           )}
