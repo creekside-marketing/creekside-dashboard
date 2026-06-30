@@ -28,5 +28,14 @@ export async function callPipeboard(method: string, args: Record<string, unknown
     throw new Error(`PipeBoard RPC error: ${data.error.message}`);
   }
 
-  return data.result;
+  // PipeBoard returns token errors inside result.isError (not top-level error)
+  const result = data.result;
+  if (result?.isError) {
+    const msg = result.structuredContent?.error_description
+      ?? result.content?.[0]?.text
+      ?? 'Unknown PipeBoard error';
+    throw new Error(`PipeBoard error: ${msg}`);
+  }
+
+  return result;
 }
