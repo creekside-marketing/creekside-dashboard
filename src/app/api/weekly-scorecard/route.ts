@@ -8,13 +8,17 @@ export async function GET() {
     // Auto-generate current week's snapshot via DB function
     await supabase.rpc('generate_weekly_snapshot');
 
-    // Get current MRR by summing each client's actual monthly_revenue
+    // Get current MRR by summing each client's actual monthly_revenue.
+    // Excludes retainer clients (Graham/Andrew Kim/Mark Wolf/etc — white-labeled,
+    // separate P&L) and 'other'-platform Jybr AI-agent rows.
     const { data: clients } = await supabase
       .from('reporting_clients')
-      .select('monthly_revenue')
+      .select('monthly_revenue, client_category, platform')
       .eq('status', 'active');
 
-    const currentMRR = (clients ?? []).reduce((sum, c) => sum + (c.monthly_revenue ?? 0), 0);
+    const currentMRR = (clients ?? [])
+      .filter(c => c.client_category !== 'retainer' && c.platform !== 'other')
+      .reduce((sum, c) => sum + (c.monthly_revenue ?? 0), 0);
 
     // MRR Goal: $50K by 6/30/26
     const targetMRR = 50000;
