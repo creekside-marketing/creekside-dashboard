@@ -16,9 +16,10 @@ const BANDWIDTH_REMAINING_HOURS: Record<string, number> = {
   'Ade Aderibigbe': 10,
   'Baran Eris': 20,
   'David': 11,           // 15 hrs/wk capacity − 4.5 currently allocated = ~11 hrs/wk available
-  'Jay': 999,            // External partner — unlimited bandwidth (he brings his own clients + does the work)
   // Lindsey is dynamic: 45-hr weekly capacity − 5-hr admin buffer − allocated hours.
-  // Jordan Tryon + Aamir: bandwidth not yet specified — will show as `--` until set.
+  // Jordan Tryon + Aamir + Jay: bandwidth not tracked — will show as `--`.
+  // Jay is an external partner (brings his own clients, does his own fulfillment);
+  // Creekside doesn't manage his capacity.
 };
 
 // Lindsey is the full-time salaried hire — her bandwidth flexes as we add/remove
