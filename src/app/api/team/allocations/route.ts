@@ -131,10 +131,15 @@ export async function GET() {
     // client revenue numbers you see there (Blush Camera $2,632, AIW ≈$517 live,
     // Fusion DI Meta $5,237, etc.) rather than stale stored values.
     const revenueByCP = await computeRevenueByClientPlatform(supabase);
-    // Retainer (client, platform) rows — excluded entirely from Team profitability
-    // per Cade. Retainer clients live on the Client tab Retainer section with
-    // a separate 25% margin assumption; they don't roll up into freelancer P&L.
+    // Retainer (client, platform) rows are handled separately from % / fee-engine
+    // clients. They still show on the Team tab for external partners like Jay
+    // (Graham Shedden) who own the client + do the work — revenue attributes 100%
+    // to their card even when their labor cost is $0 (partner does the work on
+    // their side, we only take a referral cut). retainerRevenueByCP stores the
+    // stored monthly_revenue for those rows since the fee engine skips retainer
+    // rows in computeRevenueByClientPlatform.
     const retainerCP = new Set<string>();
+    const retainerRevenueByCP: Record<string, number> = {};
     // Active (non-retainer, non-churned) platforms per client — for splitting
     // platform=null allocations.
     const activePlatformsByClient: Record<string, string[]> = {};
@@ -144,6 +149,7 @@ export async function GET() {
       const cpKey = `${r.client_id}::${r.platform}`;
       if (r.client_category === 'retainer') {
         retainerCP.add(cpKey);
+        retainerRevenueByCP[cpKey] = Number(r.monthly_revenue ?? 0);
         continue;
       }
       if (!activePlatformsByClient[r.client_id]) activePlatformsByClient[r.client_id] = [];
@@ -214,7 +220,6 @@ export async function GET() {
       if (cStatus === 'churned' || cStatus === 'inactive' || cStatus === 'paused') continue;
 
       const memberLabor = Number(row.monthly_amount ?? 0);
-      if (memberLabor === 0) continue;
       const hours = row.avg_hours_per_week !== null ? Number(row.avg_hours_per_week) : null;
 
       // Determine platforms this allocation contributes to + the split amount per
@@ -227,12 +232,29 @@ export async function GET() {
 
       for (const platform of platforms) {
         const cpKey = `${row.client_id}::${platform}`;
-        // Skip retainer-category (client, platform) rows entirely.
-        if (retainerCP.has(cpKey)) continue;
-        const revenue = revenueByCP[cpKey] ?? 0;
-        const totalLabor = totalLaborByCP[cpKey] ?? 0;
-        const share = totalLabor > 0 ? splitLabor / totalLabor : 0;
-        const attributedRevenue = revenue * share;
+        const isRetainer = retainerCP.has(cpKey);
+        // Skip zero-amount allocations UNLESS this is a retainer client (partner/external
+        // operators like Jay do the work but aren't paid by Creekside — $0 allocations
+        // mark client ownership without payroll cost).
+        if (memberLabor === 0 && !isRetainer) continue;
+
+        let attributedRevenue: number;
+        let revenue: number;
+        let totalLabor: number;
+
+        if (isRetainer) {
+          // Retainer clients: 100% of the retainer revenue is attributed to the operator
+          // (retainers are typically single-operator engagements). Revenue is the stored
+          // monthly_revenue (not the fee-engine calc which excludes retainer rows).
+          revenue = retainerRevenueByCP[cpKey] ?? 0;
+          attributedRevenue = revenue;
+          totalLabor = totalLaborByCP[cpKey] ?? 0;
+        } else {
+          revenue = revenueByCP[cpKey] ?? 0;
+          totalLabor = totalLaborByCP[cpKey] ?? 0;
+          const share = totalLabor > 0 ? splitLabor / totalLabor : 0;
+          attributedRevenue = revenue * share;
+        }
 
         const bonusKey = `${row.team_member_id}::${row.client_id}::${platform}`;
         const bonus = bonusByMCP[bonusKey] ?? 0;
