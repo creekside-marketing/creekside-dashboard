@@ -30,7 +30,9 @@ const MARKETING_EXCLUDE_NAMES = ['ZIPRECRUITER', 'ONLINEJOBSPH'];
 // Names to INCLUDE as marketing spend even though Labor-categorized (Queenie's contractor payment)
 const QUEENIE_NAME_PATTERNS = ['lovely queen del rosario', 'queenie', 'queen del rosario'];
 
-// Income-name patterns that are NOT new clients (interest, fees, refunds, internal transfers)
+// Income-name patterns that are NOT new clients (interest, fees, refunds,
+// internal transfers, recurring partnership work, Peterson's passthrough
+// Upwork consulting, referral kickbacks).
 const NEW_CLIENT_EXCLUDE_PATTERNS = [
   'interest',
   'savings',
@@ -40,6 +42,9 @@ const NEW_CLIENT_EXCLUDE_PATTERNS = [
   'square fee',
   'paypal fee',
   'reversal',
+  'jybr',
+  'referral',
+  'freedom craftworks',
 ];
 
 function isExcludedMarketing(name: string | null | undefined): boolean {
