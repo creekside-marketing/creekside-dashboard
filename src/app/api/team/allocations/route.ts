@@ -47,13 +47,14 @@ interface AllocationRow {
   platform: string | null;
   hours_per_week: number | null;
   monthly_amount: number;        // member's labor cost on this (client, platform)
-  bonus_amount: number;          // member's bonus on this (client, platform), 0 if none
+  bonus_amount: number;          // member's bonus on this (client, platform), 0 if none (active bonuses only)
   cost: number;                  // monthly_amount + bonus_amount
   client_revenue: number;        // total revenue from this (client, platform)
   client_total_labor: number;    // total labor across all members on this (client, platform)
   attributed_revenue: number;    // member's share = monthly_amount / client_total_labor × client_revenue
   profit: number;                // attributed_revenue − cost
   margin_pct: number;            // profit / attributed_revenue × 100
+  is_retainer: boolean;          // true when client_category='retainer' — excluded from non-retainer margin
 }
 
 interface TeamMemberPayload {
@@ -68,9 +69,19 @@ interface TeamMemberPayload {
   total_monthly_pay: number;
   // Per-member profitability totals (sum across all allocations)
   total_attributed_revenue: number;
-  total_cost: number;
+  total_labor: number;           // sum of monthly_amount only
+  total_bonus: number;           // sum of bonus_amount only (active bonuses)
+  total_cost: number;            // total_labor + total_bonus
   total_profit: number;
-  margin_pct: number;
+  margin_pct: number;            // full margin including retainers
+  // Non-retainer view — Cade+Peterson decision (2026-07-06): retainer clients
+  // (25% margin) drag down freelancer margin unfairly; the primary margin
+  // displayed on the Team tab should exclude them so we can see how the
+  // freelancer performs on their active book of business.
+  non_retainer_attributed_revenue: number;
+  non_retainer_cost: number;
+  non_retainer_profit: number;
+  non_retainer_margin_pct: number;
   allocations: AllocationRow[];
 }
 
@@ -101,7 +112,8 @@ export async function GET() {
         .select('team_member_id, client_id, platform, avg_hours_per_week, monthly_amount'),
       supabase
         .from('client_bonuses')
-        .select('team_member_id, client_id, platform, expected_monthly_amount'),
+        .select('team_member_id, client_id, platform, expected_monthly_amount')
+        .eq('active', true),
       supabase
         .from('reporting_clients')
         .select('client_id, platform, monthly_revenue, status, client_category'),
@@ -276,6 +288,7 @@ export async function GET() {
           attributed_revenue: round2(attributedRevenue),
           profit: round2(profit),
           margin_pct: round2(marginPct),
+          is_retainer: isRetainer,
         });
         allocByMember.set(row.team_member_id, list);
       }
@@ -287,10 +300,20 @@ export async function GET() {
       );
       const totalHours = allocs.reduce((sum, a) => sum + (a.hours_per_week ?? 0), 0);
       const totalPay = allocs.reduce((sum, a) => sum + a.monthly_amount, 0);
+      const totalLabor = totalPay; // labor only (excludes bonus)
+      const totalBonus = allocs.reduce((sum, a) => sum + a.bonus_amount, 0);
       const totalAttributedRevenue = allocs.reduce((sum, a) => sum + a.attributed_revenue, 0);
       const totalCost = allocs.reduce((sum, a) => sum + a.cost, 0);
       const totalProfit = totalAttributedRevenue - totalCost;
       const marginPct = totalAttributedRevenue > 0 ? (totalProfit / totalAttributedRevenue) * 100 : 0;
+
+      // Non-retainer totals — retainers stay in the allocations list but
+      // don't count toward the primary margin metric.
+      const nrAllocs = allocs.filter(a => !a.is_retainer);
+      const nrRevenue = nrAllocs.reduce((sum, a) => sum + a.attributed_revenue, 0);
+      const nrCost = nrAllocs.reduce((sum, a) => sum + a.cost, 0);
+      const nrProfit = nrRevenue - nrCost;
+      const nrMarginPct = nrRevenue > 0 ? (nrProfit / nrRevenue) * 100 : 0;
 
       const bandwidth_remaining_hours = m.name === 'Lindsey Bouffard'
         ? Math.round((LINDSEY_WEEKLY_CAPACITY - LINDSEY_ADMIN_BUFFER - totalHours) * 10) / 10
@@ -307,9 +330,15 @@ export async function GET() {
         current_hours_per_week: round2(totalHours),
         total_monthly_pay: round2(totalPay),
         total_attributed_revenue: round2(totalAttributedRevenue),
+        total_labor: round2(totalLabor),
+        total_bonus: round2(totalBonus),
         total_cost: round2(totalCost),
         total_profit: round2(totalProfit),
         margin_pct: round2(marginPct),
+        non_retainer_attributed_revenue: round2(nrRevenue),
+        non_retainer_cost: round2(nrCost),
+        non_retainer_profit: round2(nrProfit),
+        non_retainer_margin_pct: round2(nrMarginPct),
         allocations: allocs,
       };
     });

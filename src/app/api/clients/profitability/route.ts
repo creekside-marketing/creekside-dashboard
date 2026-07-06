@@ -123,11 +123,24 @@ export async function GET() {
       if (!laborByKeyMember[key]) laborByKeyMember[key] = {};
       laborByKeyMember[key][member] = (laborByKeyMember[key][member] ?? 0) + amount;
     };
+    // Members whose cost we DON'T want attributed to individual client rows on
+    // the Client tab. Their full monthly_retainer still lands in Operator Cost
+    // via the salary-gap mechanism below (they're in FULL_TIME_SALARIED_MEMBERS),
+    // just not distributed across specific clients. The Team tab still uses
+    // raw allocations so it shows which clients they touch.
+    // Jordan: Peterson+Cade decision — evaluate his cost as fixed overhead
+    // rather than trying to attribute across clients (2026-07-06).
+    const UNATTRIBUTED_TO_CLIENTS = new Set(['Jordan Tryon']);
+
     for (const row of laborResult.data ?? []) {
       if (!row.client_id) continue;
       const amount = Number(row.monthly_amount ?? 0);
       if (amount === 0) continue;
       const member = memberName(row);
+      // Skip this member's labor from per-client attribution. Their full
+      // retainer still shows up in totalLabor via the salary-gap add-back
+      // below (activeAttributed will be 0 for them).
+      if (UNATTRIBUTED_TO_CLIENTS.has(member)) continue;
       if (row.platform) {
         addLabor(row.client_id, row.platform, member, amount);
       } else {

@@ -15,6 +15,7 @@ interface AllocationRow {
   attributed_revenue: number;
   profit: number;
   margin_pct: number;
+  is_retainer: boolean;
 }
 
 interface TeamMemberPayload {
@@ -28,9 +29,15 @@ interface TeamMemberPayload {
   current_hours_per_week: number;
   total_monthly_pay: number;
   total_attributed_revenue: number;
+  total_labor: number;
+  total_bonus: number;
   total_cost: number;
   total_profit: number;
   margin_pct: number;
+  non_retainer_attributed_revenue: number;
+  non_retainer_cost: number;
+  non_retainer_profit: number;
+  non_retainer_margin_pct: number;
   allocations: AllocationRow[];
 }
 
@@ -91,6 +98,13 @@ function MemberCard({ m }: { m: TeamMemberPayload }) {
   // is instantly identifiable here and in the Client Table labor chips.
   const color = getTeamColor(m.name);
 
+  // Whether this member has any retainer allocations — controls whether we
+  // show the "excl. retainers" note under the primary margin.
+  const hasRetainers = m.allocations.some(a => a.is_retainer);
+  const primaryMarginPct = m.non_retainer_margin_pct;
+  const primaryProfit = m.non_retainer_profit;
+  const primaryRevenue = m.non_retainer_attributed_revenue;
+
   const totalRow = (
     <tr className="bg-slate-50 font-semibold border-t-2 border-slate-300">
       <td className="px-3 py-2 text-sm text-slate-900">Total</td>
@@ -99,7 +113,10 @@ function MemberCard({ m }: { m: TeamMemberPayload }) {
         {m.current_hours_per_week > 0 ? formatHours(m.current_hours_per_week) : '--'}
       </td>
       <td className="px-3 py-2 text-sm text-slate-900 tabular-nums text-right">
-        {m.total_cost > 0 ? formatCurrency(m.total_cost) : '--'}
+        {m.total_labor > 0 ? formatCurrency(m.total_labor) : '--'}
+      </td>
+      <td className="px-3 py-2 text-sm text-slate-900 tabular-nums text-right">
+        {m.total_bonus > 0 ? formatCurrency(m.total_bonus) : <span className="text-slate-300">--</span>}
       </td>
       <td className="px-3 py-2 text-sm text-slate-900 tabular-nums text-right">
         {m.total_attributed_revenue > 0 ? formatCurrency(m.total_attributed_revenue) : '--'}
@@ -133,20 +150,27 @@ function MemberCard({ m }: { m: TeamMemberPayload }) {
               accent="green"
             />
             <StatPill
-              label="Attrib. Rev / Mo"
-              value={m.total_attributed_revenue > 0 ? formatCurrency(m.total_attributed_revenue) : '--'}
+              label={hasRetainers ? 'Attrib. Rev (excl. ret.)' : 'Attrib. Rev / Mo'}
+              value={primaryRevenue > 0 ? formatCurrency(primaryRevenue) : '--'}
               accent="slate"
             />
             <StatPill
-              label="Profit / Mo"
-              value={formatCurrency(m.total_profit)}
-              accent={m.total_profit >= 0 ? 'green' : 'amber'}
+              label={hasRetainers ? 'Profit (excl. ret.)' : 'Profit / Mo'}
+              value={formatCurrency(primaryProfit)}
+              accent={primaryProfit >= 0 ? 'green' : 'amber'}
             />
             <StatPill
-              label="Margin %"
-              value={m.total_attributed_revenue > 0 ? `${m.margin_pct.toFixed(1)}%` : '--'}
-              accent={m.margin_pct >= 0 ? 'green' : 'amber'}
+              label={hasRetainers ? 'Margin % (excl. ret.)' : 'Margin %'}
+              value={primaryRevenue > 0 ? `${primaryMarginPct.toFixed(1)}%` : '--'}
+              accent={primaryMarginPct >= 0 ? 'green' : 'amber'}
             />
+            {hasRetainers && (
+              <StatPill
+                label="Margin incl. ret."
+                value={m.total_attributed_revenue > 0 ? `${m.margin_pct.toFixed(1)}%` : '--'}
+                accent="slate"
+              />
+            )}
             <StatPill
               label="Current Hrs / Wk"
               value={formatHours(m.current_hours_per_week)}
@@ -182,25 +206,32 @@ function MemberCard({ m }: { m: TeamMemberPayload }) {
                 <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">Client</th>
                 <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">Platform</th>
                 <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500">Hrs / Wk</th>
-                <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500" title="Member's cost = labor + bonus on this (client, platform)">Cost</th>
+                <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500" title="Labor cost — what we pay this member for this (client, platform)">Cost</th>
+                <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500" title="Bonus — only counts if toggled Yes in Client tab. Zero if we don't expect to pay.">Bonus</th>
                 <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500" title="Attributed revenue = member labor share × client revenue on this (client, platform)">Attrib. Rev</th>
-                <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500" title="Profit = attributed revenue − member's cost">Profit</th>
+                <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500" title="Profit = attributed revenue − cost − bonus">Profit</th>
                 <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500">Margin %</th>
               </tr>
             </thead>
             <tbody>
               {m.allocations.map((a, idx) => (
-                <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50">
-                  <td className="px-3 py-2 text-sm text-slate-900">{a.client_name}</td>
+                <tr key={idx} className={`border-b border-slate-100 hover:bg-slate-50 ${a.is_retainer ? 'bg-slate-50/40' : ''}`}>
+                  <td className="px-3 py-2 text-sm text-slate-900">
+                    {a.client_name}
+                    {a.is_retainer && <span className="ml-1.5 text-[9px] font-semibold uppercase tracking-wider text-slate-400">retainer</span>}
+                  </td>
                   <td className="px-3 py-2"><PlatformBadge platform={a.platform} /></td>
                   <td className="px-3 py-2 text-sm text-slate-700 tabular-nums text-right">
                     {a.hours_per_week != null ? formatHours(a.hours_per_week) : <span className="text-slate-300">--</span>}
                   </td>
+                  <td className="px-3 py-2 text-sm text-slate-700 tabular-nums text-right">
+                    {a.monthly_amount > 0 ? formatCurrency(a.monthly_amount) : <span className="text-slate-300">--</span>}
+                  </td>
                   <td
                     className="px-3 py-2 text-sm text-slate-700 tabular-nums text-right"
-                    title={a.bonus_amount > 0 ? `Labor ${formatCurrency(a.monthly_amount)} + Bonus ${formatCurrency(a.bonus_amount)}` : `Labor ${formatCurrency(a.monthly_amount)}`}
+                    title="Bonus reflects the toggle on the Client tab. Zero here means we've marked 'No' on that bonus."
                   >
-                    {formatCurrency(a.cost)}
+                    {a.bonus_amount > 0 ? formatCurrency(a.bonus_amount) : <span className="text-slate-300">--</span>}
                   </td>
                   <td
                     className="px-3 py-2 text-sm text-slate-700 tabular-nums text-right"
