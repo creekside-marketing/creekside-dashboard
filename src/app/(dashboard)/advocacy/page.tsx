@@ -275,7 +275,6 @@ export default function AdvocacyPage() {
                             value={done}
                             disabled={!asked || savingKey === doneKey}
                             onClick={() => toggle(client.id, it.item_key, 'completed', !done)}
-                            variant="green"
                           />
                         </div>
                       </td>
@@ -319,19 +318,14 @@ function ToggleChip({
   value,
   disabled,
   onClick,
-  variant,
 }: {
   label: string;
   value: boolean;
   disabled?: boolean;
   onClick: () => void;
-  variant?: 'green';
 }) {
-  const on =
-    variant === 'green'
-      ? 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300'
-      : 'bg-amber-100 text-amber-800 ring-1 ring-amber-300';
-  const off = 'bg-slate-50 text-slate-500 ring-1 ring-slate-200';
+  const on = 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300';
+  const off = 'bg-red-100 text-red-800 ring-1 ring-red-300';
   return (
     <button
       onClick={onClick}
