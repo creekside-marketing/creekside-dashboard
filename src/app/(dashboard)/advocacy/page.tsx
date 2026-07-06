@@ -79,6 +79,41 @@ export default function AdvocacyPage() {
     async (clientId: string, itemKey: string, field: 'asked' | 'completed', value: boolean) => {
       const key = `${clientId}::${itemKey}::${field}`;
       setSavingKey(key);
+
+      // Snapshot for rollback on failure
+      let previousStatuses: StatusRow[] | null = null;
+      setData((prev) => {
+        if (!prev) return prev;
+        previousStatuses = prev.statuses;
+        const now = new Date().toISOString();
+        const existing = prev.statuses.find(
+          (s) => s.client_id === clientId && s.item_key === itemKey,
+        );
+        const base: StatusRow = existing ?? {
+          client_id: clientId,
+          item_key: itemKey,
+          asked_at: null,
+          asked_by: null,
+          completed_at: null,
+          completed_by: null,
+          notes: null,
+        };
+        const next: StatusRow = { ...base };
+        if (field === 'asked') {
+          next.asked_at = value ? (base.asked_at ?? now) : null;
+          if (!value) {
+            next.completed_at = null;
+            next.completed_by = null;
+          }
+        } else {
+          next.completed_at = value ? (base.completed_at ?? now) : null;
+        }
+        const others = prev.statuses.filter(
+          (s) => !(s.client_id === clientId && s.item_key === itemKey),
+        );
+        return { ...prev, statuses: [...others, next] };
+      });
+
       try {
         const res = await fetch('/api/advocacy/status', {
           method: 'PATCH',
@@ -89,14 +124,29 @@ export default function AdvocacyPage() {
           const err = await res.json().catch(() => ({}));
           throw new Error(err.error ?? res.statusText);
         }
-        await load();
+        const json = (await res.json()) as { ok: boolean; row: StatusRow };
+        // Reconcile with server's authoritative row (in case timestamps/actor differ)
+        if (json?.row) {
+          setData((prev) => {
+            if (!prev) return prev;
+            const others = prev.statuses.filter(
+              (s) => !(s.client_id === clientId && s.item_key === itemKey),
+            );
+            return { ...prev, statuses: [...others, json.row] };
+          });
+        }
       } catch (e) {
+        // Revert optimistic update
+        if (previousStatuses) {
+          const rollback = previousStatuses;
+          setData((prev) => (prev ? { ...prev, statuses: rollback } : prev));
+        }
         alert(`Failed: ${e}`);
       } finally {
         setSavingKey(null);
       }
     },
-    [load],
+    [],
   );
 
   const itemsByCategory = useMemo(() => {
