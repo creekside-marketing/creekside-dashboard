@@ -249,13 +249,13 @@ export default function AdvocacyPage() {
         <table className="w-full text-sm">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
-              <th className="text-left px-3 py-2 sticky left-0 bg-slate-50 z-10 min-w-[200px]">
+              <th className="text-left px-3 py-2 sticky left-0 top-0 bg-slate-50 z-30 min-w-[200px] shadow-[0_1px_0_0_#e2e8f0]">
                 Client
               </th>
               {categoryOrder.map((cat) => (
                 <th
                   key={cat}
-                  className="text-center px-3 py-2 border-l border-slate-200"
+                  className="text-center px-3 py-2 border-l border-slate-200 sticky top-0 bg-slate-50 z-20 shadow-[0_1px_0_0_#e2e8f0]"
                   colSpan={itemsByCategory[cat].length}
                 >
                   <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
@@ -265,14 +265,14 @@ export default function AdvocacyPage() {
               ))}
             </tr>
             <tr>
-              <th className="sticky left-0 bg-slate-50 z-10"></th>
+              <th className="sticky left-0 top-[33px] bg-slate-50 z-30 shadow-[0_1px_0_0_#e2e8f0]"></th>
               {categoryOrder.flatMap((cat) =>
                 itemsByCategory[cat].map((it) => {
                   const r = rollup.byItem[it.item_key];
                   return (
                     <th
                       key={it.item_key}
-                      className="px-2 py-2 border-l border-slate-100 text-[11px] font-medium text-slate-700 min-w-[140px] align-bottom"
+                      className="px-2 py-2 border-l border-slate-100 text-[11px] font-medium text-slate-700 min-w-[140px] align-bottom sticky top-[33px] bg-slate-50 z-20 shadow-[0_1px_0_0_#e2e8f0]"
                       title={it.description ?? ''}
                     >
                       <div>{it.label}</div>
