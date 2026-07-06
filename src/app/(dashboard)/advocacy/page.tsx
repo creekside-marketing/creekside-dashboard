@@ -244,8 +244,8 @@ export default function AdvocacyPage() {
         />
       )}
 
-      {/* Main table — scrolls inside its own box so the sticky header can latch */}
-      <div className="overflow-auto rounded-lg border border-slate-200 bg-white max-h-[calc(100vh-260px)]">
+      {/* Main table — no overflow wrapper so sticky headers latch to the page viewport */}
+      <div className="rounded-lg border border-slate-200 bg-white">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
