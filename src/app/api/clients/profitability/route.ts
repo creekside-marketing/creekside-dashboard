@@ -65,7 +65,8 @@ export async function GET() {
         .select('client_id, platform, monthly_amount, team_member_id'),
       supabase
         .from('client_bonuses')
-        .select('client_id, platform, expected_monthly_amount, team_member_id'),
+        .select('client_id, platform, expected_monthly_amount, team_member_id')
+        .eq('active', true),
       supabase
         .from('client_software_costs')
         .select('client_id, platform, monthly_amount'),

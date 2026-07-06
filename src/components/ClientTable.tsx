@@ -913,6 +913,19 @@ export default function ClientTable() {
     totals: { invoice_count: number; total_outstanding: number };
   } | null>(null);
 
+  // client_bonuses rows keyed by client_id. Popover on the Bonuses cell filters
+  // by platform (platform-matching rows + untagged rows show together).
+  const [bonusesByClient, setBonusesByClient] = useState<Record<string, Array<{
+    id: string;
+    platform: string | null;
+    description: string;
+    amount: number;
+    active: boolean;
+  }>>>({});
+
+  // Which bonus cell popover is currently open. Key = `${client_id}::${platform}`.
+  const [openBonusKey, setOpenBonusKey] = useState<string | null>(null);
+
   useEffect(() => {
     fetch('/api/team')
       .then(res => res.json())
@@ -930,6 +943,26 @@ export default function ClientTable() {
         if (data && !data.error && data.clients) setOperatorCosts(data);
       })
       .catch(() => {});
+    fetch('/api/clients/bonuses')
+      .then(res => res.json())
+      .then(data => {
+        if (data?.bonuses) {
+          const grouped: Record<string, Array<{ id: string; platform: string | null; description: string; amount: number; active: boolean }>> = {};
+          for (const b of data.bonuses as Array<{ id: string; client_id: string; platform: string | null; description: string; expected_monthly_amount: number | string; active: boolean }>) {
+            if (!b.client_id) continue;
+            if (!grouped[b.client_id]) grouped[b.client_id] = [];
+            grouped[b.client_id].push({
+              id: b.id,
+              platform: b.platform,
+              description: b.description,
+              amount: Number(b.expected_monthly_amount ?? 0),
+              active: b.active !== false,
+            });
+          }
+          setBonusesByClient(grouped);
+        }
+      })
+      .catch(() => {});
     fetch('/api/clients/overdue-invoices')
       .then(res => res.json())
       .then(data => {
@@ -942,6 +975,46 @@ export default function ClientTable() {
         if (data && !data.error && data.items) setFixedCosts(data);
       })
       .catch(() => {});
+  }, []);
+
+  /**
+   * Toggle a client_bonus row's `active` flag. Optimistically updates local
+   * state (bonus checkbox flips instantly, no popover close, no scroll jump),
+   * then PATCHes the API, then silently refetches profitability so the
+   * per-row Bonuses / Operator Cost / Profit / Margin cells reflect the new
+   * total. If the PATCH fails, we revert the local state.
+   */
+  const handleToggleBonus = useCallback(async (bonusId: string, clientId: string, currentActive: boolean) => {
+    const nextActive = !currentActive;
+    // Optimistic flip
+    setBonusesByClient(prev => {
+      const next = { ...prev };
+      const rows = next[clientId];
+      if (!rows) return prev;
+      next[clientId] = rows.map(r => r.id === bonusId ? { ...r, active: nextActive } : r);
+      return next;
+    });
+    try {
+      const res = await fetch(`/api/clients/bonuses/${bonusId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: nextActive }),
+      });
+      if (!res.ok) throw new Error('toggle failed');
+      // Silent refetch — updates operator_cost / profit / margin cells.
+      const profRes = await fetch('/api/clients/profitability');
+      const profData = await profRes.json();
+      if (profData && !profData.error && profData.clients) setOperatorCosts(profData);
+    } catch {
+      // Revert on failure
+      setBonusesByClient(prev => {
+        const next = { ...prev };
+        const rows = next[clientId];
+        if (!rows) return prev;
+        next[clientId] = rows.map(r => r.id === bonusId ? { ...r, active: currentActive } : r);
+        return next;
+      });
+    }
   }, []);
 
   const handleFieldSaved = useCallback((clientId: string, field: string, value: string) => {
@@ -1749,15 +1822,94 @@ export default function ClientTable() {
                             );
                           })()}
                         </td>
-                        {/* Bonuses — per-row */}
-                        <td className="py-2 px-3 text-right text-sm text-slate-600 tabular-nums">
+                        {/* Bonuses — per-row. Click cell to open popover with Yes/No toggle per bonus. */}
+                        <td className="py-2 px-3 text-right text-sm text-slate-600 tabular-nums relative">
                           {(() => {
                             const costs = operatorCosts?.clients[client.client_name]?.[client.platform];
                             const value = costs?.bonus_cost ?? 0;
-                            if (value === 0) return <span className="text-slate-300">--</span>;
-                            return value >= 1000
-                              ? `$${(value / 1000).toFixed(1).replace(/\.0$/, '')}K`
-                              : `$${Math.round(value)}`;
+                            const clientCanonicalId = (client.client_id as string | null | undefined) ?? '';
+                            const clientBonuses = clientCanonicalId ? (bonusesByClient[clientCanonicalId] ?? []) : [];
+                            // Show bonuses that either target this platform OR are untagged (apply to all platforms of the client).
+                            const relevantBonuses = clientBonuses.filter(b => b.platform === client.platform || b.platform === null);
+                            const hasBonuses = relevantBonuses.length > 0;
+                            const popKey = `${clientCanonicalId}::${client.platform}`;
+                            const isOpen = openBonusKey === popKey;
+
+                            const label = value === 0
+                              ? (hasBonuses ? <span className="text-slate-400">off</span> : <span className="text-slate-300">--</span>)
+                              : value >= 1000
+                                ? `$${(value / 1000).toFixed(1).replace(/\.0$/, '')}K`
+                                : `$${Math.round(value)}`;
+
+                            if (!hasBonuses) return label;
+
+                            return (
+                              <>
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center gap-1 hover:text-slate-900 hover:underline decoration-dotted"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenBonusKey(isOpen ? null : popKey);
+                                  }}
+                                >
+                                  {label}
+                                  <span className="text-[9px] text-slate-400">▾</span>
+                                </button>
+                                {isOpen && (
+                                  <>
+                                    {/* Outside-click closer */}
+                                    <div
+                                      className="fixed inset-0 z-30"
+                                      onClick={() => setOpenBonusKey(null)}
+                                    />
+                                    <div
+                                      className="absolute right-0 top-full mt-1 z-40 w-72 bg-white border border-slate-200 rounded-lg shadow-xl p-3 text-left"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center justify-between">
+                                        <span>Bonuses — will pay?</span>
+                                        <button
+                                          type="button"
+                                          className="text-slate-400 hover:text-slate-700"
+                                          onClick={() => setOpenBonusKey(null)}
+                                          aria-label="close"
+                                        >
+                                          ✕
+                                        </button>
+                                      </div>
+                                      <div className="space-y-2">
+                                        {relevantBonuses.map(b => (
+                                          <div key={b.id} className="flex items-center justify-between gap-2 text-sm">
+                                            <div className="min-w-0 flex-1">
+                                              <div className="text-slate-800 truncate" title={b.description}>{b.description}</div>
+                                              <div className="text-[11px] text-slate-500 tabular-nums">
+                                                ${Math.round(b.amount).toLocaleString()}/mo
+                                                {b.platform === null ? ' · untagged' : ''}
+                                              </div>
+                                            </div>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleToggleBonus(b.id, clientCanonicalId, b.active)}
+                                              className={`px-2 py-1 rounded text-[11px] font-semibold uppercase tracking-wider transition-colors ${
+                                                b.active
+                                                  ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                                                  : 'bg-red-100 text-red-700 hover:bg-red-200'
+                                              }`}
+                                            >
+                                              {b.active ? 'Yes' : 'No'}
+                                            </button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                      <div className="mt-3 pt-2 border-t border-slate-100 text-[10px] text-slate-400">
+                                        Toggling No removes this from Operator Cost / Profit / Margin. Bonus row stays here to flip back.
+                                      </div>
+                                    </div>
+                                  </>
+                                )}
+                              </>
+                            );
                           })()}
                         </td>
                         {/* Software — per-row */}
