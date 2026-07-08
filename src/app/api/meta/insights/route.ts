@@ -15,7 +15,7 @@ async function logPipeboardAlert(accountId: string, errorMessage: string) {
     .from('pipeline_alerts')
     .select('id')
     .eq('alert_type', 'pipeboard_meta_error')
-    .gte('detected_at', `${today}T00:00:00Z`)
+    .gte('created_at', `${today}T00:00:00Z`)
     .limit(1);
 
   if (existing && existing.length > 0) return; // already alerted today
@@ -23,8 +23,8 @@ async function logPipeboardAlert(accountId: string, errorMessage: string) {
   await supabase.from('pipeline_alerts').insert({
     alert_type: 'pipeboard_meta_error',
     severity: 'critical',
-    content_table: 'meta_insights_daily',
-    details: { account_id: accountId, error: errorMessage, date: today },
+    message: `PipeBoard Meta API error for account ${accountId}: ${errorMessage}`,
+    details: { account_id: accountId, error: errorMessage, date: today, content_table: 'meta_insights_daily' },
     acknowledged: false,
   });
 
