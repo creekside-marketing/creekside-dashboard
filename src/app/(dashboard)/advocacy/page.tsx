@@ -11,11 +11,14 @@ type CatalogItem = {
   active: boolean;
 };
 
+type ClientCategory = 'active' | 'retainer' | 'archived';
+
 type ClientRow = {
   id: string;
   name: string;
   status: string;
-  category: string; // 'active' | 'retainer'
+  category: ClientCategory;
+  advocacy_hidden: boolean;
 };
 
 type StatusRow = {
@@ -38,21 +41,27 @@ function statusKey(clientId: string, itemKey: string) {
   return `${clientId}::${itemKey}`;
 }
 
+const SECTION_ORDER: ClientCategory[] = ['active', 'retainer', 'archived'];
+const SECTION_LABEL: Record<ClientCategory, string> = {
+  active: 'Active clients',
+  retainer: 'Retainer clients',
+  archived: 'Archived clients (churned / inactive)',
+};
+
 export default function AdvocacyPage() {
   const [data, setData] = useState<ApiPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [includeChurned, setIncludeChurned] = useState(false);
   const [includeInactiveItems, setIncludeInactiveItems] = useState(false);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const q = new URLSearchParams();
-      if (includeChurned) q.set('include_churned', 'true');
       if (includeInactiveItems) q.set('include_inactive_items', 'true');
       const res = await fetch(`/api/advocacy?${q.toString()}`);
       if (!res.ok) throw new Error(`${res.status}`);
@@ -63,7 +72,7 @@ export default function AdvocacyPage() {
     } finally {
       setLoading(false);
     }
-  }, [includeChurned, includeInactiveItems]);
+  }, [includeInactiveItems]);
 
   useEffect(() => {
     load();
@@ -80,7 +89,6 @@ export default function AdvocacyPage() {
       const key = `${clientId}::${itemKey}::${field}`;
       setSavingKey(key);
 
-      // Snapshot for rollback on failure
       let previousStatuses: StatusRow[] | null = null;
       setData((prev) => {
         if (!prev) return prev;
@@ -125,7 +133,6 @@ export default function AdvocacyPage() {
           throw new Error(err.error ?? res.statusText);
         }
         const json = (await res.json()) as { ok: boolean; row: StatusRow };
-        // Reconcile with server's authoritative row (in case timestamps/actor differ)
         if (json?.row) {
           setData((prev) => {
             if (!prev) return prev;
@@ -136,7 +143,6 @@ export default function AdvocacyPage() {
           });
         }
       } catch (e) {
-        // Revert optimistic update
         if (previousStatuses) {
           const rollback = previousStatuses;
           setData((prev) => (prev ? { ...prev, statuses: rollback } : prev));
@@ -148,6 +154,36 @@ export default function AdvocacyPage() {
     },
     [],
   );
+
+  const toggleHidden = useCallback(async (clientId: string, hidden: boolean) => {
+    const previousClients = data?.clients;
+    setData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        clients: prev.clients.map((c) =>
+          c.id === clientId ? { ...c, advocacy_hidden: hidden } : c,
+        ),
+      };
+    });
+    try {
+      const res = await fetch('/api/advocacy/hide', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: clientId, hidden }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? res.statusText);
+      }
+    } catch (e) {
+      if (previousClients) {
+        const rollback = previousClients;
+        setData((prev) => (prev ? { ...prev, clients: rollback } : prev));
+      }
+      alert(`Failed: ${e}`);
+    }
+  }, [data]);
 
   const itemsByCategory = useMemo(() => {
     const g: Record<string, CatalogItem[]> = {};
@@ -169,16 +205,30 @@ export default function AdvocacyPage() {
     return order;
   }, [data]);
 
+  // Group clients by section (active / retainer / archived), filter hidden ones
+  // out of the visible list unless "showHidden" is on.
+  const clientsBySection = useMemo(() => {
+    const g: Record<ClientCategory, ClientRow[]> = { active: [], retainer: [], archived: [] };
+    for (const c of data?.clients ?? []) {
+      if (c.advocacy_hidden && !showHidden) continue;
+      g[c.category].push(c);
+    }
+    return g;
+  }, [data, showHidden]);
+
+  // Rollup counts EXCLUDE hidden clients (per Cade: hidden clients drop out of
+  // the totals so the Asked/Done tallies reflect only the ones we're actively
+  // pursuing).
   const rollup = useMemo(() => {
-    if (!data) return { asked: 0, done: 0, total: 0, byItem: {} as Record<string, { asked: number; done: number }> };
-    const eligibleClients = data.clients.length;
+    if (!data) return { asked: 0, done: 0, total: 0, visibleClients: 0, byItem: {} as Record<string, { asked: number; done: number }> };
+    const visible = data.clients.filter((c) => !c.advocacy_hidden);
     const byItem: Record<string, { asked: number; done: number }> = {};
     let asked = 0;
     let done = 0;
     for (const it of data.items) {
       byItem[it.item_key] = { asked: 0, done: 0 };
     }
-    for (const c of data.clients) {
+    for (const c of visible) {
       for (const it of data.items) {
         const s = statusMap.get(statusKey(c.id, it.item_key));
         if (s?.asked_at) {
@@ -191,12 +241,29 @@ export default function AdvocacyPage() {
         }
       }
     }
-    return { asked, done, total: eligibleClients * data.items.length, byItem };
+    return {
+      asked,
+      done,
+      total: visible.length * data.items.length,
+      visibleClients: visible.length,
+      byItem,
+    };
   }, [data, statusMap]);
+
+  const hiddenCount = useMemo(
+    () => (data?.clients ?? []).filter((c) => c.advocacy_hidden).length,
+    [data],
+  );
 
   if (loading) return <div className="p-6 text-slate-500">Loading advocacy data…</div>;
   if (error) return <div className="p-6 text-red-600">Error: {error}</div>;
   if (!data) return null;
+
+  // Column width tracking so section header rows can span the full item grid
+  const totalItemCols = categoryOrder.reduce(
+    (sum, cat) => sum + (itemsByCategory[cat]?.length ?? 0),
+    0,
+  );
 
   return (
     <div className="p-6 max-w-[1600px] mx-auto">
@@ -212,10 +279,10 @@ export default function AdvocacyPage() {
           <label className="flex items-center gap-2 text-xs text-slate-600">
             <input
               type="checkbox"
-              checked={includeChurned}
-              onChange={(e) => setIncludeChurned(e.target.checked)}
+              checked={showHidden}
+              onChange={(e) => setShowHidden(e.target.checked)}
             />
-            Include churned
+            Show hidden ({hiddenCount})
           </label>
           <button
             onClick={() => setShowAdmin((s) => !s)}
@@ -226,15 +293,14 @@ export default function AdvocacyPage() {
         </div>
       </div>
 
-      {/* Rollup */}
+      {/* Rollup — reflects visible (non-hidden) clients only */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <StatCard label="Clients" value={String(data.clients.length)} />
+        <StatCard label="Clients (visible)" value={String(rollup.visibleClients)} />
         <StatCard label="Items" value={String(data.items.length)} />
         <StatCard label="Asked" value={`${rollup.asked} / ${rollup.total}`} accent="amber" />
         <StatCard label="Done" value={`${rollup.done} / ${rollup.total}`} accent="green" />
       </div>
 
-      {/* Admin section */}
       {showAdmin && (
         <AdminSection
           items={data.items}
@@ -263,6 +329,7 @@ export default function AdvocacyPage() {
                   </div>
                 </th>
               ))}
+              <th className="sticky top-0 bg-slate-50 z-20 shadow-[0_1px_0_0_#e2e8f0] w-16"></th>
             </tr>
             <tr>
               <th className="sticky left-0 top-[33px] bg-slate-50 z-30 shadow-[0_1px_0_0_#e2e8f0]"></th>
@@ -277,62 +344,102 @@ export default function AdvocacyPage() {
                     >
                       <div>{it.label}</div>
                       <div className="text-[10px] text-slate-400 font-normal mt-0.5">
-                        {r.done}/{r.asked} done · {r.asked}/{data.clients.length} asked
+                        {r.done}/{r.asked} done · {r.asked}/{rollup.visibleClients} asked
                       </div>
                     </th>
                   );
                 }),
               )}
+              <th className="sticky top-[33px] bg-slate-50 z-20 shadow-[0_1px_0_0_#e2e8f0]"></th>
             </tr>
           </thead>
           <tbody>
-            {data.clients.map((client) => (
-              <tr key={client.id} className="border-b border-slate-100 hover:bg-slate-50/60">
-                <td className="px-3 py-2 sticky left-0 bg-white hover:bg-slate-50/60 z-10 font-medium text-slate-800">
-                  <div>{client.name}</div>
-                  {client.category === 'retainer' && (
-                    <span className="text-[10px] uppercase tracking-wide text-purple-600 font-semibold">
-                      retainer
-                    </span>
-                  )}
-                  {client.status !== 'active' && (
-                    <span className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold ml-1">
-                      {client.status}
-                    </span>
-                  )}
-                </td>
-                {categoryOrder.flatMap((cat) =>
-                  itemsByCategory[cat].map((it) => {
-                    const s = statusMap.get(statusKey(client.id, it.item_key));
-                    const asked = !!s?.asked_at;
-                    const done = !!s?.completed_at;
-                    const askedKey = `${client.id}::${it.item_key}::asked`;
-                    const doneKey = `${client.id}::${it.item_key}::completed`;
-                    return (
-                      <td
-                        key={it.item_key}
-                        className="px-2 py-2 border-l border-slate-100 text-center align-middle"
-                      >
-                        <div className="flex flex-col items-center gap-1">
-                          <ToggleChip
-                            label="Asked"
-                            value={asked}
-                            disabled={savingKey === askedKey}
-                            onClick={() => toggle(client.id, it.item_key, 'asked', !asked)}
-                          />
-                          <ToggleChip
-                            label="Done"
-                            value={done}
-                            disabled={!asked || savingKey === doneKey}
-                            onClick={() => toggle(client.id, it.item_key, 'completed', !done)}
-                          />
+            {SECTION_ORDER.map((section) => {
+              const rows = clientsBySection[section];
+              if (rows.length === 0) return null;
+              const isArchived = section === 'archived';
+              return (
+                <React.Fragment key={section}>
+                  <tr className="bg-slate-100 border-y-2 border-slate-300">
+                    <td
+                      colSpan={1 + totalItemCols + 1}
+                      className="px-3 py-2 sticky left-0 bg-slate-100 text-xs font-semibold text-slate-700 uppercase tracking-wider"
+                    >
+                      {SECTION_LABEL[section]} · {rows.length}
+                    </td>
+                  </tr>
+                  {rows.map((client) => (
+                    <tr key={client.id} className="border-b border-slate-100 hover:bg-slate-50/60">
+                      <td className="px-3 py-2 sticky left-0 bg-white hover:bg-slate-50/60 z-10 font-medium text-slate-800">
+                        <div>{client.name}</div>
+                        <div className="flex gap-1 mt-0.5">
+                          {client.category === 'retainer' && (
+                            <span className="text-[10px] uppercase tracking-wide text-purple-600 font-semibold">
+                              retainer
+                            </span>
+                          )}
+                          {client.status !== 'active' && (
+                            <span className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">
+                              {client.status}
+                            </span>
+                          )}
+                          {client.advocacy_hidden && (
+                            <span className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold bg-slate-200 px-1 rounded">
+                              hidden
+                            </span>
+                          )}
                         </div>
                       </td>
-                    );
-                  }),
-                )}
-              </tr>
-            ))}
+                      {categoryOrder.flatMap((cat) =>
+                        itemsByCategory[cat].map((it) => {
+                          const s = statusMap.get(statusKey(client.id, it.item_key));
+                          const asked = !!s?.asked_at;
+                          const done = !!s?.completed_at;
+                          const askedKey = `${client.id}::${it.item_key}::asked`;
+                          const doneKey = `${client.id}::${it.item_key}::completed`;
+                          return (
+                            <td
+                              key={it.item_key}
+                              className="px-2 py-2 border-l border-slate-100 text-center align-middle"
+                            >
+                              <div className="flex flex-col items-center gap-1">
+                                <ToggleChip
+                                  label="Asked"
+                                  value={asked}
+                                  disabled={savingKey === askedKey}
+                                  onClick={() => toggle(client.id, it.item_key, 'asked', !asked)}
+                                />
+                                <ToggleChip
+                                  label="Done"
+                                  value={done}
+                                  disabled={!asked || savingKey === doneKey}
+                                  onClick={() => toggle(client.id, it.item_key, 'completed', !done)}
+                                />
+                              </div>
+                            </td>
+                          );
+                        }),
+                      )}
+                      <td className="px-2 py-2 text-center align-middle">
+                        {isArchived && (
+                          <button
+                            onClick={() => toggleHidden(client.id, !client.advocacy_hidden)}
+                            className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded text-slate-600 hover:bg-slate-200"
+                            title={
+                              client.advocacy_hidden
+                                ? 'Un-hide — bring back into totals'
+                                : "Hide — we don't think they'll give us any advocacy items"
+                            }
+                          >
+                            {client.advocacy_hidden ? 'Unhide' : 'Hide'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </React.Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -477,7 +584,6 @@ function AdminSection({
         </label>
       </div>
 
-      {/* Add new */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-2 mb-4 bg-white rounded p-3 border border-slate-200">
         <input
           type="text"
@@ -509,7 +615,6 @@ function AdminSection({
         </button>
       </div>
 
-      {/* Existing */}
       <div className="space-y-1">
         {items.map((it) => (
           <div
