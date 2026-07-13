@@ -39,24 +39,33 @@ export async function GET(request: Request) {
       .select('client_id, client_category, status, platform');
     if (repErr) throw repErr;
 
-    const eligibleClientIds = new Set<string>();
+    // Track which client IDs have any non-'other' reporting row (used to gate
+    // ACTIVE clients — Jybr AI-agent-only entries shouldn't appear). Archived
+    // clients (churned/inactive/lost/lead) bypass this gate entirely — many of
+    // them no longer have reporting_clients rows at all but we still want them
+    // in the Archived section so Cade can chase advocacy items from past
+    // clients.
+    const nonOtherClientIds = new Set<string>();
     const retainerClientIds = new Set<string>();
     for (const r of reporting ?? []) {
-      if (r.platform === 'other') continue; // exclude Jybr-only rows
+      if (r.platform === 'other') continue;
       if (r.client_id) {
-        eligibleClientIds.add(r.client_id as string);
+        nonOtherClientIds.add(r.client_id as string);
         if (r.client_category === 'retainer') {
           retainerClientIds.add(r.client_id as string);
         }
       }
     }
 
-    // 3. Pull all clients across all lifecycle statuses. archived = anything
-    // other than 'active'. Includes churned/inactive/lost/lead.
-    const { data: clients, error: clientsErr } = await supabase
+    // 3. Pull ALL canonical clients regardless of reporting_clients state,
+    // then filter in memory: keep any client that either (a) has a
+    // non-'other' reporting row, or (b) is archived (any status != 'active').
+    // This includes all 64 inactive + 8 churned + 2 lost + 1 lead in the
+    // Archived section, while still excluding pure Jybr AI-agent entries that
+    // are 'active' but only exist via 'other'-platform rows.
+    const { data: allClients, error: clientsErr } = await supabase
       .from('clients')
-      .select('id, name, status, advocacy_hidden')
-      .in('id', Array.from(eligibleClientIds));
+      .select('id, name, status, advocacy_hidden');
     if (clientsErr) throw clientsErr;
 
     // 4. Statuses (all clients — UI decides which to sum in totals based on
@@ -69,7 +78,14 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       items: items ?? [],
-      clients: (clients ?? [])
+      clients: (allClients ?? [])
+        .filter(c => {
+          const isActive = c.status === 'active';
+          // Active clients must have a non-'other' reporting row (excludes Jybr).
+          // Archived clients (any non-active status) always pass — they may not
+          // have any reporting rows anymore but we still want them visible.
+          return isActive ? nonOtherClientIds.has(c.id as string) : true;
+        })
         .map(c => {
           const isActive = c.status === 'active';
           const isRetainer = retainerClientIds.has(c.id as string);
