@@ -65,7 +65,7 @@ export async function GET(request: Request) {
     // are 'active' but only exist via 'other'-platform rows.
     const { data: allClients, error: clientsErr } = await supabase
       .from('clients')
-      .select('id, name, status, advocacy_hidden');
+      .select('id, name, status, advocacy_hidden, advocacy_notes');
     if (clientsErr) throw clientsErr;
 
     // 4. Statuses (all clients — UI decides which to sum in totals based on
@@ -97,6 +97,7 @@ export async function GET(request: Request) {
             status: c.status,
             category,
             advocacy_hidden: c.advocacy_hidden ?? false,
+            advocacy_notes: (c.advocacy_notes as string | null) ?? '',
           };
         })
         .sort((a, b) => a.name.localeCompare(b.name)),

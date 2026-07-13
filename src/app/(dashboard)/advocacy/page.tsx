@@ -19,6 +19,7 @@ type ClientRow = {
   status: string;
   category: ClientCategory;
   advocacy_hidden: boolean;
+  advocacy_notes: string;
 };
 
 type StatusRow = {
@@ -154,6 +155,36 @@ export default function AdvocacyPage() {
     },
     [],
   );
+
+  const saveNotes = useCallback(async (clientId: string, notes: string) => {
+    const previousClients = data?.clients;
+    setData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        clients: prev.clients.map((c) =>
+          c.id === clientId ? { ...c, advocacy_notes: notes } : c,
+        ),
+      };
+    });
+    try {
+      const res = await fetch('/api/advocacy/notes', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: clientId, notes }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? res.statusText);
+      }
+    } catch (e) {
+      if (previousClients) {
+        const rollback = previousClients;
+        setData((prev) => (prev ? { ...prev, clients: rollback } : prev));
+      }
+      alert(`Failed: ${e}`);
+    }
+  }, [data]);
 
   const toggleHidden = useCallback(async (clientId: string, hidden: boolean) => {
     const previousClients = data?.clients;
@@ -357,7 +388,6 @@ export default function AdvocacyPage() {
             {SECTION_ORDER.map((section) => {
               const rows = clientsBySection[section];
               if (rows.length === 0) return null;
-              const isArchived = section === 'archived';
               return (
                 <React.Fragment key={section}>
                   <tr className="bg-slate-100 border-y-2 border-slate-300">
@@ -370,7 +400,7 @@ export default function AdvocacyPage() {
                   </tr>
                   {rows.map((client) => (
                     <tr key={client.id} className="border-b border-slate-100 hover:bg-slate-50/60">
-                      <td className="px-3 py-2 sticky left-0 bg-white hover:bg-slate-50/60 z-10 font-medium text-slate-800">
+                      <td className="px-3 py-2 sticky left-0 bg-white hover:bg-slate-50/60 z-10 font-medium text-slate-800 min-w-[220px]">
                         <div>{client.name}</div>
                         <div className="flex gap-1 mt-0.5">
                           {client.category === 'retainer' && (
@@ -389,6 +419,21 @@ export default function AdvocacyPage() {
                             </span>
                           )}
                         </div>
+                        <input
+                          type="text"
+                          defaultValue={client.advocacy_notes}
+                          placeholder="Notes…"
+                          onBlur={(e) => {
+                            const next = e.target.value.trim();
+                            if (next !== (client.advocacy_notes ?? '')) {
+                              saveNotes(client.id, next);
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                          }}
+                          className="mt-1 w-full text-[11px] text-slate-600 bg-transparent border-b border-slate-200 focus:border-slate-400 focus:outline-none py-0.5"
+                        />
                       </td>
                       {categoryOrder.flatMap((cat) =>
                         itemsByCategory[cat].map((it) => {
@@ -421,19 +466,17 @@ export default function AdvocacyPage() {
                         }),
                       )}
                       <td className="px-2 py-2 text-center align-middle">
-                        {isArchived && (
-                          <button
-                            onClick={() => toggleHidden(client.id, !client.advocacy_hidden)}
-                            className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded text-slate-600 hover:bg-slate-200"
-                            title={
-                              client.advocacy_hidden
-                                ? 'Un-hide — bring back into totals'
-                                : "Hide — we don't think they'll give us any advocacy items"
-                            }
-                          >
-                            {client.advocacy_hidden ? 'Unhide' : 'Hide'}
-                          </button>
-                        )}
+                        <button
+                          onClick={() => toggleHidden(client.id, !client.advocacy_hidden)}
+                          className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded text-slate-600 hover:bg-slate-200"
+                          title={
+                            client.advocacy_hidden
+                              ? 'Un-hide — bring back into totals'
+                              : "Hide — we don't think they'll give us any advocacy items"
+                          }
+                        >
+                          {client.advocacy_hidden ? 'Unhide' : 'Hide'}
+                        </button>
                       </td>
                     </tr>
                   ))}
