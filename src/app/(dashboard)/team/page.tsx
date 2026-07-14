@@ -105,27 +105,44 @@ function MemberCard({ m }: { m: TeamMemberPayload }) {
   const primaryProfit = m.non_retainer_profit;
   const primaryRevenue = m.non_retainer_attributed_revenue;
 
+  // Non-retainer totals for the Total row — matches the StatPills at the top
+  // of the card, so retainer clients (Mark Wolf for Lindsey, Nutripro etc for
+  // Scott) don't drag down the visible margin. Individual retainer client rows
+  // above still show their own numbers so nothing is hidden.
+  const nrAllocs = m.allocations.filter(a => !a.is_retainer);
+  const nrLabor = nrAllocs.reduce((s, a) => s + a.monthly_amount, 0);
+  const nrBonus = nrAllocs.reduce((s, a) => s + a.bonus_amount, 0);
+  const nrHours = nrAllocs.reduce((s, a) => s + (a.hours_per_week ?? 0), 0);
+
   const totalRow = (
     <tr className="bg-slate-50 font-semibold border-t-2 border-slate-300">
-      <td className="px-3 py-2 text-sm text-slate-900">Total</td>
+      <td className="px-3 py-2 text-sm text-slate-900">
+        Total {hasRetainers && <span className="text-[10px] font-normal text-slate-500">(excl. ret.)</span>}
+      </td>
       <td className="px-3 py-2"></td>
       <td className="px-3 py-2 text-sm text-slate-900 tabular-nums text-right">
-        {m.current_hours_per_week > 0 ? formatHours(m.current_hours_per_week) : '--'}
+        {(hasRetainers ? nrHours : m.current_hours_per_week) > 0
+          ? formatHours(hasRetainers ? nrHours : m.current_hours_per_week)
+          : '--'}
       </td>
       <td className="px-3 py-2 text-sm text-slate-900 tabular-nums text-right">
-        {m.total_labor > 0 ? formatCurrency(m.total_labor) : '--'}
+        {(hasRetainers ? nrLabor : m.total_labor) > 0
+          ? formatCurrency(hasRetainers ? nrLabor : m.total_labor)
+          : '--'}
       </td>
       <td className="px-3 py-2 text-sm text-slate-900 tabular-nums text-right">
-        {m.total_bonus > 0 ? formatCurrency(m.total_bonus) : <span className="text-slate-300">--</span>}
+        {(hasRetainers ? nrBonus : m.total_bonus) > 0
+          ? formatCurrency(hasRetainers ? nrBonus : m.total_bonus)
+          : <span className="text-slate-300">--</span>}
       </td>
       <td className="px-3 py-2 text-sm text-slate-900 tabular-nums text-right">
-        {m.total_attributed_revenue > 0 ? formatCurrency(m.total_attributed_revenue) : '--'}
+        {primaryRevenue > 0 ? formatCurrency(primaryRevenue) : '--'}
       </td>
-      <td className={`px-3 py-2 text-sm tabular-nums text-right font-bold ${m.total_profit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-        {formatCurrency(m.total_profit)}
+      <td className={`px-3 py-2 text-sm tabular-nums text-right font-bold ${primaryProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+        {formatCurrency(primaryProfit)}
       </td>
-      <td className={`px-3 py-2 text-sm tabular-nums text-right font-bold ${m.margin_pct >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-        {m.total_attributed_revenue > 0 ? `${m.margin_pct.toFixed(1)}%` : '--'}
+      <td className={`px-3 py-2 text-sm tabular-nums text-right font-bold ${primaryMarginPct >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+        {primaryRevenue > 0 ? `${primaryMarginPct.toFixed(1)}%` : '--'}
       </td>
     </tr>
   );
