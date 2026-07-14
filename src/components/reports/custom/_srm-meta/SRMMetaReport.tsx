@@ -207,7 +207,7 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
       </div>
 
       {/* ── Standard LeadGen Meta Report (Pre-Q leads + PQL columns in campaign table) */}
-      <LeadGenMetaReport client={client} mode={mode} leadConversionTypes={[PREQ_ACTION]} pqlConversionType={PQL_ACTION} />
+      <LeadGenMetaReport client={client} mode={mode} leadConversionTypes={[PREQ_ACTION]} pqlConversionType={PQL_ACTION} hideReferralBanner />
     </div>
   );
 }

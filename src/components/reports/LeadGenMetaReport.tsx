@@ -132,7 +132,7 @@ const ZERO: Omit<LeadGenRow, 'name'> = { impressions: 0, linkClicks: 0, spend: 0
 
 // ── Component ────────────────────────────────────────────────────────────
 
-export default function LeadGenMetaReport({ client, mode, leadConversionTypes, pqlConversionType }: { client: ReportingClient; mode: 'internal' | 'public'; leadConversionTypes?: string[]; pqlConversionType?: string }) {
+export default function LeadGenMetaReport({ client, mode, leadConversionTypes, pqlConversionType, hideReferralBanner }: { client: ReportingClient; mode: 'internal' | 'public'; leadConversionTypes?: string[]; pqlConversionType?: string; hideReferralBanner?: boolean }) {
   const [campaigns, setCampaigns] = useState<LeadGenRow[]>([]);
   const [totals, setTotals] = useState(ZERO);
   const [dailyData, setDailyData] = useState<DailyRow[]>([]);
@@ -287,7 +287,7 @@ export default function LeadGenMetaReport({ client, mode, leadConversionTypes, p
         dateRangeIndex={dateRangeIndex} onDateRangeChange={handleDateRangeChange}
         loading={loading} onRefresh={fetchData} lastRefreshed={lastRefreshed} cooldownRemaining={cooldownRemaining} />
 
-      <ReferralBanner />
+      {!hideReferralBanner && <ReferralBanner />}
 
       {error && (
         <div className="bg-red-50 text-red-700 p-4 rounded-xl border border-red-200">

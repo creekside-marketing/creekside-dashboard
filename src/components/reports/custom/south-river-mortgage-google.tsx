@@ -36,7 +36,6 @@ import ReportHeader, {
   computePriorPeriod,
   calcChange,
 } from '../ReportHeader';
-import ReferralBanner from '../shared/ReferralBanner';
 import ReportChart from '../ReportChart';
 import BreakdownTable from '../BreakdownTable';
 import ReportNotesTimeline from '../ReportNotesTimeline';
@@ -573,8 +572,6 @@ export default function SouthRiverMortgageGoogleReport({
         lastRefreshed={lastRefreshed}
         cooldownRemaining={cooldownRemaining}
       />
-
-      <ReferralBanner />
 
       {error && (
         <div className="bg-red-50 text-red-700 p-4 rounded-xl border border-red-200">
