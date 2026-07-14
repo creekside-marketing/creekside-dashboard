@@ -3,9 +3,11 @@ import { createServiceClient } from '@/lib/supabase';
 
 /**
  * PATCH /api/advocacy/status
- * Body: { client_id, item_key, field: 'asked'|'completed', value: boolean, actor?: string, notes?: string }
+ * Body: { client_id, item_key, field: 'asked'|'completed'|'na', value: boolean, actor?: string, notes?: string }
  * Upserts one status row. Setting asked=false also clears completed (can't have
- * "did it" if we never asked).
+ * "did it" if we never asked). Setting na=true marks the item not applicable /
+ * won't happen (e.g. white-label partner can't do a case study, or client
+ * declined) — it clears completed but preserves asked as history.
  */
 export async function PATCH(request: Request) {
   try {
@@ -13,13 +15,13 @@ export async function PATCH(request: Request) {
     const { client_id, item_key, field, value, actor, notes } = body as {
       client_id: string;
       item_key: string;
-      field: 'asked' | 'completed';
+      field: 'asked' | 'completed' | 'na';
       value: boolean;
       actor?: string;
       notes?: string;
     };
 
-    if (!client_id || !item_key || (field !== 'asked' && field !== 'completed')) {
+    if (!client_id || !item_key || (field !== 'asked' && field !== 'completed' && field !== 'na')) {
       return NextResponse.json({ error: 'missing/invalid fields' }, { status: 400 });
     }
 
@@ -41,6 +43,8 @@ export async function PATCH(request: Request) {
       asked_by: existing?.asked_by ?? null,
       completed_at: existing?.completed_at ?? null,
       completed_by: existing?.completed_by ?? null,
+      na_at: existing?.na_at ?? null,
+      na_by: existing?.na_by ?? null,
       notes: notes !== undefined ? notes : (existing?.notes ?? null),
     };
 
@@ -52,11 +56,27 @@ export async function PATCH(request: Request) {
         row.completed_at = null;
         row.completed_by = null;
       }
+    } else if (field === 'na') {
+      row.na_at = value ? (existing?.na_at ?? now) : null;
+      row.na_by = value ? (existing?.na_by ?? actor ?? null) : null;
+      // N/A and completed are mutually exclusive — marking N/A clears completed.
+      // asked is left untouched (asked-but-declined is valid history).
+      if (value) {
+        row.completed_at = null;
+        row.completed_by = null;
+      }
     } else {
       // completed can only be set if asked is truthy
       if (value && !row.asked_at) {
         return NextResponse.json(
           { error: 'cannot mark completed before marking asked' },
+          { status: 400 }
+        );
+      }
+      // completed can't be set while the item is marked N/A
+      if (value && row.na_at) {
+        return NextResponse.json(
+          { error: 'cannot mark completed while item is N/A — clear N/A first' },
           { status: 400 }
         );
       }

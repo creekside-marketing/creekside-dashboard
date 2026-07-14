@@ -29,6 +29,8 @@ type StatusRow = {
   asked_by: string | null;
   completed_at: string | null;
   completed_by: string | null;
+  na_at: string | null;
+  na_by: string | null;
   notes: string | null;
 };
 
@@ -86,7 +88,7 @@ export default function AdvocacyPage() {
   }, [data]);
 
   const toggle = useCallback(
-    async (clientId: string, itemKey: string, field: 'asked' | 'completed', value: boolean) => {
+    async (clientId: string, itemKey: string, field: 'asked' | 'completed' | 'na', value: boolean) => {
       const key = `${clientId}::${itemKey}::${field}`;
       setSavingKey(key);
 
@@ -105,12 +107,21 @@ export default function AdvocacyPage() {
           asked_by: null,
           completed_at: null,
           completed_by: null,
+          na_at: null,
+          na_by: null,
           notes: null,
         };
         const next: StatusRow = { ...base };
         if (field === 'asked') {
           next.asked_at = value ? (base.asked_at ?? now) : null;
           if (!value) {
+            next.completed_at = null;
+            next.completed_by = null;
+          }
+        } else if (field === 'na') {
+          next.na_at = value ? (base.na_at ?? now) : null;
+          // N/A and Done are mutually exclusive — marking N/A clears Done
+          if (value) {
             next.completed_at = null;
             next.completed_by = null;
           }
@@ -156,8 +167,10 @@ export default function AdvocacyPage() {
     [],
   );
 
-  const saveNotes = useCallback(async (clientId: string, notes: string) => {
-    const previousClients = data?.clients;
+  // Called by NotesCell after a successful save so the cached client row
+  // reflects the persisted value (NotesCell owns the fetch + save feedback,
+  // matching the Clients-section notes pattern in ClientReport).
+  const updateClientNotes = useCallback((clientId: string, notes: string) => {
     setData((prev) => {
       if (!prev) return prev;
       return {
@@ -167,24 +180,7 @@ export default function AdvocacyPage() {
         ),
       };
     });
-    try {
-      const res = await fetch('/api/advocacy/notes', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_id: clientId, notes }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error ?? res.statusText);
-      }
-    } catch (e) {
-      if (previousClients) {
-        const rollback = previousClients;
-        setData((prev) => (prev ? { ...prev, clients: rollback } : prev));
-      }
-      alert(`Failed: ${e}`);
-    }
-  }, [data]);
+  }, []);
 
   const toggleHidden = useCallback(async (clientId: string, hidden: boolean) => {
     const previousClients = data?.clients;
@@ -247,21 +243,28 @@ export default function AdvocacyPage() {
     return g;
   }, [data, showHidden]);
 
-  // Rollup counts EXCLUDE hidden clients (per Cade: hidden clients drop out of
-  // the totals so the Asked/Done tallies reflect only the ones we're actively
-  // pursuing).
+  // Rollup counts EXCLUDE hidden clients (hidden = no further asks planned,
+  // either because we got everything we could or we don't expect they'll give
+  // us items — they drop out of the totals so the Asked/Done tallies reflect
+  // only the ones we're actively pursuing). N/A items are excluded from the
+  // denominator too — a client with all remaining items N/A can read as 100%.
   const rollup = useMemo(() => {
-    if (!data) return { asked: 0, done: 0, total: 0, visibleClients: 0, byItem: {} as Record<string, { asked: number; done: number }> };
+    if (!data) return { asked: 0, done: 0, na: 0, total: 0, visibleClients: 0, byItem: {} as Record<string, { asked: number; done: number }> };
     const visible = data.clients.filter((c) => !c.advocacy_hidden);
     const byItem: Record<string, { asked: number; done: number }> = {};
     let asked = 0;
     let done = 0;
+    let na = 0;
     for (const it of data.items) {
       byItem[it.item_key] = { asked: 0, done: 0 };
     }
     for (const c of visible) {
       for (const it of data.items) {
         const s = statusMap.get(statusKey(c.id, it.item_key));
+        if (s?.na_at) {
+          na++;
+          continue;
+        }
         if (s?.asked_at) {
           asked++;
           byItem[it.item_key].asked++;
@@ -275,7 +278,8 @@ export default function AdvocacyPage() {
     return {
       asked,
       done,
-      total: visible.length * data.items.length,
+      na,
+      total: visible.length * data.items.length - na,
       visibleClients: visible.length,
       byItem,
     };
@@ -303,7 +307,8 @@ export default function AdvocacyPage() {
           <h1 className="text-2xl font-bold text-slate-900">Advocacy</h1>
           <p className="text-sm text-slate-500 mt-1">
             Growth asks per client. Toggle <span className="font-semibold">Asked?</span> once we&rsquo;ve requested it, then{' '}
-            <span className="font-semibold">Done?</span> once they follow through.
+            <span className="font-semibold">Done?</span> once they follow through. Mark{' '}
+            <span className="font-semibold">N/A</span> when an item will never happen (white-label partner, client declined) — N/A items drop out of the totals.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -325,11 +330,12 @@ export default function AdvocacyPage() {
       </div>
 
       {/* Rollup — reflects visible (non-hidden) clients only */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
         <StatCard label="Clients (visible)" value={String(rollup.visibleClients)} />
         <StatCard label="Items" value={String(data.items.length)} />
         <StatCard label="Asked" value={`${rollup.asked} / ${rollup.total}`} accent="amber" />
         <StatCard label="Done" value={`${rollup.done} / ${rollup.total}`} accent="green" />
+        <StatCard label="N/A (excluded)" value={String(rollup.na)} />
       </div>
 
       {showAdmin && (
@@ -419,20 +425,10 @@ export default function AdvocacyPage() {
                             </span>
                           )}
                         </div>
-                        <input
-                          type="text"
-                          defaultValue={client.advocacy_notes}
-                          placeholder="Notes…"
-                          onBlur={(e) => {
-                            const next = e.target.value.trim();
-                            if (next !== (client.advocacy_notes ?? '')) {
-                              saveNotes(client.id, next);
-                            }
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                          }}
-                          className="mt-1 w-full text-[11px] text-slate-600 bg-transparent border-b border-slate-200 focus:border-slate-400 focus:outline-none py-0.5"
+                        <NotesCell
+                          clientId={client.id}
+                          initial={client.advocacy_notes}
+                          onSaved={updateClientNotes}
                         />
                       </td>
                       {categoryOrder.flatMap((cat) =>
@@ -440,25 +436,34 @@ export default function AdvocacyPage() {
                           const s = statusMap.get(statusKey(client.id, it.item_key));
                           const asked = !!s?.asked_at;
                           const done = !!s?.completed_at;
+                          const na = !!s?.na_at;
                           const askedKey = `${client.id}::${it.item_key}::asked`;
                           const doneKey = `${client.id}::${it.item_key}::completed`;
+                          const naKey = `${client.id}::${it.item_key}::na`;
                           return (
                             <td
                               key={it.item_key}
                               className="px-2 py-2 border-l border-slate-100 text-center align-middle"
                             >
-                              <div className="flex flex-col items-center gap-1">
+                              <div className={`flex flex-col items-center gap-1 ${na ? 'opacity-80' : ''}`}>
                                 <ToggleChip
                                   label="Asked"
                                   value={asked}
-                                  disabled={savingKey === askedKey}
+                                  disabled={na || savingKey === askedKey}
                                   onClick={() => toggle(client.id, it.item_key, 'asked', !asked)}
                                 />
                                 <ToggleChip
                                   label="Done"
                                   value={done}
-                                  disabled={!asked || savingKey === doneKey}
+                                  disabled={na || !asked || savingKey === doneKey}
                                   onClick={() => toggle(client.id, it.item_key, 'completed', !done)}
+                                />
+                                <ToggleChip
+                                  label="N/A"
+                                  value={na}
+                                  variant="na"
+                                  disabled={savingKey === naKey}
+                                  onClick={() => toggle(client.id, it.item_key, 'na', !na)}
                                 />
                               </div>
                             </td>
@@ -472,7 +477,7 @@ export default function AdvocacyPage() {
                           title={
                             client.advocacy_hidden
                               ? 'Un-hide — bring back into totals'
-                              : "Hide — we don't think they'll give us any advocacy items"
+                              : 'Hide — no further asks planned (got everything we can, or not applicable)'
                           }
                         >
                           {client.advocacy_hidden ? 'Unhide' : 'Hide'}
@@ -518,14 +523,24 @@ function ToggleChip({
   value,
   disabled,
   onClick,
+  variant,
 }: {
   label: string;
   value: boolean;
   disabled?: boolean;
   onClick: () => void;
+  variant?: 'na';
 }) {
-  const on = 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300';
-  const off = 'bg-red-100 text-red-800 ring-1 ring-red-300';
+  // N/A chips use a neutral gray palette — the red off-state is reserved for
+  // Asked/Done where "no" means outstanding work, not irrelevance.
+  const on =
+    variant === 'na'
+      ? 'bg-slate-300 text-slate-800 ring-1 ring-slate-400'
+      : 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300';
+  const off =
+    variant === 'na'
+      ? 'bg-white text-slate-400 ring-1 ring-slate-200'
+      : 'bg-red-100 text-red-800 ring-1 ring-red-300';
   return (
     <button
       onClick={onClick}
@@ -536,6 +551,70 @@ function ToggleChip({
     >
       {label}: {value ? 'Yes' : 'No'}
     </button>
+  );
+}
+
+/**
+ * Per-client notes with an explicit Save button + "Saving…" / "Saved" feedback,
+ * matching the Clients-section notes pattern (ClientReport.tsx).
+ */
+function NotesCell({
+  clientId,
+  initial,
+  onSaved,
+}: {
+  clientId: string;
+  initial: string;
+  onSaved: (clientId: string, notes: string) => void;
+}) {
+  const [value, setValue] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const dirty = value.trim() !== (initial ?? '').trim();
+
+  const handleSave = async () => {
+    if (!dirty || saving) return;
+    setSaving(true);
+    setSaved(false);
+    try {
+      const res = await fetch('/api/advocacy/notes', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: clientId, notes: value.trim() }),
+      });
+      if (!res.ok) throw new Error('Failed to save notes');
+      onSaved(clientId, value.trim());
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch {
+      alert('Failed to save notes. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-1 flex items-center gap-1.5">
+      <input
+        type="text"
+        value={value}
+        placeholder="Notes…"
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') handleSave();
+        }}
+        className="w-full text-[11px] text-slate-600 bg-transparent border-b border-slate-200 focus:border-slate-400 focus:outline-none py-0.5"
+      />
+      {saved && <span className="text-[10px] text-emerald-600 font-medium">Saved</span>}
+      <button
+        onClick={handleSave}
+        disabled={saving || !dirty}
+        className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--creekside-blue)] text-white hover:bg-blue-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        {saving ? 'Saving…' : 'Save'}
+      </button>
+    </div>
   );
 }
 

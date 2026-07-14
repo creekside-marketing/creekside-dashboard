@@ -4,9 +4,11 @@ import { createServiceClient } from '@/lib/supabase';
 /**
  * PATCH /api/advocacy/hide
  * Body: { client_id: uuid, hidden: boolean }
- * Sets clients.advocacy_hidden — used to hide archived clients we don't think
- * will give us advocacy items. Hidden clients still exist and preserve their
- * status toggles; they're just filtered out of the UI + top-of-page totals.
+ * Sets clients.advocacy_hidden — used when no further asks are planned for a
+ * client: either we've already gotten everything we think we can from them,
+ * or we don't expect they'll give us advocacy items. Hidden clients still
+ * exist and preserve their status toggles; they're just filtered out of the
+ * UI + top-of-page totals.
  * Peterson/Cade can un-hide from the same row action if we change our mind.
  */
 export async function PATCH(request: Request) {

@@ -18,6 +18,10 @@
   --chart-bench: #3B82F6;
   --chart-high: #10B981;
   --chart-fill: rgba(59,130,246,0.08);
+  /* Brand blue used across buttons/focus rings (was referenced but never
+     defined — buttons using bg-[var(--creekside-blue)] rendered transparent).
+     blue-600 base so the common hover:bg-blue-700 darkens correctly. */
+  --creekside-blue: #2563EB;
 }
 
 body {
