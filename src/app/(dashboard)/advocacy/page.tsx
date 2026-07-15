@@ -31,6 +31,8 @@ type StatusRow = {
   completed_by: string | null;
   na_at: string | null;
   na_by: string | null;
+  declined_at: string | null;
+  declined_by: string | null;
   notes: string | null;
 };
 
@@ -88,7 +90,7 @@ export default function AdvocacyPage() {
   }, [data]);
 
   const toggle = useCallback(
-    async (clientId: string, itemKey: string, field: 'asked' | 'completed' | 'na', value: boolean) => {
+    async (clientId: string, itemKey: string, field: 'asked' | 'completed' | 'na' | 'declined', value: boolean) => {
       const key = `${clientId}::${itemKey}::${field}`;
       setSavingKey(key);
 
@@ -109,12 +111,23 @@ export default function AdvocacyPage() {
           completed_by: null,
           na_at: null,
           na_by: null,
+          declined_at: null,
+          declined_by: null,
           notes: null,
         };
         const next: StatusRow = { ...base };
         if (field === 'asked') {
           next.asked_at = value ? (base.asked_at ?? now) : null;
           if (!value) {
+            next.completed_at = null;
+            next.completed_by = null;
+            next.declined_at = null;
+            next.declined_by = null;
+          }
+        } else if (field === 'declined') {
+          next.declined_at = value ? (base.declined_at ?? now) : null;
+          // Said-no and said-yes are mutually exclusive — marking No clears Yes
+          if (value) {
             next.completed_at = null;
             next.completed_by = null;
           }
@@ -308,7 +321,8 @@ export default function AdvocacyPage() {
           <p className="text-sm text-slate-500 mt-1">
             Growth asks per client. Toggle <span className="font-semibold">Asked?</span> once we&rsquo;ve requested it, then{' '}
             <span className="font-semibold">Done?</span> once they follow through. Mark{' '}
-            <span className="font-semibold">N/A</span> when an item will never happen (white-label partner, client declined) — N/A items drop out of the totals.
+            <span className="font-semibold">N/A</span> when an item will never happen (white-label partner, client declined) — N/A items drop out of the totals. Upsell columns use{' '}
+            <span className="font-semibold">Offered / Said yes / Said no</span> to track services pitched beyond the current engagement.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -437,9 +451,12 @@ export default function AdvocacyPage() {
                           const asked = !!s?.asked_at;
                           const done = !!s?.completed_at;
                           const na = !!s?.na_at;
+                          const declined = !!s?.declined_at;
+                          const isUpsell = it.category === 'Upsells';
                           const askedKey = `${client.id}::${it.item_key}::asked`;
                           const doneKey = `${client.id}::${it.item_key}::completed`;
                           const naKey = `${client.id}::${it.item_key}::na`;
+                          const declinedKey = `${client.id}::${it.item_key}::declined`;
                           return (
                             <td
                               key={it.item_key}
@@ -447,24 +464,34 @@ export default function AdvocacyPage() {
                             >
                               <div className={`flex flex-col items-center gap-1 ${na ? 'opacity-80' : ''}`}>
                                 <ToggleChip
-                                  label="Asked"
+                                  label={isUpsell ? 'Offered' : 'Asked'}
                                   value={asked}
                                   disabled={na || savingKey === askedKey}
                                   onClick={() => toggle(client.id, it.item_key, 'asked', !asked)}
                                 />
                                 <ToggleChip
-                                  label="Done"
+                                  label={isUpsell ? 'Said yes' : 'Done'}
                                   value={done}
-                                  disabled={na || !asked || savingKey === doneKey}
+                                  disabled={na || declined || !asked || savingKey === doneKey}
                                   onClick={() => toggle(client.id, it.item_key, 'completed', !done)}
                                 />
-                                <ToggleChip
-                                  label="N/A"
-                                  value={na}
-                                  variant="na"
-                                  disabled={savingKey === naKey}
-                                  onClick={() => toggle(client.id, it.item_key, 'na', !na)}
-                                />
+                                {isUpsell ? (
+                                  <ToggleChip
+                                    label="Said no"
+                                    value={declined}
+                                    variant="no"
+                                    disabled={!asked || savingKey === declinedKey}
+                                    onClick={() => toggle(client.id, it.item_key, 'declined', !declined)}
+                                  />
+                                ) : (
+                                  <ToggleChip
+                                    label="N/A"
+                                    value={na}
+                                    variant="na"
+                                    disabled={savingKey === naKey}
+                                    onClick={() => toggle(client.id, it.item_key, 'na', !na)}
+                                  />
+                                )}
                               </div>
                             </td>
                           );
@@ -529,16 +556,19 @@ function ToggleChip({
   value: boolean;
   disabled?: boolean;
   onClick: () => void;
-  variant?: 'na';
+  variant?: 'na' | 'no';
 }) {
   // N/A chips use a neutral gray palette — the red off-state is reserved for
   // Asked/Done where "no" means outstanding work, not irrelevance.
+  // 'no' chips (upsell declined) are rose when on, neutral when off.
   const on =
     variant === 'na'
       ? 'bg-slate-300 text-slate-800 ring-1 ring-slate-400'
+      : variant === 'no'
+      ? 'bg-rose-200 text-rose-900 ring-1 ring-rose-400'
       : 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300';
   const off =
-    variant === 'na'
+    variant === 'na' || variant === 'no'
       ? 'bg-white text-slate-400 ring-1 ring-slate-200'
       : 'bg-red-100 text-red-800 ring-1 ring-red-300';
   return (

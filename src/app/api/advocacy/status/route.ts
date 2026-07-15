@@ -3,7 +3,7 @@ import { createServiceClient } from '@/lib/supabase';
 
 /**
  * PATCH /api/advocacy/status
- * Body: { client_id, item_key, field: 'asked'|'completed'|'na', value: boolean, actor?: string, notes?: string }
+ * Body: { client_id, item_key, field: 'asked'|'completed'|'na'|'declined', value: boolean, actor?: string, notes?: string }
  * Upserts one status row. Setting asked=false also clears completed (can't have
  * "did it" if we never asked). Setting na=true marks the item not applicable /
  * won't happen (e.g. white-label partner can't do a case study, or client
@@ -15,13 +15,13 @@ export async function PATCH(request: Request) {
     const { client_id, item_key, field, value, actor, notes } = body as {
       client_id: string;
       item_key: string;
-      field: 'asked' | 'completed' | 'na';
+      field: 'asked' | 'completed' | 'na' | 'declined';
       value: boolean;
       actor?: string;
       notes?: string;
     };
 
-    if (!client_id || !item_key || (field !== 'asked' && field !== 'completed' && field !== 'na')) {
+    if (!client_id || !item_key || !['asked', 'completed', 'na', 'declined'].includes(field)) {
       return NextResponse.json({ error: 'missing/invalid fields' }, { status: 400 });
     }
 
@@ -45,6 +45,8 @@ export async function PATCH(request: Request) {
       completed_by: existing?.completed_by ?? null,
       na_at: existing?.na_at ?? null,
       na_by: existing?.na_by ?? null,
+      declined_at: existing?.declined_at ?? null,
+      declined_by: existing?.declined_by ?? null,
       notes: notes !== undefined ? notes : (existing?.notes ?? null),
     };
 
@@ -53,6 +55,22 @@ export async function PATCH(request: Request) {
       row.asked_by = value ? (existing?.asked_by ?? actor ?? null) : null;
       // Turning "asked" off also clears "completed" — can't have done what wasn't asked
       if (!value) {
+        row.completed_at = null;
+        row.completed_by = null;
+        row.declined_at = null;
+        row.declined_by = null;
+      }
+    } else if (field === 'declined') {
+      // Upsell "said no" — requires an offer first; mutually exclusive with completed
+      if (value && !row.asked_at) {
+        return NextResponse.json(
+          { error: 'cannot mark declined before marking offered' },
+          { status: 400 }
+        );
+      }
+      row.declined_at = value ? (existing?.declined_at ?? now) : null;
+      row.declined_by = value ? (existing?.declined_by ?? actor ?? null) : null;
+      if (value) {
         row.completed_at = null;
         row.completed_by = null;
       }
@@ -77,6 +95,13 @@ export async function PATCH(request: Request) {
       if (value && row.na_at) {
         return NextResponse.json(
           { error: 'cannot mark completed while item is N/A — clear N/A first' },
+          { status: 400 }
+        );
+      }
+      // completed (said yes) can't be set while declined (said no) is set
+      if (value && row.declined_at) {
+        return NextResponse.json(
+          { error: 'cannot mark said-yes while said-no is set — clear said-no first' },
           { status: 400 }
         );
       }

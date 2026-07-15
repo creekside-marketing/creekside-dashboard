@@ -73,7 +73,7 @@ export async function GET(request: Request) {
     // hidden clients' preserved history if the user un-hides.
     const { data: statuses, error: stErr } = await supabase
       .from('client_advocacy_status')
-      .select('client_id, item_key, asked_at, asked_by, completed_at, completed_by, na_at, na_by, notes');
+      .select('client_id, item_key, asked_at, asked_by, completed_at, completed_by, na_at, na_by, declined_at, declined_by, notes');
     if (stErr) throw stErr;
 
     return NextResponse.json({
