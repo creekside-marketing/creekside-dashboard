@@ -11,13 +11,13 @@ import { computeRevenueByClientPlatform } from '@/lib/client-revenue';
 // Single source of truth lives here; edit in code if it changes.
 const BANDWIDTH_REMAINING_HOURS: Record<string, number> = {
   'Scott Caldwell': 0,   // Cade Jun 9 clarification: current hours ~35, bandwidth gone
-  'Trent Lucas': 18,
   'Ahmed Imran': 15,
   'Ade Aderibigbe': 10,
   'Baran Eris': 20,
   'David': 11,           // 15 hrs/wk capacity − 4.5 currently allocated = ~11 hrs/wk available
   // Lindsey is dynamic: 45-hr weekly capacity − 5-hr admin buffer − allocated hours.
-  // Jordan Tryon + Aamir + Jay: bandwidth not tracked — will show as `--`.
+  // Jordan Tryon + Aamir + Jay + Aldo: bandwidth not tracked — will show as `--`.
+  // Aldo is a brand-new intern; his weekly capacity is still being established.
   // Jay is an external partner (brings his own clients, does his own fulfillment);
   // Creekside doesn't manage his capacity.
 };
@@ -32,7 +32,7 @@ const LINDSEY_ADMIN_BUFFER = 5;
 const DISPLAY_ORDER: string[] = [
   'Lindsey Bouffard',
   'Scott Caldwell',
-  'Trent Lucas',
+  'Aldo',
   'Ahmed Imran',
   'Ade Aderibigbe',
   'David',

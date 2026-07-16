@@ -31,6 +31,7 @@ const TEAM_COLORS: Record<string, TeamColor> = {
   baran:   { bg: 'bg-cyan-100',   text: 'text-cyan-800',   ring: 'ring-cyan-300',   dot: 'bg-cyan-500' },
   jordan:  { bg: 'bg-blue-100',   text: 'text-blue-800',   ring: 'ring-blue-300',   dot: 'bg-blue-500' },
   aamir:   { bg: 'bg-pink-100',   text: 'text-pink-800',   ring: 'ring-pink-300',   dot: 'bg-pink-500' },
+  aldo:    { bg: 'bg-indigo-100', text: 'text-indigo-800', ring: 'ring-indigo-300', dot: 'bg-indigo-500' },
 };
 
 export function getTeamColor(fullName: string | null | undefined): TeamColor {
