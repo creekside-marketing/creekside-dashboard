@@ -28,6 +28,12 @@ const BANDWIDTH_REMAINING_HOURS: Record<string, number> = {
 const LINDSEY_WEEKLY_CAPACITY = 45;
 const LINDSEY_ADMIN_BUFFER = 5;
 
+// Members whose $0 allocations should still render on the Team + Client tabs.
+// Interns work at no payroll cost but we want their client assignments visible
+// so we can see who they touch and update the rate once they cross the paid
+// threshold Cade sets.
+const UNPAID_INTERNS = new Set(['Aldo']);
+
 // Order in which members render on the page. Tobi remains excluded (AI-agent-only).
 const DISPLAY_ORDER: string[] = [
   'Lindsey Bouffard',
@@ -138,6 +144,8 @@ export async function GET() {
       clientNameById[c.id] = c.name;
       clientStatusById[c.id] = c.status;
     }
+    const memberNameById: Record<string, string> = {};
+    for (const m of members) memberNameById[m.id] = m.name;
 
     // Revenue per (client_id, platform) — uses the SAME live fee engine the
     // Client tab uses for "Est. Revenue" so attribution math matches the per-
@@ -246,10 +254,13 @@ export async function GET() {
       for (const platform of platforms) {
         const cpKey = `${row.client_id}::${platform}`;
         const isRetainer = retainerCP.has(cpKey);
-        // Skip zero-amount allocations UNLESS this is a retainer client (partner/external
-        // operators like Jay do the work but aren't paid by Creekside — $0 allocations
-        // mark client ownership without payroll cost).
-        if (memberLabor === 0 && !isRetainer) continue;
+        // Skip zero-amount allocations UNLESS this is (a) a retainer client
+        // (partner/external operators like Jay work at $0 but the allocation
+        // marks ownership) or (b) the member is an unpaid intern (Aldo — no
+        // payroll cost yet, but we still want to see which clients they touch).
+        const memberName = memberNameById[row.team_member_id] ?? '';
+        const isUnpaidIntern = UNPAID_INTERNS.has(memberName);
+        if (memberLabor === 0 && !isRetainer && !isUnpaidIntern) continue;
 
         let attributedRevenue: number;
         let revenue: number;

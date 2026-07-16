@@ -131,12 +131,16 @@ export async function GET() {
     // Jordan: Peterson+Cade decision — evaluate his cost as fixed overhead
     // rather than trying to attribute across clients (2026-07-06).
     const UNATTRIBUTED_TO_CLIENTS = new Set(['Jordan Tryon']);
+    // Interns whose $0 allocations should still surface as labor chips on the
+    // Client tab (they touch the client, just at no cost right now). Once we
+    // set their hourly_rate they roll into normal cost math.
+    const UNPAID_INTERNS = new Set(['Aldo']);
 
     for (const row of laborResult.data ?? []) {
       if (!row.client_id) continue;
       const amount = Number(row.monthly_amount ?? 0);
-      if (amount === 0) continue;
       const member = memberName(row);
+      if (amount === 0 && !UNPAID_INTERNS.has(member)) continue;
       // Skip this member's labor from per-client attribution. Their full
       // retainer still shows up in totalLabor via the salary-gap add-back
       // below (activeAttributed will be 0 for them).
