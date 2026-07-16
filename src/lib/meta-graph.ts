@@ -58,7 +58,10 @@ async function getInsights(args: Record<string, unknown>): Promise<unknown> {
 
   // Default fields — always included. PipeBoard merges caller fields with defaults;
   // we do the same so `fields=conversions` doesn't strip spend/clicks/etc.
-  const DEFAULT_FIELDS = 'campaign_name,campaign_id,adset_name,adset_id,ad_name,ad_id,spend,impressions,inline_link_clicks,unique_clicks,clicks,ctr,cpc,cpm,reach,frequency,actions,cost_per_action_type,conversions,action_values,outbound_clicks';
+  // NOTE: Do NOT include inline_link_clicks here. PipeBoard never returned it,
+  // and the frontend falls back to total `clicks` for CPC/CTR calculations.
+  // Adding it changes client-facing CONV. RATE and AVG CPC numbers.
+  const DEFAULT_FIELDS = 'campaign_name,campaign_id,adset_name,adset_id,ad_name,ad_id,spend,impressions,unique_clicks,clicks,ctr,cpc,cpm,reach,frequency,actions,cost_per_action_type,conversions,action_values,outbound_clicks';
 
   // Merge caller-requested fields with defaults
   let fields = DEFAULT_FIELDS;
@@ -117,11 +120,10 @@ function enrichRow(row: Record<string, unknown>): void {
   const actions = (row.actions ?? []) as Array<{ action_type: string; value: string }>;
   const costPerAction = (row.cost_per_action_type ?? []) as Array<{ action_type: string; value: string }>;
 
-  // inline_link_clicks — frontend uses this for link CTR calculations
-  if (!('inline_link_clicks' in row)) {
-    const linkClick = actions.find(a => a.action_type === 'link_click');
-    row.inline_link_clicks = linkClick ? Number(linkClick.value) : 0;
-  }
+  // NOTE: Do NOT promote inline_link_clicks from actions array.
+  // PipeBoard never provided it as a top-level field. The frontend falls back
+  // to total `clicks` for CPC/CTR/CONV calculations. Adding inline_link_clicks
+  // changes client-facing report numbers (CPC doubles, conv rate doubles).
 
   // outbound_clicks — Graph API returns this as an array [{action_type, value}],
   // but frontend expects a number. Normalize either way.
