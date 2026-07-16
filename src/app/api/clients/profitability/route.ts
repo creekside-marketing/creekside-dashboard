@@ -220,9 +220,11 @@ export async function GET() {
 
         // Labor-only breakdown per member so the chip amounts sum to the Labor column total.
         // Bonuses are intentionally excluded — they have their own column on the table.
+        // Unpaid interns render at $0 (they touch the client with no payroll cost) so
+        // they still appear as chips alongside paid operators.
         const labor_by_member: LaborByMember[] = Object.entries(laborByKeyMember[key] ?? {})
           .map(([member, amount]) => ({ member, amount: round2(amount) }))
-          .filter(b => b.amount > 0)
+          .filter(b => b.amount > 0 || UNPAID_INTERNS.has(b.member))
           .sort((a, b) => b.amount - a.amount);
 
         result[clientName][platform] = {
