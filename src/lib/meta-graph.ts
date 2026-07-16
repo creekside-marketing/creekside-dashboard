@@ -58,7 +58,7 @@ async function getInsights(args: Record<string, unknown>): Promise<unknown> {
 
   // Default fields — always included. PipeBoard merges caller fields with defaults;
   // we do the same so `fields=conversions` doesn't strip spend/clicks/etc.
-  const DEFAULT_FIELDS = 'campaign_name,campaign_id,adset_name,adset_id,ad_name,ad_id,spend,impressions,inline_link_clicks,unique_clicks,clicks,ctr,cpc,cpm,reach,frequency,actions,cost_per_action_type,action_values,outbound_clicks';
+  const DEFAULT_FIELDS = 'campaign_name,campaign_id,adset_name,adset_id,ad_name,ad_id,spend,impressions,inline_link_clicks,unique_clicks,clicks,ctr,cpc,cpm,reach,frequency,actions,cost_per_action_type,conversions,action_values,outbound_clicks';
 
   // Merge caller-requested fields with defaults
   let fields = DEFAULT_FIELDS;
