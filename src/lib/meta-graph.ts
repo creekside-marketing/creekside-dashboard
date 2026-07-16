@@ -55,16 +55,27 @@ async function getInsights(args: Record<string, unknown>): Promise<unknown> {
   if (!accountId) throw new Error('No account ID provided');
 
   const level = String(args.level ?? 'account');
-  const fields = Array.isArray(args.fields)
-    ? (args.fields as string[]).join(',')
-    : 'campaign_name,campaign_id,adset_name,adset_id,ad_name,ad_id,spend,impressions,inline_link_clicks,clicks,ctr,cpc,cpm,reach,frequency,actions,cost_per_action_type,conversions,action_values,outbound_clicks';
+
+  // Default fields — always included. PipeBoard merges caller fields with defaults;
+  // we do the same so `fields=conversions` doesn't strip spend/clicks/etc.
+  const DEFAULT_FIELDS = 'campaign_name,campaign_id,adset_name,adset_id,ad_name,ad_id,spend,impressions,inline_link_clicks,unique_clicks,clicks,ctr,cpc,cpm,reach,frequency,actions,cost_per_action_type,action_values,outbound_clicks';
+
+  // Merge caller-requested fields with defaults
+  let fields = DEFAULT_FIELDS;
+  if (Array.isArray(args.fields) && args.fields.length > 0) {
+    const defaultSet = new Set(DEFAULT_FIELDS.split(','));
+    for (const f of args.fields as string[]) {
+      if (!defaultSet.has(f.trim())) {
+        fields += ',' + f.trim();
+      }
+    }
+  }
 
   const params: Record<string, string> = { level, fields };
 
   // Handle time_range — can be a preset string or {since, until} object
   const timeRange = args.time_range;
   if (typeof timeRange === 'string') {
-    // PipeBoard uses "last_30d" etc., Graph API uses "last_30d" etc.
     params.date_preset = timeRange;
   } else if (timeRange && typeof timeRange === 'object') {
     const tr = timeRange as { since?: string; until?: string };
@@ -83,17 +94,14 @@ async function getInsights(args: Record<string, unknown>): Promise<unknown> {
     params.time_increment = args.time_breakdown === 'day' ? '1' : String(args.time_breakdown);
   }
 
-  // Extra fields requested by the caller
-  if (args.fields && Array.isArray(args.fields)) {
-    params.fields = (args.fields as string[]).join(',');
-  }
-
   const result = await graphGet(`/${accountId}/insights`, params) as { data?: Record<string, unknown>[] };
 
-  // Post-process: promote fields from actions array to top-level
-  // PipeBoard did this automatically; Graph API returns raw actions array
+  // Post-process: add PipeBoard-compatible fields that Graph API doesn't include
   if (result.data) {
     for (const row of result.data) {
+      // PipeBoard adds account_id and account_name to every row
+      if (!('account_id' in row)) row.account_id = accountId;
+      if (!('account_name' in row)) row.account_name = '';
       enrichRow(row);
     }
   }
