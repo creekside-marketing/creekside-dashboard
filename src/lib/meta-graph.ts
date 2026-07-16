@@ -57,7 +57,7 @@ async function getInsights(args: Record<string, unknown>): Promise<unknown> {
   const level = String(args.level ?? 'account');
   const fields = Array.isArray(args.fields)
     ? (args.fields as string[]).join(',')
-    : 'campaign_name,campaign_id,spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,actions,cost_per_action_type,conversions,action_values';
+    : 'campaign_name,campaign_id,adset_name,adset_id,ad_name,ad_id,spend,impressions,inline_link_clicks,clicks,ctr,cpc,cpm,reach,frequency,actions,cost_per_action_type,conversions,action_values,outbound_clicks';
 
   const params: Record<string, string> = { level, fields };
 
@@ -88,8 +88,50 @@ async function getInsights(args: Record<string, unknown>): Promise<unknown> {
     params.fields = (args.fields as string[]).join(',');
   }
 
-  const result = await graphGet(`/${accountId}/insights`, params);
+  const result = await graphGet(`/${accountId}/insights`, params) as { data?: Record<string, unknown>[] };
+
+  // Post-process: promote fields from actions array to top-level
+  // PipeBoard did this automatically; Graph API returns raw actions array
+  if (result.data) {
+    for (const row of result.data) {
+      enrichRow(row);
+    }
+  }
+
   return wrapResponse(result);
+}
+
+/**
+ * Enrich a Graph API insights row with top-level fields that PipeBoard provided.
+ * The frontend expects these as top-level fields, not buried in actions[].
+ */
+function enrichRow(row: Record<string, unknown>): void {
+  const actions = (row.actions ?? []) as Array<{ action_type: string; value: string }>;
+  const costPerAction = (row.cost_per_action_type ?? []) as Array<{ action_type: string; value: string }>;
+
+  // inline_link_clicks — frontend uses this for link CTR calculations
+  if (!('inline_link_clicks' in row)) {
+    const linkClick = actions.find(a => a.action_type === 'link_click');
+    row.inline_link_clicks = linkClick ? Number(linkClick.value) : 0;
+  }
+
+  // outbound_clicks — some report templates use this
+  if (!('outbound_clicks' in row)) {
+    const outbound = actions.find(a => a.action_type === 'outbound_click');
+    row.outbound_clicks = outbound ? Number(outbound.value) : 0;
+  }
+
+  // landing_page_views
+  if (!('landing_page_views' in row)) {
+    const lpv = actions.find(a => a.action_type === 'landing_page_view');
+    row.landing_page_views = lpv ? Number(lpv.value) : 0;
+  }
+
+  // cost_per_inline_link_click
+  if (!('cost_per_inline_link_click' in row)) {
+    const cplc = costPerAction.find(a => a.action_type === 'link_click');
+    row.cost_per_inline_link_click = cplc ? Number(cplc.value) : 0;
+  }
 }
 
 async function bulkGetInsights(args: Record<string, unknown>): Promise<unknown> {
