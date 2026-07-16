@@ -271,11 +271,16 @@ function wrapResponse(data: unknown): unknown {
 // ── Public API ───────────────────────────────────────────────────────────
 
 /** Supported methods that can be routed to the Graph API. */
+/** Supported methods that can be routed to the Graph API.
+ *
+ * NOTE: bulk_get_insights and bulk_get_ad_creatives intentionally stay on PipeBoard.
+ * Bulk calls mix accounts that Graph API can reach with accounts it can't (MedWriter,
+ * LA Smiles). PipeBoard handles all accounts uniformly. The cost impact is minimal --
+ * bulk calls happen once per overview page load, not per-client report view.
+ */
 const GRAPH_METHODS: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {
   get_ad_accounts: getAdAccounts,
   get_insights: getInsights,
-  bulk_get_insights: bulkGetInsights,
-  bulk_get_ad_creatives: bulkGetAdCreatives,
 };
 
 /**
