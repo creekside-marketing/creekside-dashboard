@@ -115,8 +115,12 @@ function enrichRow(row: Record<string, unknown>): void {
     row.inline_link_clicks = linkClick ? Number(linkClick.value) : 0;
   }
 
-  // outbound_clicks — some report templates use this
-  if (!('outbound_clicks' in row)) {
+  // outbound_clicks — Graph API returns this as an array [{action_type, value}],
+  // but frontend expects a number. Normalize either way.
+  if (Array.isArray(row.outbound_clicks)) {
+    const oc = (row.outbound_clicks as Array<{ action_type: string; value: string }>)[0];
+    row.outbound_clicks = oc ? Number(oc.value) : 0;
+  } else if (!('outbound_clicks' in row)) {
     const outbound = actions.find(a => a.action_type === 'outbound_click');
     row.outbound_clicks = outbound ? Number(outbound.value) : 0;
   }
