@@ -157,7 +157,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         <div key={row.id}>
           {allPlatformRows.length > 1 && (
             <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">
-              {row.platform === 'meta' ? 'Meta Ads' : row.platform === 'google' ? 'Google Ads' : row.platform}
+              {row.platform === 'meta' ? 'Meta Ads' : row.platform === 'google' ? 'Google Ads' : row.platform === 'lsa' ? 'LSA Ads' : row.platform}
             </h3>
           )}
           <ClientReport client={row} />
