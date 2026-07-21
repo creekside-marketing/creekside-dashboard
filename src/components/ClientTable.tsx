@@ -107,6 +107,7 @@ function PlatformBadge({ platform }: { platform: string }) {
   const isEmail = lower === 'email';
   const isChatGPT = lower === 'chatgpt';
   const isLsa = lower === 'lsa';
+  const isTikTok = lower === 'tiktok';
   const badgeStyles = isOther
     ? 'bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/20'
     : isProgrammatic
@@ -119,9 +120,11 @@ function PlatformBadge({ platform }: { platform: string }) {
             ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-600/20'
             : isLsa
               ? 'bg-teal-50 text-teal-700 ring-1 ring-inset ring-teal-600/20'
-              : 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20';
-  const dotColor = isOther ? 'bg-red-500' : isProgrammatic ? 'bg-yellow-500' : isEmail ? 'bg-purple-500' : isChatGPT ? 'bg-orange-500' : isMeta ? 'bg-blue-500' : isLsa ? 'bg-teal-500' : 'bg-emerald-500';
-  const label = isOther ? 'Other' : isProgrammatic ? 'Programmatic Ads' : isEmail ? 'Email' : isChatGPT ? 'ChatGPT Ads' : isMeta ? 'Meta' : isLsa ? 'LSA' : 'Google';
+              : isTikTok
+                ? 'bg-pink-50 text-pink-700 ring-1 ring-inset ring-pink-600/20'
+                : 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20';
+  const dotColor = isOther ? 'bg-red-500' : isProgrammatic ? 'bg-yellow-500' : isEmail ? 'bg-purple-500' : isChatGPT ? 'bg-orange-500' : isMeta ? 'bg-blue-500' : isLsa ? 'bg-teal-500' : isTikTok ? 'bg-pink-500' : 'bg-emerald-500';
+  const label = isOther ? 'Other' : isProgrammatic ? 'Programmatic Ads' : isEmail ? 'Email' : isChatGPT ? 'ChatGPT Ads' : isMeta ? 'Meta' : isLsa ? 'LSA' : isTikTok ? 'TikTok' : 'Google';
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold ${badgeStyles}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
