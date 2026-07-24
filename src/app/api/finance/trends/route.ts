@@ -110,28 +110,50 @@ export async function GET() {
       return NextResponse.json({ error: spErr.message }, { status: 500 });
     }
 
-    // Load canonical active clients so we can map normalized names → client_id
-    // and drop unmatched / churned names.
+    // Load ALL canonical clients (any status) — a churned client still counts
+    // as "new" the month it was landed. Primary signal is clients.start_date
+    // (manually captured onboarding date); fallback is first-payment for
+    // legacy clients whose start_date wasn't backfilled.
     const { data: canonicalClients, error: ccErr } = await supabase
       .from('clients')
-      .select('id, name, status')
-      .eq('status', 'active');
+      .select('id, name, status, start_date');
     if (ccErr) {
       return NextResponse.json({ error: ccErr.message }, { status: 500 });
     }
-    const activeClientIdByNorm: Record<string, string> = {};
+    // Also pull reporting_clients to drop pure Jybr AI-agent entries (whose only
+    // reporting rows are platform='other') — same rule the Advocacy tab uses.
+    const { data: repRows, error: repErr } = await supabase
+      .from('reporting_clients')
+      .select('client_id, platform');
+    if (repErr) {
+      return NextResponse.json({ error: repErr.message }, { status: 500 });
+    }
+    const clientHasNonOtherPlatform = new Set<string>();
+    for (const r of repRows ?? []) {
+      if (r.client_id && r.platform && r.platform !== 'other') {
+        clientHasNonOtherPlatform.add(r.client_id as string);
+      }
+    }
+    const clientIdByNorm: Record<string, string> = {};
+    const startDateByClientId: Record<string, string> = {};
     for (const c of canonicalClients ?? []) {
-      const norm = normalizeName(c.name as string);
-      if (norm) activeClientIdByNorm[norm] = c.id as string;
+      const rawName = c.name as string;
+      const cid = c.id as string;
+      if (isNonClientIncome(rawName)) continue;               // drop Jybr/Freedom/etc by name
+      if (rawName.toLowerCase().includes('creekside internal')) continue;
+      if (!clientHasNonOtherPlatform.has(cid)) continue;      // drop Jybr AI-agent-only entries
+      const norm = normalizeName(rawName);
+      if (norm) clientIdByNorm[norm] = cid;
+      if (c.start_date) startDateByClientId[cid] = c.start_date as string;
     }
 
-    // Build first-payment date per matched active canonical client_id.
+    // Fallback: for clients missing start_date, derive first-payment date.
     const firstPayByClientId: Record<string, string> = {};
     const consider = (rawName: string | null | undefined, dateRaw: string | null | undefined) => {
       if (!rawName || !dateRaw || isNonClientIncome(rawName)) return;
       const norm = normalizeName(rawName);
       if (!norm) return;
-      const clientId = activeClientIdByNorm[norm];
+      const clientId = clientIdByNorm[norm];
       if (!clientId) return;
       if (!firstPayByClientId[clientId] || dateRaw < firstPayByClientId[clientId]) {
         firstPayByClientId[clientId] = dateRaw;
@@ -145,9 +167,16 @@ export async function GET() {
       consider(row.customer_name as string, d);
     }
 
+    // Resolve landed date per client: prefer start_date, fall back to first payment.
+    const landedByClientId: Record<string, string> = {};
+    for (const cid of Object.keys(clientIdByNorm).map(k => clientIdByNorm[k])) {
+      const d = startDateByClientId[cid] ?? firstPayByClientId[cid];
+      if (d) landedByClientId[cid] = d;
+    }
+
     // Bucket new clients per YYYY-MM
     const newClientsByMonth: Record<string, number> = {};
-    for (const date of Object.values(firstPayByClientId)) {
+    for (const date of Object.values(landedByClientId)) {
       const m = ymKey(date);
       if (months.includes(m)) {
         newClientsByMonth[m] = (newClientsByMonth[m] ?? 0) + 1;
