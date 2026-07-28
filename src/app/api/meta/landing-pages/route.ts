@@ -1,13 +1,15 @@
 /**
- * GET /api/meta/landing-pages — Ad-level Meta insights grouped by destination URL.
+ * GET /api/meta/landing-pages — Campaign-level Meta spend grouped by destination URL.
  *
- * Used by the SRM Meta report's internal-only Landing Page Performance section.
  * Two-step approach:
- *   1. get_insights at level=ad with fields=conversions → per-ad metrics + PQL/Pre-Q counts
- *   2. bulk_get_ad_creatives → destination URL per ad (best-effort; falls back to ad name)
+ *   1. get_insights at level=campaign with fields=conversions
+ *      → exact spend/impressions/clicks/Pre-Q/PQL per campaign_id
+ *   2. get_ads for the account with creative URL fields
+ *      → campaign_id → destination URL map (one URL per campaign)
  *
- * Returns rows grouped by URL (or ad name if URL unavailable), sorted by spend desc.
- * hasUrls flag tells the client whether real URLs were resolved or ad names used.
+ * Groups campaign spend by resolved URL. If URL resolution fails entirely,
+ * returns urlResolutionFailed=true so the UI can surface a clear message
+ * rather than silently falling back to ad names.
  *
  * CANNOT: Modify ads — read-only.
  */
@@ -44,17 +46,19 @@ function unwrapMcp(raw: any): any {
   return raw;
 }
 
+/** Extract the destination URL from a Meta ad creative object. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractUrl(creative: any): string | null {
   if (!creative || typeof creative !== 'object') return null;
-  // link ads
+  // Link / carousel ads
   const spec = creative.object_story_spec;
-  if (spec?.link_data?.link) return String(spec.link_data.link);
-  // video ads with CTA
-  const ctaLink = spec?.video_data?.call_to_action?.value?.link;
-  if (ctaLink) return String(ctaLink);
-  // flat fields
-  if (creative.link) return String(creative.link);
+  if (spec?.link_data?.link)                          return String(spec.link_data.link);
+  if (spec?.link_data?.call_to_action?.value?.link)   return String(spec.link_data.call_to_action.value.link);
+  // Video ads with CTA
+  if (spec?.video_data?.call_to_action?.value?.link)  return String(spec.video_data.call_to_action.value.link);
+  // Flat fields sometimes present on the creative itself
+  if (creative.link_url)        return String(creative.link_url);
+  if (creative.link)            return String(creative.link);
   if (creative.destination_url) return String(creative.destination_url);
   return null;
 }
@@ -93,65 +97,77 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'account_id required' }, { status: 400 });
     }
 
-    const since     = searchParams.get('since');
-    const until     = searchParams.get('until');
+    const since      = searchParams.get('since');
+    const until      = searchParams.get('until');
     const time_range = searchParams.get('time_range') || 'last_30d';
-    const dates     = resolveTimeRange(time_range, since, until);
+    const dates      = resolveTimeRange(time_range, since, until);
 
-    // ── Step 1: ad-level insights ──────────────────────────────────────
+    // ── Step 1: campaign-level insights ──────────────────────────────────
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let insightsArr: Record<string, any>[] = [];
+    let campaignRows: Record<string, any>[] = [];
     try {
       const raw = await callPipeboard('get_insights', {
         object_id: account_id,
-        level: 'ad',
-        fields: ['ad_id', 'ad_name', 'spend', 'impressions', 'clicks', 'conversions'],
+        level: 'campaign',
+        fields: ['campaign_id', 'campaign_name', 'spend', 'impressions', 'clicks', 'conversions'],
         time_range: { since: dates.since, until: dates.until },
       });
       const unwrapped = unwrapMcp(raw);
       const arr = unwrapped?.data ?? unwrapped;
-      if (Array.isArray(arr)) insightsArr = arr;
+      if (Array.isArray(arr)) campaignRows = arr;
     } catch (e) {
       console.error('[meta/landing-pages] insights error:', e instanceof Error ? e.message : String(e));
       return NextResponse.json({ data: [], error: 'insights_failed' }, { status: 502 });
     }
 
-    if (insightsArr.length === 0) return NextResponse.json({ data: [], hasUrls: false });
+    if (campaignRows.length === 0) return NextResponse.json({ data: [], hasUrls: false });
 
-    // ── Step 2: creative URLs (best-effort) ────────────────────────────
-    const adIds = [...new Set(insightsArr.map((r) => String(r.ad_id ?? '')).filter(Boolean))];
-    const urlMap: Record<string, string> = {};
+    // ── Step 2: resolve campaign → destination URL via get_ads ────────────
+    // Request creative sub-fields so Meta returns link_data.link for each ad.
+    const campaignUrlMap: Record<string, string> = {}; // campaign_id → first resolved URL
     try {
-      const capped = adIds.slice(0, 100);
-      const raw = await callPipeboard('bulk_get_ad_creatives', {
-        ad_ids: capped,
-        limit: capped.length,
+      const raw = await callPipeboard('get_ads', {
+        account_id,
+        fields: [
+          'id',
+          'campaign_id',
+          'creative{object_story_spec{link_data{link,call_to_action{value{link}}},video_data{call_to_action{value{link}}}},link_url,link}',
+        ],
+        limit: 500,
       });
-      const parsed = unwrapMcp(raw);
-      const items = (parsed?.results ?? parsed?.data ?? []) as unknown[];
-      for (const item of items) {
-        if (!item || typeof item !== 'object') continue;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const it = item as Record<string, any>;
-        const adId = String(it.ad_id ?? it.id ?? '');
-        if (!adId) continue;
-        const url = extractUrl(it.creative ?? it);
-        if (url) urlMap[adId] = url;
+      const unwrapped = unwrapMcp(raw);
+      // PipeBoard may return { data: [...] } or a plain array
+      const ads = unwrapped?.data ?? (Array.isArray(unwrapped) ? unwrapped : []);
+      for (const ad of ads) {
+        const campaignId = String(ad?.campaign_id ?? '');
+        if (!campaignId || campaignUrlMap[campaignId]) continue; // one URL per campaign
+        const url = extractUrl(ad?.creative ?? ad);
+        if (url) campaignUrlMap[campaignId] = url;
       }
-    } catch { /* best-effort — fall back to ad names */ }
+    } catch (e) {
+      console.error('[meta/landing-pages] get_ads error:', e instanceof Error ? e.message : String(e));
+      // Don't bail — fall through; urlResolutionFailed will be set below
+    }
 
-    // ── Step 3: aggregate by URL (fallback: ad name) ───────────────────
-    const byKey: Record<string, {
+    const hasUrls = Object.keys(campaignUrlMap).length > 0;
+
+    // If no URLs resolved at all, tell the client so it can show a message
+    if (!hasUrls) {
+      return NextResponse.json({ data: [], hasUrls: false, urlResolutionFailed: true });
+    }
+
+    // ── Step 3: aggregate campaign spend by URL ───────────────────────────
+    const byUrl: Record<string, {
       impressions: number; clicks: number; spend: number; preq: number; pql: number;
     }> = {};
 
-    for (const row of insightsArr) {
-      const adId  = String(row.ad_id ?? '');
-      const adName = String(row.ad_name ?? 'Unknown');
-      const key   = urlMap[adId] || adName;
+    for (const row of campaignRows) {
+      const campaignId = String(row.campaign_id ?? '');
+      const url = campaignUrlMap[campaignId];
+      if (!url) continue; // skip campaigns whose URL couldn't be resolved
 
-      if (!byKey[key]) byKey[key] = { impressions: 0, clicks: 0, spend: 0, preq: 0, pql: 0 };
-      const agg  = byKey[key];
+      if (!byUrl[url]) byUrl[url] = { impressions: 0, clicks: 0, spend: 0, preq: 0, pql: 0 };
+      const agg   = byUrl[url];
       const convs = (row.conversions ?? []) as MetaAction[];
 
       agg.impressions += Number(row.impressions ?? 0);
@@ -161,23 +177,22 @@ export async function GET(request: NextRequest) {
       agg.pql         += convVal(convs, PQL_ACTION);
     }
 
-    const data = Object.entries(byKey)
+    const data = Object.entries(byUrl)
       .map(([landing_page, v]) => ({
         landing_page,
-        impressions: v.impressions,
-        clicks:      v.clicks,
-        ctr:         v.impressions > 0 ? v.clicks / v.impressions : 0,
-        spend:       v.spend,
-        conversions: v.preq,
-        cost_per_conversion: v.preq > 0 ? v.spend / v.preq : 0,
-        pql_conversions: v.pql,
-        cost_per_pql: v.pql > 0 ? v.spend / v.pql : 0,
+        impressions:          v.impressions,
+        clicks:               v.clicks,
+        ctr:                  v.impressions > 0 ? v.clicks / v.impressions : 0,
+        spend:                v.spend,
+        conversions:          v.preq,
+        cost_per_conversion:  v.preq > 0 ? v.spend / v.preq : 0,
+        pql_conversions:      v.pql,
+        cost_per_pql:         v.pql > 0 ? v.spend / v.pql : 0,
       }))
       .filter((r) => r.spend > 0)
       .sort((a, b) => b.spend - a.spend);
 
-    const hasUrls = Object.keys(urlMap).length > 0;
-    return NextResponse.json({ data, hasUrls });
+    return NextResponse.json({ data, hasUrls: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 502 });

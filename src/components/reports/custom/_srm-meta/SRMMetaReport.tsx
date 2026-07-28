@@ -110,6 +110,7 @@ type LandingPageRow = Record<string, unknown>;
 interface LandingPageState {
   data: LandingPageRow[];
   hasUrls: boolean;
+  urlResolutionFailed: boolean;
   loading: boolean;
   error: boolean;
 }
@@ -120,12 +121,12 @@ function useMetaLandingPageData(
   enabled: boolean,
 ): LandingPageState {
   const [state, setState] = useState<LandingPageState>({
-    data: [], hasUrls: false, loading: false, error: false,
+    data: [], hasUrls: false, urlResolutionFailed: false, loading: false, error: false,
   });
 
   useEffect(() => {
     if (!enabled || !adAccountId) {
-      setState({ data: [], hasUrls: false, loading: false, error: false });
+      setState({ data: [], hasUrls: false, urlResolutionFailed: false, loading: false, error: false });
       return;
     }
     let cancelled = false;
@@ -143,11 +144,12 @@ function useMetaLandingPageData(
         setState({
           data: Array.isArray(json?.data) ? json.data : [],
           hasUrls: !!json?.hasUrls,
+          urlResolutionFailed: !!json?.urlResolutionFailed,
           loading: false,
           error: !res.ok,
         });
       } catch {
-        if (!cancelled) setState({ data: [], hasUrls: false, loading: false, error: true });
+        if (!cancelled) setState({ data: [], hasUrls: false, urlResolutionFailed: false, loading: false, error: true });
       }
     })();
 
@@ -282,15 +284,15 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
             </div>
           ) : lpData.error ? (
             <p className="text-sm text-red-500">Unable to load landing page data from Meta.</p>
+          ) : lpData.urlResolutionFailed ? (
+            <p className="text-sm text-amber-700/60">
+              Could not resolve destination URLs from ad creatives for this account. The creative fields
+              returned by Meta did not include link data.
+            </p>
           ) : lpData.data.length === 0 ? (
             <p className="text-sm text-amber-700/60">No landing page data returned for this date range.</p>
           ) : (
             <>
-              {!lpData.hasUrls && (
-                <p className="text-[11px] text-amber-700/70">
-                  Destination URLs could not be resolved from creatives — rows are grouped by ad name instead.
-                </p>
-              )}
               <BreakdownTable
                 title=""
                 columns={[
