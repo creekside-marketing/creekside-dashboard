@@ -253,6 +253,55 @@ async function bulkGetAdCreatives(args: Record<string, unknown>): Promise<unknow
   return wrapResponse({ results: results.filter(Boolean) });
 }
 
+/** Paginate through all ads in an account, requesting creative URL fields. */
+async function getAds(args: Record<string, unknown>): Promise<unknown> {
+  const rawAccountId = String(args.account_id ?? '');
+  if (!rawAccountId) throw new Error('No account_id provided');
+  const token = getToken();
+
+  // Accept both "act_123" and "123" formats; Graph API needs the "act_" prefix
+  const accountId = rawAccountId.startsWith('act_') ? rawAccountId : `act_${rawAccountId}`;
+
+  // Caller may pass complex field expansion strings as array elements — join them
+  const requestedFields = Array.isArray(args.fields) && (args.fields as string[]).length > 0
+    ? (args.fields as string[]).join(',')
+    : [
+        'id',
+        'campaign_id',
+        'creative{object_story_spec{link_data{link,call_to_action{value{link}}},video_data{call_to_action{value{link}}}},link_url,destination_url,asset_feed_spec{link_urls}}',
+      ].join(',');
+
+  const pageLimit = Math.min(Number(args.limit ?? 200), 200);
+  const allAds: unknown[] = [];
+  let after: string | null = null;
+
+  do {
+    const params: Record<string, string> = {
+      access_token: token,
+      fields: requestedFields,
+      limit: String(pageLimit),
+    };
+    if (after) params.after = after;
+
+    const response = await fetch(`${META_BASE}/${accountId}/ads?${new URLSearchParams(params)}`);
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Graph API ${response.status}: ${body.slice(0, 300)}`);
+    }
+
+    const json = await response.json() as {
+      data?: unknown[];
+      paging?: { cursors?: { after?: string }; next?: string };
+    };
+
+    if (Array.isArray(json.data)) allAds.push(...json.data);
+    // Continue only when there is an explicit next cursor
+    after = (json.paging?.next && json.paging.cursors?.after) ? json.paging.cursors.after : null;
+  } while (after && allAds.length < 2000); // safety cap at 2 000 ads
+
+  return wrapResponse({ data: allAds });
+}
+
 // ── Response wrapper ─────────────────────────────────────────────────────
 
 /**
@@ -281,6 +330,7 @@ function wrapResponse(data: unknown): unknown {
 const GRAPH_METHODS: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {
   get_ad_accounts: getAdAccounts,
   get_insights: getInsights,
+  get_ads: getAds,
 };
 
 /**

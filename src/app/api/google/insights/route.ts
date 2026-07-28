@@ -36,14 +36,20 @@ async function attachPqlPerRow(
       if (!conv) continue;
       map[key] = (map[key] ?? 0) + conv;
     }
+    if (pqlResults.length > 0 && Object.keys(map).length === 0) {
+      // The query returned rows but none matched the wanted action name(s)
+      const seen = [...new Set((pqlResults as any[]).map((r: any) => r.segments?.conversion_action_name ?? '').filter(Boolean))];
+      console.warn('[google/insights] attachPqlPerRow: no matches for pql_action', [...wanted], '— seen actions:', seen.slice(0, 10));
+    }
     for (const row of data) {
       const key = getDataKey(row);
       const conv = map[key] ?? 0;
       row.pql_conversions = conv;
       row.cost_per_pql = conv > 0 ? Number(row.cost ?? 0) / conv : 0;
     }
-  } catch {
+  } catch (err) {
     // Optional breakdown — don't fail the whole request.
+    console.error('[google/insights] attachPqlPerRow error:', err instanceof Error ? err.message : err);
   }
 }
 

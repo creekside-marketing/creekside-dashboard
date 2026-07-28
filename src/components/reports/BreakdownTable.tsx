@@ -17,6 +17,7 @@ interface BreakdownTableProps {
   columns: Column[];
   data: DataRow[];
   maxRows?: number;
+  defaultSortKey?: string;
 }
 
 function defaultFormat(value: unknown): string {
@@ -28,8 +29,8 @@ function defaultFormat(value: unknown): string {
   return String(value);
 }
 
-export default function BreakdownTable({ title, columns, data, maxRows = 10 }: BreakdownTableProps) {
-  const [sortKey, setSortKey] = useState<string>(columns.length > 1 ? columns[columns.length - 1].key : columns[0].key);
+export default function BreakdownTable({ title, columns, data, maxRows = 10, defaultSortKey }: BreakdownTableProps) {
+  const [sortKey, setSortKey] = useState<string>(defaultSortKey ?? (columns.length > 1 ? columns[columns.length - 1].key : columns[0].key));
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [expanded, setExpanded] = useState(false);
 

@@ -111,6 +111,7 @@ interface LandingPageState {
   data: LandingPageRow[];
   hasUrls: boolean;
   urlResolutionFailed: boolean;
+  droppedCampaigns: number;
   loading: boolean;
   error: boolean;
 }
@@ -121,12 +122,12 @@ function useMetaLandingPageData(
   enabled: boolean,
 ): LandingPageState {
   const [state, setState] = useState<LandingPageState>({
-    data: [], hasUrls: false, urlResolutionFailed: false, loading: false, error: false,
+    data: [], hasUrls: false, urlResolutionFailed: false, droppedCampaigns: 0, loading: false, error: false,
   });
 
   useEffect(() => {
     if (!enabled || !adAccountId) {
-      setState({ data: [], hasUrls: false, urlResolutionFailed: false, loading: false, error: false });
+      setState({ data: [], hasUrls: false, urlResolutionFailed: false, droppedCampaigns: 0, loading: false, error: false });
       return;
     }
     let cancelled = false;
@@ -145,11 +146,12 @@ function useMetaLandingPageData(
           data: Array.isArray(json?.data) ? json.data : [],
           hasUrls: !!json?.hasUrls,
           urlResolutionFailed: !!json?.urlResolutionFailed,
+          droppedCampaigns: Number(json?.droppedCampaigns ?? 0),
           loading: false,
           error: !res.ok,
         });
       } catch {
-        if (!cancelled) setState({ data: [], hasUrls: false, urlResolutionFailed: false, loading: false, error: true });
+        if (!cancelled) setState({ data: [], hasUrls: false, urlResolutionFailed: false, droppedCampaigns: 0, loading: false, error: true });
       }
     })();
 
@@ -293,14 +295,20 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
             <p className="text-sm text-amber-700/60">No landing page data returned for this date range.</p>
           ) : (
             <>
-              <BreakdownTable
+              {lpData.droppedCampaigns > 0 && (
+              <p className="text-[11px] text-amber-700/70">
+                {lpData.droppedCampaigns} campaign{lpData.droppedCampaigns > 1 ? 's' : ''} excluded — no destination URL found in creative.
+              </p>
+            )}
+            <BreakdownTable
                 title=""
+                defaultSortKey="spend"
                 columns={[
                   {
                     key: 'landing_page',
-                    label: lpData.hasUrls ? 'Landing Page' : 'Ad Name',
+                    label: 'Landing Page',
                     format: (v: unknown) => {
-                      const raw = String(v ?? '');
+                      const raw = String(v ?? '').trim();
                       if (!raw) return '--';
                       try {
                         const u = new URL(raw);
@@ -310,7 +318,6 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
                       }
                     },
                   },
-                  { key: 'spend',              label: 'Spend',       align: 'right', format: (v) => fmtMoney(Number(v ?? 0)) },
                   { key: 'impressions',         label: 'Impressions', align: 'right', format: (v) => fmt(Number(v ?? 0)) },
                   { key: 'clicks',              label: 'Clicks',      align: 'right', format: (v) => fmt(Number(v ?? 0)) },
                   { key: 'ctr',                 label: 'CTR',         align: 'right', format: (v) => fmtPct(Number(v ?? 0)) },
@@ -318,6 +325,7 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
                   { key: 'cost_per_conversion', label: 'Cost / Lead', align: 'right', format: (v) => { const n = Number(v ?? 0); return n > 0 ? fmtMoney(n) : '--'; } },
                   { key: 'pql_conversions',     label: 'PQLs',        align: 'right', format: (v) => { const n = Number(v ?? 0); return n > 0 ? fmt(n) : '--'; } },
                   { key: 'cost_per_pql',        label: 'Cost / PQL',  align: 'right', format: (v) => { const n = Number(v ?? 0); return n > 0 ? fmtMoney(n) : '--'; } },
+                  { key: 'spend',               label: 'Spend',       align: 'right', format: (v) => fmtMoney(Number(v ?? 0)) },
                 ]}
                 data={lpData.data}
               />

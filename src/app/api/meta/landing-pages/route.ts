@@ -25,7 +25,7 @@ type MetaAction = { action_type: string; value: string };
 function convVal(actions: MetaAction[] | undefined, type: string): number {
   if (!Array.isArray(actions)) return 0;
   const match = actions.find((a) => a.action_type === type);
-  return match ? Math.round(Number(match.value) || 0) : 0;
+  return match ? (Number(match.value) || 0) : 0; // keep as float; round at aggregation end
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -43,24 +43,44 @@ function unwrapMcp(raw: any): any {
       try { return JSON.parse(sc.result); } catch { /* fall through */ }
     }
   }
+  console.error('[meta/landing-pages] unwrapMcp: could not parse response envelope', JSON.stringify(raw).slice(0, 300));
   return raw;
+}
+
+/**
+ * Decode Meta's l.facebook.com/l.php?u=<encoded-url> click-tracking wrappers.
+ * The Graph API frequently returns these instead of the actual destination URL.
+ */
+function decodeFbRedirect(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === 'l.facebook.com' && parsed.pathname === '/l.php') {
+      const target = parsed.searchParams.get('u');
+      if (target) return decodeURIComponent(target);
+    }
+  } catch { /* not a valid URL — return as-is */ }
+  return url;
 }
 
 /** Extract the destination URL from a Meta ad creative object. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractUrl(creative: any): string | null {
   if (!creative || typeof creative !== 'object') return null;
+  let url: string | null = null;
   // Link / carousel ads
   const spec = creative.object_story_spec;
-  if (spec?.link_data?.link)                          return String(spec.link_data.link);
-  if (spec?.link_data?.call_to_action?.value?.link)   return String(spec.link_data.call_to_action.value.link);
+  if (spec?.link_data?.link)                         url = String(spec.link_data.link);
+  else if (spec?.link_data?.call_to_action?.value?.link) url = String(spec.link_data.call_to_action.value.link);
   // Video ads with CTA
-  if (spec?.video_data?.call_to_action?.value?.link)  return String(spec.video_data.call_to_action.value.link);
+  else if (spec?.video_data?.call_to_action?.value?.link) url = String(spec.video_data.call_to_action.value.link);
+  // Dynamic / Collection ads (asset_feed_spec)
+  else if (Array.isArray(creative.asset_feed_spec?.link_urls) && creative.asset_feed_spec.link_urls[0]?.website_url)
+    url = String(creative.asset_feed_spec.link_urls[0].website_url);
   // Flat fields sometimes present on the creative itself
-  if (creative.link_url)        return String(creative.link_url);
-  if (creative.link)            return String(creative.link);
-  if (creative.destination_url) return String(creative.destination_url);
-  return null;
+  else if (creative.link_url)        url = String(creative.link_url);
+  else if (creative.link)            url = String(creative.link);
+  else if (creative.destination_url) url = String(creative.destination_url);
+  return url ? decodeFbRedirect(url) : null;
 }
 
 function resolveTimeRange(
@@ -95,6 +115,9 @@ export async function GET(request: NextRequest) {
     const account_id = searchParams.get('account_id');
     if (!account_id || account_id === 'null' || account_id.trim() === '') {
       return NextResponse.json({ error: 'account_id required' }, { status: 400 });
+    }
+    if (!/^(act_)?\d+$/.test(account_id.trim())) {
+      return NextResponse.json({ error: 'Invalid account_id format' }, { status: 400 });
     }
 
     const since      = searchParams.get('since');
@@ -156,6 +179,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ data: [], hasUrls: false, urlResolutionFailed: true });
     }
 
+    // Count campaigns that had no URL resolved (spend will be absent from table)
+    const droppedCampaigns = campaignRows.filter(
+      (r) => !campaignUrlMap[String(r.campaign_id ?? '')]
+    ).length;
+
     // ── Step 3: aggregate campaign spend by URL ───────────────────────────
     const byUrl: Record<string, {
       impressions: number; clicks: number; spend: number; preq: number; pql: number;
@@ -178,21 +206,25 @@ export async function GET(request: NextRequest) {
     }
 
     const data = Object.entries(byUrl)
-      .map(([landing_page, v]) => ({
-        landing_page,
-        impressions:          v.impressions,
-        clicks:               v.clicks,
-        ctr:                  v.impressions > 0 ? v.clicks / v.impressions : 0,
-        spend:                v.spend,
-        conversions:          v.preq,
-        cost_per_conversion:  v.preq > 0 ? v.spend / v.preq : 0,
-        pql_conversions:      v.pql,
-        cost_per_pql:         v.pql > 0 ? v.spend / v.pql : 0,
-      }))
+      .map(([landing_page, v]) => {
+        const preq = Math.round(v.preq);
+        const pql  = Math.round(v.pql);
+        return {
+          landing_page,
+          impressions:          v.impressions,
+          clicks:               v.clicks,
+          ctr:                  v.impressions > 0 ? v.clicks / v.impressions : 0,
+          spend:                v.spend,
+          conversions:          preq,
+          cost_per_conversion:  preq > 0 ? v.spend / preq : 0,
+          pql_conversions:      pql,
+          cost_per_pql:         pql > 0 ? v.spend / pql : 0,
+        };
+      })
       .filter((r) => r.spend > 0)
       .sort((a, b) => b.spend - a.spend);
 
-    return NextResponse.json({ data, hasUrls: true });
+    return NextResponse.json({ data, hasUrls: true, droppedCampaigns });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 502 });
