@@ -56,6 +56,11 @@ const PQL_ACTION_NAMES: readonly string[] = [
 const PQL_ACTION_PARAM = PQL_ACTION_NAMES.join(',');
 const PQL_ACTION_LABELS = 'Pricing Qualified - Realtime (JT)';
 
+/** Pre-Qualified Lead action (Instant Quote form submission).
+ *  Per Peterson + Ahmed (2026-06): maps to "Lead Instant Quote - (JTC)".
+ *  Used in both the public KPI strip (Pre-Q count) and the internal Funnel Health view. */
+const PREQ_ACTION_NAME = 'Lead Instant Quote - (JTC)';
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 const moneyCol = (v: unknown) => fmtMoney(Number(v ?? 0));
@@ -109,6 +114,8 @@ function mergeAgeGenderData(
 interface PqlState {
   current: number;
   prior: number;
+  currentPreq: number;
+  priorPreq: number;
   costCurrent: number;
   costPrior: number;
   loading: boolean;
@@ -122,6 +129,16 @@ function extractPql(json: any): number {
   for (const row of breakdown) {
     const name = String(row?.name ?? '').trim();
     if (wanted.has(name)) total += Number(row?.conversions ?? 0);
+  }
+  return total;
+}
+
+function extractPreq(json: any): number {
+  const breakdown = Array.isArray(json?.conversionBreakdown) ? json.conversionBreakdown : [];
+  let total = 0;
+  for (const row of breakdown) {
+    const name = String(row?.name ?? '').trim();
+    if (name === PREQ_ACTION_NAME) total += Number(row?.conversions ?? 0);
   }
   return total;
 }
@@ -140,6 +157,8 @@ function usePqlData(adAccountId: string | null, dateRangeIndex: number): PqlStat
   const [state, setState] = useState<PqlState>({
     current: 0,
     prior: 0,
+    currentPreq: 0,
+    priorPreq: 0,
     costCurrent: 0,
     costPrior: 0,
     loading: true,
@@ -172,13 +191,15 @@ function usePqlData(adAccountId: string | null, dateRangeIndex: number): PqlStat
         setState({
           current: extractPql(cur),
           prior: extractPql(pri),
+          currentPreq: extractPreq(cur),
+          priorPreq: extractPreq(pri),
           costCurrent: extractCost(cur),
           costPrior: extractCost(pri),
           loading: false,
         });
       } catch {
         if (!cancelled) {
-          setState({ current: 0, prior: 0, costCurrent: 0, costPrior: 0, loading: false });
+          setState({ current: 0, prior: 0, currentPreq: 0, priorPreq: 0, costCurrent: 0, costPrior: 0, loading: false });
         }
       }
     })();
@@ -202,6 +223,7 @@ interface DimensionsWithPql {
   ageData: Row[];
   genderData: Row[];
   campaigns: Row[];
+  landingPages: Row[];
   loading: boolean;
 }
 
@@ -212,6 +234,7 @@ const EMPTY_DIMENSIONS: DimensionsWithPql = {
   ageData: [],
   genderData: [],
   campaigns: [],
+  landingPages: [],
   loading: true,
 };
 
@@ -251,15 +274,17 @@ function useDimensionsWithPql(
           age: `${base}&level=age`,
           gender: `${base}&level=gender`,
           campaign: `${base}&level=campaign`,
+          landing_page: `${base}&level=landing_page`,
         };
 
-        const [kRes, sRes, gRes, aRes, geRes, cRes] = await Promise.all([
+        const [kRes, sRes, gRes, aRes, geRes, cRes, lpRes] = await Promise.all([
           fetch(urls.keyword).catch(() => null),
           fetch(urls.search_term).catch(() => null),
           fetch(urls.geo).catch(() => null),
           fetch(urls.age).catch(() => null),
           fetch(urls.gender).catch(() => null),
           fetch(urls.campaign).catch(() => null),
+          fetch(urls.landing_page).catch(() => null),
         ]);
 
         const parse = async (res: Response | null): Promise<Row[]> => {
@@ -272,17 +297,18 @@ function useDimensionsWithPql(
           }
         };
 
-        const [keywords, searchTerms, geoData, ageData, genderData, campaigns] = await Promise.all([
+        const [keywords, searchTerms, geoData, ageData, genderData, campaigns, landingPages] = await Promise.all([
           parse(kRes),
           parse(sRes),
           parse(gRes),
           parse(aRes),
           parse(geRes),
           parse(cRes),
+          parse(lpRes),
         ]);
 
         if (cancelled) return;
-        setState({ keywords, searchTerms, geoData, ageData, genderData, campaigns, loading: false });
+        setState({ keywords, searchTerms, geoData, ageData, genderData, campaigns, landingPages, loading: false });
       } catch {
         if (!cancelled) {
           setState({ ...EMPTY_DIMENSIONS, loading: false });
@@ -300,11 +326,7 @@ function useDimensionsWithPql(
 
 // ── Internal funnel-health data (INTERNAL MODE ONLY) ──────────────────────
 
-/** Single conversion action whose name flags Pre-Qualified Leads.
- *  Per Peterson + Ahmed (2026-06): the "Pre-Qualified Lead" concept maps to
- *  the SUBMIT_LEAD_FORM action "Lead Instant Quote - (JTC)" — not the
- *  similarly-named "Pre-Qualified Lead" action that's being deprecated. */
-const PREQ_ACTION_NAME = 'Lead Instant Quote - (JTC)';
+// PREQ_ACTION_NAME is defined at the top of the file with the other constants.
 
 interface InternalFunnelState {
   dailyActions: Array<{ date: string; action_name: string; conversions: number }>;
@@ -463,6 +485,13 @@ export default function SouthRiverMortgageGoogleReport({
   const costPerPql = pqlCount > 0 ? pqlData.costCurrent / pqlCount : 0;
   const costPerPqlPrior = pqlPrior > 0 ? pqlData.costPrior / pqlPrior : 0;
   const costPerPqlChange = calcChange(costPerPql, costPerPqlPrior);
+  const preqCount = pqlData.currentPreq;
+  const preqPrior = pqlData.priorPreq;
+  const preqChange = calcChange(preqCount, preqPrior);
+  const preqToPqlRate = preqCount > 0 ? pqlCount / preqCount : 0;
+  const preqToPqlRatePrior = preqPrior > 0 ? pqlPrior / preqPrior : 0;
+  const preqToPqlRateChange = calcChange(preqToPqlRate, preqToPqlRatePrior);
+  const spendChange = calcChange(pqlData.costCurrent, pqlData.costPrior);
 
   // ── Per-dimension data with PQL columns ────────────────────────────────
   const dims = useDimensionsWithPql(client.ad_account_id, dateRangeIndex);
@@ -591,35 +620,64 @@ export default function SouthRiverMortgageGoogleReport({
 
       {!loading && !error && (
         <>
-          {/* 0. PRIMARY KPI — Pricing Qualified Leads (highlighted) */}
-          <div className="rounded-xl border-2 border-[#bfdbfe] bg-gradient-to-r from-[#eff6ff] to-[#eef2ff] p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="inline-block w-2 h-2 rounded-full bg-[#2563eb]" />
-              <h2 className="text-xs font-bold text-[#1d4ed8] uppercase tracking-wider">
-                Primary KPI &mdash; Pricing Qualified Leads
+          {/* 0. PRIMARY KPI — Pricing Qualified Leads */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-800">
+                Pricing Qualified Leads
+                <span className="ml-2 text-xs font-normal text-slate-400">(live from Google Ads)</span>
               </h2>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <SparklineKpiCard
-                label="Pricing Qualified Leads"
-                value={pqlData.loading ? '…' : fmt(pqlCount)}
-                change={pqlData.loading ? undefined : pqlChange.pct}
-                changeDirection={pqlChange.direction}
-                changeSentiment="positive-up"
-                size="lg"
-              />
-              <SparklineKpiCard
-                label="Cost per Pricing Qualified Lead"
-                value={pqlData.loading ? '…' : pqlCount > 0 ? fmtMoney(costPerPql) : '--'}
-                change={pqlData.loading ? undefined : costPerPqlChange.pct}
-                changeDirection={costPerPqlChange.direction}
-                changeSentiment="negative-up"
-                size="lg"
-              />
+            <div className="p-6">
+              {pqlData.loading ? (
+                <div className="flex items-center justify-center py-4">
+                  <div className="animate-spin rounded-full h-6 w-6 border-2 border-slate-200 border-t-[#2563eb]" />
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                  <SparklineKpiCard
+                    label="Pricing Qualified Leads"
+                    value={fmt(pqlCount)}
+                    change={pqlChange.pct}
+                    changeDirection={pqlChange.direction}
+                    changeSentiment="positive-up"
+                    size="lg"
+                  />
+                  <SparklineKpiCard
+                    label="Pre-Qualified Leads"
+                    value={fmt(preqCount)}
+                    change={preqChange.pct}
+                    changeDirection={preqChange.direction}
+                    changeSentiment="positive-up"
+                    size="lg"
+                  />
+                  <SparklineKpiCard
+                    label="Ad Spend"
+                    value={pqlData.costCurrent > 0 ? fmtMoney(pqlData.costCurrent) : '--'}
+                    change={spendChange.pct}
+                    changeDirection={spendChange.direction}
+                    changeSentiment="neutral"
+                    size="lg"
+                  />
+                  <SparklineKpiCard
+                    label="Cost Per PQL"
+                    value={pqlCount > 0 ? fmtMoney(costPerPql) : '--'}
+                    change={costPerPqlChange.pct}
+                    changeDirection={costPerPqlChange.direction}
+                    changeSentiment="negative-up"
+                    size="lg"
+                  />
+                  <SparklineKpiCard
+                    label="Pre-Q to PQL Rate"
+                    value={preqToPqlRate > 0 ? fmtPct(preqToPqlRate) : '--'}
+                    change={preqToPqlRateChange.pct}
+                    changeDirection={preqToPqlRateChange.direction}
+                    changeSentiment="positive-up"
+                    size="lg"
+                  />
+                </div>
+              )}
             </div>
-            <p className="text-[11px] text-slate-500 mt-3">
-              Counts the {PQL_ACTION_LABELS} conversion action only. Recent days may rise as conversions finish attributing.
-            </p>
           </div>
 
           {/* ───────────────────────────────────────────────────────────────────
@@ -933,6 +991,38 @@ export default function SouthRiverMortgageGoogleReport({
                 { key: 'cost_per_pql', label: 'Cost / PQL', align: 'right', format: moneyOrDashCol },
               ]}
               data={dims.geoData}
+            />
+          )}
+
+          {/* 11a. Landing Page Performance */}
+          {dims.landingPages.length > 0 && (
+            <BreakdownTable
+              title="Landing Page Performance"
+              columns={[
+                {
+                  key: 'landing_page',
+                  label: 'Landing Page',
+                  format: (v: unknown) => {
+                    const url = String(v ?? '');
+                    if (!url) return '--';
+                    try {
+                      const u = new URL(url);
+                      return u.pathname + (u.search || '');
+                    } catch {
+                      return url;
+                    }
+                  },
+                },
+                { key: 'impressions', label: 'Impressions', align: 'right', format: numCol },
+                { key: 'clicks', label: 'Clicks', align: 'right', format: numCol },
+                { key: 'ctr', label: 'CTR', align: 'right', format: pctCol },
+                { key: 'cost', label: 'Cost', align: 'right', format: moneyCol },
+                { key: 'conversions', label: 'Leads', align: 'right', format: numCol },
+                { key: 'cost_per_conversion', label: 'Cost / Lead', align: 'right', format: moneyOrDashCol },
+                { key: 'pql_conversions', label: 'PQLs', align: 'right', format: numOrDashCol },
+                { key: 'cost_per_pql', label: 'Cost / PQL', align: 'right', format: moneyOrDashCol },
+              ]}
+              data={dims.landingPages}
             />
           )}
 

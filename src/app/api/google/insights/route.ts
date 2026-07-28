@@ -468,6 +468,65 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ level: 'gender', customer_id: customerId, data });
     }
 
+    // ── Landing page level ──────────────────────────────────────────────
+    if (level === 'landing_page') {
+      const results = await customer.query(`
+        SELECT
+          landing_page_view.unexpanded_final_url,
+          metrics.impressions,
+          metrics.clicks,
+          metrics.ctr,
+          metrics.average_cpc,
+          metrics.cost_micros,
+          metrics.conversions,
+          metrics.cost_per_conversion
+        FROM landing_page_view
+        WHERE ${dateFilter}
+          AND campaign.status != 'REMOVED'
+        ORDER BY metrics.cost_micros DESC
+        LIMIT 50
+      `);
+
+      const agg: Record<string, { impressions: number; clicks: number; cost: number; conversions: number }> = {};
+      for (const row of results as any[]) {
+        const url: string = row.landing_page_view?.unexpanded_final_url ?? 'Unknown';
+        if (!agg[url]) agg[url] = { impressions: 0, clicks: 0, cost: 0, conversions: 0 };
+        agg[url].impressions += Number(row.metrics.impressions ?? 0);
+        agg[url].clicks += Number(row.metrics.clicks ?? 0);
+        agg[url].cost += Number(row.metrics.cost_micros ?? 0) / 1_000_000;
+        agg[url].conversions += Number(row.metrics.conversions ?? 0);
+      }
+
+      const data = Object.entries(agg)
+        .map(([landing_page, v]) => ({
+          landing_page,
+          impressions: v.impressions,
+          clicks: v.clicks,
+          ctr: v.impressions > 0 ? v.clicks / v.impressions : 0,
+          average_cpc: v.clicks > 0 ? v.cost / v.clicks : 0,
+          cost: v.cost,
+          conversions: v.conversions,
+          cost_per_conversion: v.conversions > 0 ? v.cost / v.conversions : 0,
+        }))
+        .sort((a, b) => b.cost - a.cost);
+
+      if (pqlAction) {
+        await attachPqlPerRow(
+          customer,
+          `SELECT landing_page_view.unexpanded_final_url, segments.conversion_action_name, metrics.conversions
+           FROM landing_page_view
+           WHERE ${dateFilter}
+             AND campaign.status != 'REMOVED'`,
+          pqlAction,
+          data,
+          (r: any) => r.landing_page_view?.unexpanded_final_url ?? null,
+          (r: any) => r.landing_page,
+        );
+      }
+
+      return NextResponse.json({ level: 'landing_page', customer_id: customerId, data });
+    }
+
     // ── Campaign level (default) ────────────────────────────────────────
     const results = await customer.query(`
       SELECT
