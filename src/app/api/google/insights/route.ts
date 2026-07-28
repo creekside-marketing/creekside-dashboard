@@ -473,6 +473,7 @@ export async function GET(request: NextRequest) {
       const results = await customer.query(`
         SELECT
           landing_page_view.unexpanded_final_url,
+          campaign.status,
           metrics.impressions,
           metrics.clicks,
           metrics.ctr,
@@ -513,7 +514,7 @@ export async function GET(request: NextRequest) {
       if (pqlAction) {
         await attachPqlPerRow(
           customer,
-          `SELECT landing_page_view.unexpanded_final_url, segments.conversion_action_name, metrics.conversions
+          `SELECT landing_page_view.unexpanded_final_url, campaign.status, segments.conversion_action_name, metrics.conversions
            FROM landing_page_view
            WHERE ${dateFilter}
              AND campaign.status != 'REMOVED'`,
