@@ -154,7 +154,10 @@ export async function GET(request: NextRequest) {
         fields: [
           'id',
           'campaign_id',
-          'creative{object_story_spec{link_data{link,call_to_action{value{link}}},video_data{call_to_action{value{link}}}},link_url,link}',
+          // Avoid deep sub-field expansion — Graph API throws (#100) for
+          // link_data{link} when that sub-object doesn't exist on the creative.
+          // object_story_spec without expansion returns the full nested object.
+          'creative{object_story_spec,link_url,destination_url,asset_feed_spec{link_urls}}',
         ],
         limit: 500,
       });

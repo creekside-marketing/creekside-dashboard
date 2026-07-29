@@ -262,14 +262,12 @@ async function getAds(args: Record<string, unknown>): Promise<unknown> {
   // Accept both "act_123" and "123" formats; Graph API needs the "act_" prefix
   const accountId = rawAccountId.startsWith('act_') ? rawAccountId : `act_${rawAccountId}`;
 
-  // Caller may pass complex field expansion strings as array elements — join them
-  const requestedFields = Array.isArray(args.fields) && (args.fields as string[]).length > 0
-    ? (args.fields as string[]).join(',')
-    : [
-        'id',
-        'campaign_id',
-        'creative{object_story_spec{link_data{link,call_to_action{value{link}}},video_data{call_to_action{value{link}}}},link_url,destination_url,asset_feed_spec{link_urls}}',
-      ].join(',');
+  // Use a safe field expansion. Deeply nested sub-field syntax like
+  // link_data{link} or call_to_action{value{link}} causes Graph API error
+  // (#100) when that sub-object doesn't exist on a given creative type.
+  // Requesting object_story_spec without sub-field expansion returns the full
+  // nested structure (including link_data.link) without any field errors.
+  const requestedFields = 'id,campaign_id,creative{object_story_spec,link_url,destination_url,asset_feed_spec{link_urls}}';
 
   const pageLimit = Math.min(Number(args.limit ?? 200), 200);
   const allAds: unknown[] = [];
