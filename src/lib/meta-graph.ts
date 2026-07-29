@@ -375,7 +375,9 @@ async function getCreativeDetails(args: Record<string, unknown>): Promise<unknow
       const sliceIds = storyIds.slice(i, i + BATCH_SIZE);
       const batch = sliceIds.map((id) => ({
         method: 'GET',
-        relative_url: `${id}?fields=link`,
+        // link — link-type posts (single-image link ads)
+        // call_to_action — VIDEO/SHARE ads: destination URL in value.link
+        relative_url: `${id}?fields=link,call_to_action`,
       }));
 
       try {
@@ -392,10 +394,14 @@ async function getCreativeDetails(args: Record<string, unknown>): Promise<unknow
           const item = batchResults[j];
           if (item?.code === 200) {
             try {
-              const post = JSON.parse(item.body) as { link?: string };
+              const post = JSON.parse(item.body) as {
+                link?: string;
+                call_to_action?: { value?: { link?: string } };
+              };
               const storyId = sliceIds[j];
-              if (post.link && storyToCreative[storyId]) {
-                storyToCreative[storyId]._resolved_link = post.link;
+              const resolved = post.link || post.call_to_action?.value?.link;
+              if (resolved && storyToCreative[storyId]) {
+                storyToCreative[storyId]._resolved_link = resolved;
               }
             } catch { /* skip malformed */ }
           }
