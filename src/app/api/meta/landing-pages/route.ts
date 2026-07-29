@@ -163,6 +163,8 @@ export async function GET(request: NextRequest) {
     //         expansion path from the ads endpoint.
     //
     const campaignUrlMap: Record<string, string> = {}; // campaign_id → URL
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const _debug: Record<string, any> = { campaignCount: campaignRows.length };
     try {
       // Step 2 — ad→campaign→creative mapping
       const adsRaw = await callPipeboard('get_ads', { account_id, limit: 200 });
@@ -170,6 +172,7 @@ export async function GET(request: NextRequest) {
         campaign_id?: unknown;
         creative?: { id?: unknown };
       }>;
+      _debug.adsCount = ads.length;
 
       const campaignToCreativeId: Record<string, string> = {};
       for (const ad of ads) {
@@ -182,8 +185,9 @@ export async function GET(request: NextRequest) {
 
       // Step 3 — creative details → URL (two-phase inside getCreativeDetails:
       //   phase a: batch GET creative fields incl. effective_object_story_id
-      //   phase b: batch GET /{story_id}?fields=link for VIDEO/SHARE creatives)
+      //   phase b: batch GET /{story_id}?fields=link,call_to_action for VIDEO/SHARE)
       const uniqueCreativeIds = [...new Set(Object.values(campaignToCreativeId))];
+      _debug.uniqueCreatives = uniqueCreativeIds.length;
       if (uniqueCreativeIds.length > 0) {
         const creativesRaw = await callPipeboard('get_creative_details', {
           creative_ids: uniqueCreativeIds,
@@ -192,8 +196,24 @@ export async function GET(request: NextRequest) {
           id?: unknown;
           link_url?: string;
           child_attachments?: Array<{ link?: string }>;
+          effective_object_story_id?: string;
           _resolved_link?: string;
         }>;
+        _debug.creativesReturned = creatives.length;
+
+        // Sample the first creative's keys+values so failures are self-explaining
+        if (creatives.length > 0) {
+          const sample = creatives[0];
+          _debug.sampleCreative = {
+            id: sample.id,
+            link_url: sample.link_url ?? null,
+            has_child_attachments: Array.isArray(sample.child_attachments) && sample.child_attachments.length > 0,
+            effective_object_story_id: sample.effective_object_story_id ?? null,
+            _resolved_link: sample._resolved_link ?? null,
+          };
+          _debug.creativesWithStoryId = creatives.filter((c) => !!c.effective_object_story_id).length;
+          _debug.creativesWithResolvedLink = creatives.filter((c) => !!c._resolved_link).length;
+        }
 
         const creativeToUrl: Record<string, string> = {};
         for (const creative of creatives) {
@@ -208,16 +228,18 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      console.log(`[meta/landing-pages] ads=${ads.length} unique_creatives=${uniqueCreativeIds.length} urls_resolved=${Object.keys(campaignUrlMap).length}`);
+      _debug.urlsResolved = Object.keys(campaignUrlMap).length;
+      console.log(`[meta/landing-pages] ads=${ads.length} unique_creatives=${uniqueCreativeIds.length} urls_resolved=${_debug.urlsResolved}`);
     } catch (e) {
-      console.error('[meta/landing-pages] URL resolution error:', e instanceof Error ? e.message : String(e));
+      _debug.error = e instanceof Error ? e.message : String(e);
+      console.error('[meta/landing-pages] URL resolution error:', _debug.error);
     }
 
     const hasUrls = Object.keys(campaignUrlMap).length > 0;
 
     // If no URLs resolved at all, tell the client so it can show a message
     if (!hasUrls) {
-      return NextResponse.json({ data: [], hasUrls: false, urlResolutionFailed: true });
+      return NextResponse.json({ data: [], hasUrls: false, urlResolutionFailed: true, _debug });
     }
 
     // Count campaigns that had no URL resolved (spend will be absent from table)
@@ -265,7 +287,7 @@ export async function GET(request: NextRequest) {
       .filter((r) => r.spend > 0)
       .sort((a, b) => b.spend - a.spend);
 
-    return NextResponse.json({ data, hasUrls: true, droppedCampaigns });
+    return NextResponse.json({ data, hasUrls: true, droppedCampaigns, _debug });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 502 });

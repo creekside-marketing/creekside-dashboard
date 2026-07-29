@@ -114,6 +114,8 @@ interface LandingPageState {
   droppedCampaigns: number;
   loading: boolean;
   error: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  debug: Record<string, any> | null;
 }
 
 function useMetaLandingPageData(
@@ -122,12 +124,12 @@ function useMetaLandingPageData(
   enabled: boolean,
 ): LandingPageState {
   const [state, setState] = useState<LandingPageState>({
-    data: [], hasUrls: false, urlResolutionFailed: false, droppedCampaigns: 0, loading: false, error: false,
+    data: [], hasUrls: false, urlResolutionFailed: false, droppedCampaigns: 0, loading: false, error: false, debug: null,
   });
 
   useEffect(() => {
     if (!enabled || !adAccountId) {
-      setState({ data: [], hasUrls: false, urlResolutionFailed: false, droppedCampaigns: 0, loading: false, error: false });
+      setState({ data: [], hasUrls: false, urlResolutionFailed: false, droppedCampaigns: 0, loading: false, error: false, debug: null });
       return;
     }
     let cancelled = false;
@@ -149,9 +151,10 @@ function useMetaLandingPageData(
           droppedCampaigns: Number(json?.droppedCampaigns ?? 0),
           loading: false,
           error: !res.ok,
+          debug: json?._debug ?? null,
         });
       } catch {
-        if (!cancelled) setState({ data: [], hasUrls: false, urlResolutionFailed: false, droppedCampaigns: 0, loading: false, error: true });
+        if (!cancelled) setState({ data: [], hasUrls: false, urlResolutionFailed: false, droppedCampaigns: 0, loading: false, error: true, debug: null });
       }
     })();
 
@@ -287,10 +290,21 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
           ) : lpData.error ? (
             <p className="text-sm text-red-500">Unable to load landing page data from Meta.</p>
           ) : lpData.urlResolutionFailed ? (
-            <p className="text-sm text-amber-700/60">
-              Could not resolve destination URLs from ad creatives for this account. The creative fields
-              returned by Meta did not include link data.
-            </p>
+            <div className="space-y-2">
+              <p className="text-sm text-amber-700/60">
+                Could not resolve destination URLs from ad creatives for this account.
+              </p>
+              {lpData.debug && (
+                <details className="text-[11px]">
+                  <summary className="cursor-pointer font-mono text-amber-800/70 hover:text-amber-900 select-none">
+                    debug info (click to expand)
+                  </summary>
+                  <pre className="mt-2 p-3 bg-amber-100/60 rounded text-amber-900 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
+                    {JSON.stringify(lpData.debug, null, 2)}
+                  </pre>
+                </details>
+              )}
+            </div>
           ) : lpData.data.length === 0 ? (
             <p className="text-sm text-amber-700/60">No landing page data returned for this date range.</p>
           ) : (
