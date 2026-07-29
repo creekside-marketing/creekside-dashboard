@@ -253,22 +253,25 @@ async function bulkGetAdCreatives(args: Record<string, unknown>): Promise<unknow
   return wrapResponse({ results: results.filter(Boolean) });
 }
 
-/** Paginate through all ads in an account, requesting creative URL fields. */
+/**
+ * Paginate through all ads in an account.
+ * Requests only id, campaign_id, and creative{id} — the minimum needed to
+ * build a campaign→creative map. URL extraction is done separately via
+ * getCreativeDetails (which uses the direct creative endpoint, not field
+ * expansion from ads — field expansion on creatives is unreliable with
+ * system-user tokens: object_story_spec, destination_url, link_url are all
+ * rejected or empty depending on creative type).
+ */
 async function getAds(args: Record<string, unknown>): Promise<unknown> {
   const rawAccountId = String(args.account_id ?? '');
   if (!rawAccountId) throw new Error('No account_id provided');
   const token = getToken();
 
-  // Accept both "act_123" and "123" formats; Graph API needs the "act_" prefix
+  // Accept both "act_123" and "123" formats
   const accountId = rawAccountId.startsWith('act_') ? rawAccountId : `act_${rawAccountId}`;
 
-  // Use a safe field expansion. Deeply nested sub-field syntax like
-  // link_data{link} or call_to_action{value{link}} causes Graph API error
-  // (#100) when that sub-object doesn't exist on a given creative type.
-  // Requesting object_story_spec without sub-field expansion returns the full
-  // nested structure (including link_data.link) without any field errors.
-  const requestedFields = 'id,campaign_id,creative{object_story_spec,link_url,destination_url,asset_feed_spec{link_urls}}';
-
+  // creative{id} is always safe — id is a valid field on any Graph API node
+  const FIELDS = 'id,campaign_id,creative{id}';
   const pageLimit = Math.min(Number(args.limit ?? 200), 200);
   const allAds: unknown[] = [];
   let after: string | null = null;
@@ -276,7 +279,7 @@ async function getAds(args: Record<string, unknown>): Promise<unknown> {
   do {
     const params: Record<string, string> = {
       access_token: token,
-      fields: requestedFields,
+      fields: FIELDS,
       limit: String(pageLimit),
     };
     if (after) params.after = after;
@@ -293,11 +296,56 @@ async function getAds(args: Record<string, unknown>): Promise<unknown> {
     };
 
     if (Array.isArray(json.data)) allAds.push(...json.data);
-    // Continue only when there is an explicit next cursor
     after = (json.paging?.next && json.paging.cursors?.after) ? json.paging.cursors.after : null;
-  } while (after && allAds.length < 2000); // safety cap at 2 000 ads
+  } while (after && allAds.length < 2000);
 
   return wrapResponse({ data: allAds });
+}
+
+/**
+ * Batch-fetch creative details for a list of creative IDs.
+ * Uses the Meta Graph API batch endpoint to get link_url and child_attachments
+ * directly from each creative node — avoids all the field-expansion issues
+ * that plague the /ads?fields=creative{...} path.
+ *
+ * URL extraction priority (per research on SRM account):
+ *   1. child_attachments[0].link  — carousel / standard link ads
+ *   2. link_url                   — legacy single-image (often null on modern ads)
+ */
+async function getCreativeDetails(args: Record<string, unknown>): Promise<unknown> {
+  const creativeIds = (args.creative_ids as string[] | undefined) ?? [];
+  if (creativeIds.length === 0) return wrapResponse({ data: [] });
+  const token = getToken();
+  const FIELDS = 'id,link_url,child_attachments';
+  const BATCH_SIZE = 50; // Meta's per-batch limit
+  const results: unknown[] = [];
+
+  for (let i = 0; i < creativeIds.length; i += BATCH_SIZE) {
+    const batch = creativeIds.slice(i, i + BATCH_SIZE).map((id) => ({
+      method: 'GET',
+      relative_url: `${id}?fields=${FIELDS}`,
+    }));
+
+    const response = await fetch(`${META_BASE}?access_token=${token}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ batch }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Graph API batch ${response.status}: ${body.slice(0, 300)}`);
+    }
+
+    const batchResults = await response.json() as Array<{ code: number; body: string } | null>;
+    for (const item of batchResults) {
+      if (item?.code === 200) {
+        try { results.push(JSON.parse(item.body)); } catch { /* skip malformed */ }
+      }
+    }
+  }
+
+  return wrapResponse({ data: results });
 }
 
 // ── Response wrapper ─────────────────────────────────────────────────────
@@ -329,6 +377,7 @@ const GRAPH_METHODS: Record<string, (args: Record<string, unknown>) => Promise<u
   get_ad_accounts: getAdAccounts,
   get_insights: getInsights,
   get_ads: getAds,
+  get_creative_details: getCreativeDetails,
 };
 
 /**

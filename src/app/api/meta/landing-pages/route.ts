@@ -1,15 +1,16 @@
 /**
  * GET /api/meta/landing-pages — Campaign-level Meta spend grouped by destination URL.
  *
- * Two-step approach:
- *   1. get_insights at level=campaign with fields=conversions
- *      → exact spend/impressions/clicks/Pre-Q/PQL per campaign_id
- *   2. get_ads for the account with creative URL fields
- *      → campaign_id → destination URL map (one URL per campaign)
+ * Three-step approach:
+ *   1. get_insights at level=campaign → exact spend/impressions/clicks/conversions
+ *   2. get_ads → campaign_id + creative{id} mapping (no URL extraction here —
+ *      creative field expansion is unreliable with system-user tokens)
+ *   3. get_creative_details (batch Graph API) → link_url + child_attachments per
+ *      creative, which is where destination URLs actually live for modern Meta ads
  *
- * Groups campaign spend by resolved URL. If URL resolution fails entirely,
- * returns urlResolutionFailed=true so the UI can surface a clear message
- * rather than silently falling back to ad names.
+ * URL priority per research on SRM account:
+ *   child_attachments[0].link  — carousel / standard link ads
+ *   link_url                   — legacy single-image (often null on modern ads)
  *
  * CANNOT: Modify ads — read-only.
  */
@@ -62,25 +63,25 @@ function decodeFbRedirect(url: string): string {
   return url;
 }
 
-/** Extract the destination URL from a Meta ad creative object. */
+/**
+ * Extract destination URL from a creative details object.
+ * Priority matches what's actually available from the Meta Graph API
+ * creative endpoint (not field expansion from ads):
+ *   1. child_attachments[0].link — carousel / standard link ads
+ *   2. link_url                  — legacy single-image format
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractUrl(creative: any): string | null {
+function extractUrlFromCreative(creative: any): string | null {
   if (!creative || typeof creative !== 'object') return null;
-  let url: string | null = null;
-  // Link / carousel ads
-  const spec = creative.object_story_spec;
-  if (spec?.link_data?.link)                         url = String(spec.link_data.link);
-  else if (spec?.link_data?.call_to_action?.value?.link) url = String(spec.link_data.call_to_action.value.link);
-  // Video ads with CTA
-  else if (spec?.video_data?.call_to_action?.value?.link) url = String(spec.video_data.call_to_action.value.link);
-  // Dynamic / Collection ads (asset_feed_spec)
-  else if (Array.isArray(creative.asset_feed_spec?.link_urls) && creative.asset_feed_spec.link_urls[0]?.website_url)
-    url = String(creative.asset_feed_spec.link_urls[0].website_url);
-  // Flat fields sometimes present on the creative itself
-  else if (creative.link_url)        url = String(creative.link_url);
-  else if (creative.link)            url = String(creative.link);
-  else if (creative.destination_url) url = String(creative.destination_url);
-  return url ? decodeFbRedirect(url) : null;
+  // Carousel / standard: URL lives in child_attachments
+  const attachments = creative.child_attachments;
+  if (Array.isArray(attachments) && attachments.length > 0) {
+    const link = attachments[0]?.link;
+    if (link) return decodeFbRedirect(String(link));
+  }
+  // Legacy single-image
+  if (creative.link_url) return decodeFbRedirect(String(creative.link_url));
+  return null;
 }
 
 function resolveTimeRange(
@@ -145,34 +146,62 @@ export async function GET(request: NextRequest) {
 
     if (campaignRows.length === 0) return NextResponse.json({ data: [], hasUrls: false });
 
-    // ── Step 2: resolve campaign → destination URL via get_ads ────────────
-    // Request creative sub-fields so Meta returns link_data.link for each ad.
-    const campaignUrlMap: Record<string, string> = {}; // campaign_id → first resolved URL
+    // ── Steps 2+3: resolve campaign → destination URL ────────────────────
+    //
+    // Step 2: get_ads returns id, campaign_id, and creative{id} only.
+    //         Build campaign_id → creative_id map (one creative per campaign).
+    //
+    // Step 3: get_creative_details batch-fetches link_url + child_attachments
+    //         for each unique creative. This uses the direct /{creative_id}
+    //         endpoint which actually exposes these fields, unlike the field-
+    //         expansion path from the ads endpoint.
+    //
+    const campaignUrlMap: Record<string, string> = {}; // campaign_id → URL
     try {
-      const raw = await callPipeboard('get_ads', {
-        account_id,
-        fields: [
-          'id',
-          'campaign_id',
-          // Avoid deep sub-field expansion — Graph API throws (#100) for
-          // link_data{link} when that sub-object doesn't exist on the creative.
-          // object_story_spec without expansion returns the full nested object.
-          'creative{object_story_spec,link_url,destination_url,asset_feed_spec{link_urls}}',
-        ],
-        limit: 500,
-      });
-      const unwrapped = unwrapMcp(raw);
-      // PipeBoard may return { data: [...] } or a plain array
-      const ads = unwrapped?.data ?? (Array.isArray(unwrapped) ? unwrapped : []);
+      // Step 2 — ad→campaign→creative mapping
+      const adsRaw = await callPipeboard('get_ads', { account_id, limit: 200 });
+      const ads = (unwrapMcp(adsRaw)?.data ?? []) as Array<{
+        campaign_id?: unknown;
+        creative?: { id?: unknown };
+      }>;
+
+      const campaignToCreativeId: Record<string, string> = {};
       for (const ad of ads) {
-        const campaignId = String(ad?.campaign_id ?? '');
-        if (!campaignId || campaignUrlMap[campaignId]) continue; // one URL per campaign
-        const url = extractUrl(ad?.creative ?? ad);
-        if (url) campaignUrlMap[campaignId] = url;
+        const cmpId = String(ad.campaign_id ?? '');
+        const crtId = String(ad.creative?.id ?? '');
+        if (cmpId && crtId && !campaignToCreativeId[cmpId]) {
+          campaignToCreativeId[cmpId] = crtId;
+        }
       }
+
+      // Step 3 — creative details → URL
+      const uniqueCreativeIds = [...new Set(Object.values(campaignToCreativeId))];
+      if (uniqueCreativeIds.length > 0) {
+        const creativesRaw = await callPipeboard('get_creative_details', {
+          creative_ids: uniqueCreativeIds,
+        });
+        const creatives = (unwrapMcp(creativesRaw)?.data ?? []) as Array<{
+          id?: unknown;
+          link_url?: string;
+          child_attachments?: Array<{ link?: string }>;
+        }>;
+
+        const creativeToUrl: Record<string, string> = {};
+        for (const creative of creatives) {
+          const crtId = String(creative.id ?? '');
+          const url = extractUrlFromCreative(creative);
+          if (crtId && url) creativeToUrl[crtId] = url;
+        }
+
+        for (const [cmpId, crtId] of Object.entries(campaignToCreativeId)) {
+          const url = creativeToUrl[crtId];
+          if (url) campaignUrlMap[cmpId] = url;
+        }
+      }
+
+      console.log(`[meta/landing-pages] ads=${ads.length} unique_creatives=${uniqueCreativeIds.length} urls_resolved=${Object.keys(campaignUrlMap).length}`);
     } catch (e) {
-      console.error('[meta/landing-pages] get_ads error:', e instanceof Error ? e.message : String(e));
-      // Don't bail — fall through; urlResolutionFailed will be set below
+      console.error('[meta/landing-pages] URL resolution error:', e instanceof Error ? e.message : String(e));
     }
 
     const hasUrls = Object.keys(campaignUrlMap).length > 0;
