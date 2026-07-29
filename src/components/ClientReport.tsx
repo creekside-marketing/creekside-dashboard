@@ -240,12 +240,12 @@ function countMetaLeads(row: any, leadTypes: string[] | null): number {
     const conversions = (Array.isArray(row.conversions) ? row.conversions : []) as MetaAction[];
     return conversions
       .filter((c) => leadTypes.includes(c.action_type))
-      .reduce((sum, c) => sum + (parseInt(c.value, 10) || 0), 0);
+      .reduce((sum, c) => sum + Math.round(Number(c.value) || 0), 0);
   }
   const actions = (Array.isArray(row.actions) ? row.actions : []) as MetaAction[];
   return actions
     .filter((a) => DEFAULT_LEAD_ACTION_TYPES.includes(a.action_type))
-    .reduce((sum, a) => sum + (parseInt(a.value, 10) || 0), 0);
+    .reduce((sum, a) => sum + Math.round(Number(a.value) || 0), 0);
 }
 
 // ── Utilities ────────────────────────────────────────────────────────────
