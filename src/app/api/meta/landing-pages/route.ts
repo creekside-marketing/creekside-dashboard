@@ -10,10 +10,10 @@
  *        c. effective_object_story_id → second batch GET /{story_id}?fields=link
  *           for VIDEO/SHARE type creatives (the common case for SRM)
  *
- * URL priority per research on SRM account:
- *   _resolved_link             — VIDEO/SHARE (from post link lookup)
- *   child_attachments[0].link  — carousel ads
- *   link_url                   — legacy single-image (often null on modern ads)
+ * URL resolution order (matches extractUrlFromCreative):
+ *   1. child_attachments[0].link — carousel ads (direct)
+ *   2. link_url                  — legacy single-image (direct, often null)
+ *   3. _resolved_link            — VIDEO/SHARE via effective_object_story_id post lookup
  *
  * CANNOT: Modify ads — read-only.
  */
@@ -180,7 +180,9 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // Step 3 — creative details → URL
+      // Step 3 — creative details → URL (two-phase inside getCreativeDetails:
+      //   phase a: batch GET creative fields incl. effective_object_story_id
+      //   phase b: batch GET /{story_id}?fields=link for VIDEO/SHARE creatives)
       const uniqueCreativeIds = [...new Set(Object.values(campaignToCreativeId))];
       if (uniqueCreativeIds.length > 0) {
         const creativesRaw = await callPipeboard('get_creative_details', {
@@ -190,6 +192,7 @@ export async function GET(request: NextRequest) {
           id?: unknown;
           link_url?: string;
           child_attachments?: Array<{ link?: string }>;
+          _resolved_link?: string;
         }>;
 
         const creativeToUrl: Record<string, string> = {};
@@ -222,7 +225,7 @@ export async function GET(request: NextRequest) {
       (r) => !campaignUrlMap[String(r.campaign_id ?? '')]
     ).length;
 
-    // ── Step 3: aggregate campaign spend by URL ───────────────────────────
+    // ── Step 4: aggregate campaign spend by URL ──────────────────────────
     const byUrl: Record<string, {
       impressions: number; clicks: number; spend: number; preq: number; pql: number;
     }> = {};
