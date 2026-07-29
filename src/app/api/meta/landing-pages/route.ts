@@ -3,13 +3,16 @@
  *
  * Three-step approach:
  *   1. get_insights at level=campaign → exact spend/impressions/clicks/conversions
- *   2. get_ads → campaign_id + creative{id} mapping (no URL extraction here —
- *      creative field expansion is unreliable with system-user tokens)
- *   3. get_creative_details (batch Graph API) → link_url + child_attachments per
- *      creative, which is where destination URLs actually live for modern Meta ads
+ *   2. get_ads → campaign_id + creative{id} mapping
+ *   3. get_creative_details (batch Graph API) → resolves destination URL per creative:
+ *        a. child_attachments[0].link — carousel ads
+ *        b. link_url                  — legacy single-image (often null on modern ads)
+ *        c. effective_object_story_id → second batch GET /{story_id}?fields=link
+ *           for VIDEO/SHARE type creatives (the common case for SRM)
  *
  * URL priority per research on SRM account:
- *   child_attachments[0].link  — carousel / standard link ads
+ *   _resolved_link             — VIDEO/SHARE (from post link lookup)
+ *   child_attachments[0].link  — carousel ads
  *   link_url                   — legacy single-image (often null on modern ads)
  *
  * CANNOT: Modify ads — read-only.
@@ -65,15 +68,16 @@ function decodeFbRedirect(url: string): string {
 
 /**
  * Extract destination URL from a creative details object.
- * Priority matches what's actually available from the Meta Graph API
- * creative endpoint (not field expansion from ads):
- *   1. child_attachments[0].link — carousel / standard link ads
- *   2. link_url                  — legacy single-image format
+ * Priority (per research on SRM account):
+ *   1. child_attachments[0].link — carousel ads
+ *   2. link_url                  — legacy single-image (often null on modern ads)
+ *   3. _resolved_link            — VIDEO/SHARE: resolved from effective_object_story_id
+ *                                  by meta-graph.ts getCreativeDetails step 2
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractUrlFromCreative(creative: any): string | null {
   if (!creative || typeof creative !== 'object') return null;
-  // Carousel / standard: URL lives in child_attachments
+  // Carousel: URL lives in child_attachments
   const attachments = creative.child_attachments;
   if (Array.isArray(attachments) && attachments.length > 0) {
     const link = attachments[0]?.link;
@@ -81,6 +85,8 @@ function extractUrlFromCreative(creative: any): string | null {
   }
   // Legacy single-image
   if (creative.link_url) return decodeFbRedirect(String(creative.link_url));
+  // VIDEO/SHARE type — resolved from post link via effective_object_story_id
+  if (creative._resolved_link) return decodeFbRedirect(String(creative._resolved_link));
   return null;
 }
 

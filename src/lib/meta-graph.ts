@@ -304,22 +304,29 @@ async function getAds(args: Record<string, unknown>): Promise<unknown> {
 
 /**
  * Batch-fetch creative details for a list of creative IDs.
- * Uses the Meta Graph API batch endpoint to get link_url and child_attachments
- * directly from each creative node — avoids all the field-expansion issues
- * that plague the /ads?fields=creative{...} path.
+ * Uses the Meta Graph API batch endpoint to resolve destination URLs.
  *
  * URL extraction priority (per research on SRM account):
- *   1. child_attachments[0].link  — carousel / standard link ads
+ *   1. child_attachments[0].link  — carousel ads
  *   2. link_url                   — legacy single-image (often null on modern ads)
+ *   3. _resolved_link             — VIDEO/SHARE: resolved from effective_object_story_id
+ *                                   via a second post-lookup batch call
+ *
+ * The two-step approach is required because `child_attachments` is not a top-level
+ * AdCreative field — it's only populated for carousel creatives. For VIDEO and SHARE
+ * type creatives (the common case for SRM), the only path to the destination URL is
+ * to resolve effective_object_story_id against the /{page_id}_{post_id}?fields=link
+ * endpoint.
  */
 async function getCreativeDetails(args: Record<string, unknown>): Promise<unknown> {
   const creativeIds = (args.creative_ids as string[] | undefined) ?? [];
   if (creativeIds.length === 0) return wrapResponse({ data: [] });
   const token = getToken();
-  const FIELDS = 'id,link_url,child_attachments';
+  const FIELDS = 'id,link_url,child_attachments,effective_object_story_id';
   const BATCH_SIZE = 50; // Meta's per-batch limit
-  const results: unknown[] = [];
+  const results: Record<string, unknown>[] = [];
 
+  // Step 1: Batch-fetch creative fields
   for (let i = 0; i < creativeIds.length; i += BATCH_SIZE) {
     const batch = creativeIds.slice(i, i + BATCH_SIZE).map((id) => ({
       method: 'GET',
@@ -340,9 +347,64 @@ async function getCreativeDetails(args: Record<string, unknown>): Promise<unknow
     const batchResults = await response.json() as Array<{ code: number; body: string } | null>;
     for (const item of batchResults) {
       if (item?.code === 200) {
-        try { results.push(JSON.parse(item.body)); } catch { /* skip malformed */ }
+        try { results.push(JSON.parse(item.body) as Record<string, unknown>); } catch { /* skip malformed */ }
       }
     }
+  }
+
+  // Step 2: For VIDEO/SHARE creatives without link_url/child_attachments,
+  // resolve destination URL via effective_object_story_id → post link.
+  // The post endpoint exposes the `link` field which is the actual destination URL.
+  const needsPostLookup = results.filter(
+    (c) =>
+      !c.link_url &&
+      (!Array.isArray(c.child_attachments) || (c.child_attachments as unknown[]).length === 0) &&
+      typeof c.effective_object_story_id === 'string' &&
+      c.effective_object_story_id,
+  );
+
+  if (needsPostLookup.length > 0) {
+    const storyIds = needsPostLookup.map((c) => c.effective_object_story_id as string);
+    // storyId → creative object reference so we can mutate in place
+    const storyToCreative: Record<string, Record<string, unknown>> = {};
+    for (const creative of needsPostLookup) {
+      storyToCreative[creative.effective_object_story_id as string] = creative;
+    }
+
+    for (let i = 0; i < storyIds.length; i += BATCH_SIZE) {
+      const sliceIds = storyIds.slice(i, i + BATCH_SIZE);
+      const batch = sliceIds.map((id) => ({
+        method: 'GET',
+        relative_url: `${id}?fields=link`,
+      }));
+
+      try {
+        const response = await fetch(`${META_BASE}?access_token=${token}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ batch }),
+        });
+
+        if (!response.ok) continue; // non-fatal; creatives without URLs will be skipped
+
+        const batchResults = await response.json() as Array<{ code: number; body: string } | null>;
+        for (let j = 0; j < batchResults.length; j++) {
+          const item = batchResults[j];
+          if (item?.code === 200) {
+            try {
+              const post = JSON.parse(item.body) as { link?: string };
+              const storyId = sliceIds[j];
+              if (post.link && storyToCreative[storyId]) {
+                storyToCreative[storyId]._resolved_link = post.link;
+              }
+            } catch { /* skip malformed */ }
+          }
+        }
+      } catch { /* non-fatal — continue without post links */ }
+    }
+
+    console.log(`[meta-graph] post-link resolution: ${needsPostLookup.length} creatives → ` +
+      `${needsPostLookup.filter((c) => c._resolved_link).length} resolved`);
   }
 
   return wrapResponse({ data: results });
