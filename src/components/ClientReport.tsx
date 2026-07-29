@@ -12,6 +12,7 @@ interface ReportingClient {
   client_name: string;
   platform: 'meta' | 'google';
   ad_account_id: string | null;
+  lead_conversion_types: string[] | null;
   ad_account_name: string | null;
   monthly_budget: number | null;
   monthly_revenue: number | null;
@@ -219,6 +220,34 @@ const META_CONVERSION_LABELS: Record<string, string> = {
 
 const META_CONVERSION_TYPES = new Set(Object.keys(META_CONVERSION_LABELS));
 
+// Default lead definition — MUST match client-facing LeadGenMetaReport (getLeads):
+// counts 'lead' + 'offsite_conversion.fb_pixel_lead' from the actions array.
+const DEFAULT_LEAD_ACTION_TYPES = ['lead', 'offsite_conversion.fb_pixel_lead'];
+
+interface MetaAction {
+  action_type: string;
+  value: string;
+}
+
+// Counts leads for a Meta insights row using the same logic as the client-facing
+// report: per-client lead_conversion_types (read from the `conversions` array,
+// which breaks out custom pixel events by name) when set, otherwise the default
+// lead + fb_pixel_lead from `actions`.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function countMetaLeads(row: any, leadTypes: string[] | null): number {
+  if (leadTypes && leadTypes.length > 0) {
+    // Note: the Supabase cache fallback returns `conversions` as a scalar — guard with Array.isArray
+    const conversions = (Array.isArray(row.conversions) ? row.conversions : []) as MetaAction[];
+    return conversions
+      .filter((c) => leadTypes.includes(c.action_type))
+      .reduce((sum, c) => sum + (parseInt(c.value, 10) || 0), 0);
+  }
+  const actions = (Array.isArray(row.actions) ? row.actions : []) as MetaAction[];
+  return actions
+    .filter((a) => DEFAULT_LEAD_ACTION_TYPES.includes(a.action_type))
+    .reduce((sum, a) => sum + (parseInt(a.value, 10) || 0), 0);
+}
+
 // ── Utilities ────────────────────────────────────────────────────────────
 
 function fmt(n: number): string {
@@ -252,21 +281,12 @@ function unwrapPipeboardResponse(json: Record<string, unknown>): Record<string, 
 // ── Normalizers ──────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function normalizeMetaCampaign(row: any): Campaign {
-  // Sum all business-outcome conversions for this campaign
-  let totalConversions = 0;
-  const actions = (row.actions ?? []) as Array<{ action_type: string; value: string }>;
-  for (const action of actions) {
-    if (META_CONVERSION_TYPES.has(action.action_type)) {
-      totalConversions += parseInt(action.value, 10) || 0;
-    }
-  }
+function normalizeMetaCampaign(row: any, leadTypes: string[] | null): Campaign {
+  // Count leads using the SAME definition as the client-facing report so the
+  // internal dashboard and client report reconcile.
+  const leads = countMetaLeads(row, leadTypes);
 
-  // Find cost per lead from cost_per_action_type
-  let costPerLead = 0;
-  if (totalConversions > 0) {
-    costPerLead = Number(row.spend ?? 0) / totalConversions;
-  }
+  const costPerLead = leads > 0 ? Number(row.spend ?? 0) / leads : 0;
 
   return {
     name: row.campaign_name ?? 'Unknown Campaign',
@@ -276,7 +296,7 @@ function normalizeMetaCampaign(row: any): Campaign {
     ctr: Number(row.ctr ?? 0) / 100,  // Meta returns CTR as percentage (2.5 = 2.5%), normalize to decimal
     cpc: Number(row.cpc ?? 0),
     cost: Number(row.spend ?? 0),
-    conversions: totalConversions,
+    conversions: leads,
     costPerConversion: costPerLead,
   };
 }
@@ -410,7 +430,7 @@ function ConversionBreakdownCard({ entries, platform }: { entries: ConversionEnt
         })}
       </div>
       <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-        <span className="text-sm font-semibold text-slate-700">Total</span>
+        <span className="text-sm font-semibold text-slate-700">All Conversions</span>
         <span className="text-sm font-bold text-slate-900 tabular-nums">{fmt(total)}</span>
       </div>
     </div>
@@ -718,7 +738,7 @@ export default function ClientReport({ client }: { client: ReportingClient }) {
       // Fetch campaign-level data
       let campaignUrl: string;
       if (client.platform === 'meta') {
-        campaignUrl = `/api/meta/insights?account_id=${encodeURIComponent(client.ad_account_id)}&level=campaign&time_range=${range.metaParam}`;
+        campaignUrl = `/api/meta/insights?account_id=${encodeURIComponent(client.ad_account_id)}&level=campaign&time_range=${range.metaParam}&fields=conversions`;
       } else {
         campaignUrl = `/api/google/insights?customer_id=${encodeURIComponent(client.ad_account_id)}&level=campaign&date_range=${range.googleParam}`;
       }
@@ -726,7 +746,7 @@ export default function ClientReport({ client }: { client: ReportingClient }) {
       // Fetch account-level data (for conversion breakdown)
       let accountUrl: string;
       if (client.platform === 'meta') {
-        accountUrl = `/api/meta/insights?account_id=${encodeURIComponent(client.ad_account_id)}&level=account&time_range=${range.metaParam}`;
+        accountUrl = `/api/meta/insights?account_id=${encodeURIComponent(client.ad_account_id)}&level=account&time_range=${range.metaParam}&fields=conversions`;
       } else {
         accountUrl = `/api/google/insights?customer_id=${encodeURIComponent(client.ad_account_id)}&level=account&date_range=${range.googleParam}`;
       }
@@ -736,7 +756,7 @@ export default function ClientReport({ client }: { client: ReportingClient }) {
 
       let priorCampaignUrl: string;
       if (client.platform === 'meta') {
-        priorCampaignUrl = `/api/meta/insights?account_id=${encodeURIComponent(client.ad_account_id)}&level=campaign&since=${periods.priorSince}&until=${periods.priorUntil}`;
+        priorCampaignUrl = `/api/meta/insights?account_id=${encodeURIComponent(client.ad_account_id)}&level=campaign&since=${periods.priorSince}&until=${periods.priorUntil}&fields=conversions`;
       } else {
         priorCampaignUrl = `/api/google/insights?customer_id=${encodeURIComponent(client.ad_account_id)}&level=campaign&since=${periods.priorSince}&until=${periods.priorUntil}`;
       }
@@ -766,7 +786,7 @@ export default function ClientReport({ client }: { client: ReportingClient }) {
 
       const normalized =
         client.platform === 'meta'
-          ? dataArr.map(normalizeMetaCampaign)
+          ? dataArr.map((row) => normalizeMetaCampaign(row, client.lead_conversion_types))
           : dataArr.map(normalizeGoogleCampaign);
 
       setCampaigns(normalized);
@@ -799,7 +819,7 @@ export default function ClientReport({ client }: { client: ReportingClient }) {
           const priorDataArr = Array.isArray(priorRawData) ? priorRawData : [];
           const priorNormalized =
             client.platform === 'meta'
-              ? priorDataArr.map(normalizeMetaCampaign)
+              ? priorDataArr.map((row) => normalizeMetaCampaign(row, client.lead_conversion_types))
               : priorDataArr.map(normalizeGoogleCampaign);
 
           priorT = priorNormalized.reduce(
@@ -838,17 +858,42 @@ export default function ClientReport({ client }: { client: ReportingClient }) {
             // Parse Meta conversion breakdown from account-level actions
             const rows = accountJson?.data ?? [];
             const breakdownMap: Record<string, number> = {};
+            const customEventMap: Record<string, number> = {};
             for (const row of (Array.isArray(rows) ? rows : [])) {
-              const actions = ((row as Record<string, unknown>).actions ?? []) as Array<{ action_type: string; value: string }>;
+              const actions = ((row as Record<string, unknown>).actions ?? []) as MetaAction[];
               for (const action of actions) {
                 if (META_CONVERSION_TYPES.has(action.action_type)) {
                   const count = parseInt(action.value, 10) || 0;
                   breakdownMap[action.action_type] = (breakdownMap[action.action_type] ?? 0) + count;
                 }
               }
+              // The `conversions` array breaks custom pixel events out by name
+              // (e.g. offsite_conversion.fb_pixel_custom.(JTC) Pricing Qualified)
+              const rawConvs = (row as Record<string, unknown>).conversions;
+              const convs = (Array.isArray(rawConvs) ? rawConvs : []) as MetaAction[];
+              for (const conv of convs) {
+                if (conv.action_type.startsWith('offsite_conversion.fb_pixel_custom.')) {
+                  const count = parseInt(conv.value, 10) || 0;
+                  customEventMap[conv.action_type] = (customEventMap[conv.action_type] ?? 0) + count;
+                }
+              }
+            }
+            // Replace the lumped "Custom Event" entry with named per-event entries when available
+            if (Object.keys(customEventMap).length > 0) {
+              delete breakdownMap['offsite_conversion.fb_pixel_custom'];
+              for (const [type, count] of Object.entries(customEventMap)) {
+                breakdownMap[type] = count;
+              }
             }
             breakdown = Object.entries(breakdownMap)
-              .map(([type, count]) => ({ type, label: META_CONVERSION_LABELS[type] || type, count }))
+              .map(([type, count]) => ({
+                type,
+                label: META_CONVERSION_LABELS[type]
+                  || (type.startsWith('offsite_conversion.fb_pixel_custom.')
+                    ? type.replace('offsite_conversion.fb_pixel_custom.', '')
+                    : type),
+                count,
+              }))
               .sort((a, b) => b.count - a.count);
           } else {
             // Google — use conversionBreakdown from API
@@ -871,7 +916,7 @@ export default function ClientReport({ client }: { client: ReportingClient }) {
     } finally {
       setLoading(false);
     }
-  }, [client.platform, client.ad_account_id, dateRangeIndex]);
+  }, [client.platform, client.ad_account_id, client.lead_conversion_types, dateRangeIndex]);
 
   const startCooldown = () => {
     setCooldownRemaining(COOLDOWN_MS);

@@ -15,6 +15,7 @@ export interface ReportingClient {
   report_token: string;
   report_mode?: string;
   custom_report_slug?: string;
+  lead_conversion_types?: string[] | null;
 }
 
 export interface ReportProps {

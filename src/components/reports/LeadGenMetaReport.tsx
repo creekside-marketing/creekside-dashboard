@@ -25,7 +25,7 @@
  * CANNOT: Handle non-Meta platforms — Meta-specific normalization only.
  */
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import ReportHeader, {
   DATE_RANGES, DEFAULT_RANGE_INDEX, computePriorPeriod,
   calcChange, fmt, fmtMoney, fmtPct, unwrapPipeboardResponse,
@@ -147,13 +147,14 @@ export default function LeadGenMetaReport({ client, mode, leadConversionTypes, p
   const [dateRangeIndex, setDateRangeIndex] = useState(DEFAULT_RANGE_INDEX);
   const currentRange = DATE_RANGES[dateRangeIndex];
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const countLeads: LeadCounter = leadConversionTypes
+  const countLeads: LeadCounter = useMemo(() => leadConversionTypes
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ? (row: any) => {
-        const conversions = (row.conversions ?? []) as MetaAction[];
+        // Cache fallback returns `conversions` as a scalar — guard with Array.isArray
+        const conversions = (Array.isArray(row.conversions) ? row.conversions : []) as MetaAction[];
         return getLeadsFromConversions(conversions, leadConversionTypes);
       }
-    : defaultLeadCounter;
+    : defaultLeadCounter, [leadConversionTypes]);
 
   const startCooldown = useCallback(() => {
     setCooldownRemaining(COOLDOWN_MS);
@@ -191,7 +192,7 @@ export default function LeadGenMetaReport({ client, mode, leadConversionTypes, p
         const row = normalize(r, countLeads);
         if (pqlConversionType) {
           const raw = dataArr[i] as Record<string, unknown>;
-          const conversions = (raw.conversions ?? []) as MetaAction[];
+          const conversions = (Array.isArray(raw.conversions) ? raw.conversions : []) as MetaAction[];
           const match = conversions.find((a) => a.action_type === pqlConversionType);
           row.pql = match ? Math.round(Number(match.value) || 0) : 0;
           row.cpql = row.pql > 0 ? row.spend / row.pql : 0;
@@ -264,7 +265,7 @@ export default function LeadGenMetaReport({ client, mode, leadConversionTypes, p
       setLastRefreshed(new Date()); startCooldown();
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed to fetch data'); }
     finally { setLoading(false); }
-  }, [client.ad_account_id, dateRangeIndex, startCooldown, countLeads]);
+  }, [client.ad_account_id, dateRangeIndex, startCooldown, countLeads, leadConversionTypes, pqlConversionType]);
 
   useEffect(() => { fetchData(); return () => { if (cooldownTimer.current) clearInterval(cooldownTimer.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps

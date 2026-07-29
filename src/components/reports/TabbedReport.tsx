@@ -63,7 +63,7 @@ function getDefaultReportComponent(client: ReportingClient, mode: 'internal' | '
   const platform = client.platform?.toLowerCase();
 
   if (clientType === 'lead_gen' && platform === 'google') return <LeadGenGoogleReport client={client} mode={mode} />;
-  if (clientType === 'lead_gen' && platform === 'meta') return <LeadGenMetaReport client={client} mode={mode} />;
+  if (clientType === 'lead_gen' && platform === 'meta') return <LeadGenMetaReport client={client} mode={mode} leadConversionTypes={client.lead_conversion_types ?? undefined} />;
   if (clientType === 'ecom' && platform === 'google') return <EcomGoogleReport client={client} mode={mode} />;
   if (clientType === 'ecom' && platform === 'meta') return <EcomMetaReport client={client} mode={mode} />;
 
