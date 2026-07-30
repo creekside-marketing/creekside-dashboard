@@ -31,6 +31,8 @@ interface ReportHeaderProps {
   customSince?: string;
   customUntil?: string;
   onCustomDateApply?: (since: string, until: string) => void;
+  // When true, hides the date range selector (used when a parent component controls the date).
+  hideDateSelector?: boolean;
 }
 
 export default function ReportHeader({
@@ -45,6 +47,7 @@ export default function ReportHeader({
   customSince,
   customUntil,
   onCustomDateApply,
+  hideDateSelector,
 }: ReportHeaderProps) {
   const isMeta = platform?.toLowerCase() === 'meta';
   const cooldownMin = Math.floor(cooldownRemaining / 60000);
@@ -98,7 +101,7 @@ export default function ReportHeader({
       </div>
 
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 shrink-0">
-        <div className="flex items-center gap-2 flex-wrap">
+        {!hideDateSelector && (<div className="flex items-center gap-2 flex-wrap">
           <div className="inline-flex items-center rounded-lg bg-slate-100 p-1 gap-0.5">
             {DATE_RANGES.map((range, i) => (
               <button
@@ -150,7 +153,7 @@ export default function ReportHeader({
               </button>
             </div>
           )}
-        </div>
+        </div>)}
         <button
           onClick={onRefresh}
           disabled={loading || cooldownRemaining > 0}

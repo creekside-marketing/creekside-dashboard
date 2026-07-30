@@ -208,7 +208,7 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
     return { currentSince: p.currentSince, currentUntil: p.currentUntil, priorSince: p.priorSince, priorUntil: p.priorUntil };
   }, [dateMode, customSince, customUntil, dateRangeIndex]);
 
-  const lpData = useMetaLandingPageData(client.ad_account_id, activePeriod.currentSince, activePeriod.currentUntil, isInternal);
+  const lpData = useMetaLandingPageData(client.ad_account_id, activePeriod.currentSince, activePeriod.currentUntil, true);
 
   const fetchData = useCallback(async () => {
     if (!client.ad_account_id) { setLoading(false); return; }
@@ -348,83 +348,74 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
         </div>
       </div>
 
-      {/* ── Internal: Landing Page Performance ────────────────────────────────── */}
-      {isInternal && (
-        <div className="rounded-xl border-2 border-dashed border-amber-300 bg-amber-50/40 p-5 space-y-4">
-          <div className="flex items-center gap-2">
-            <span className="inline-block w-2 h-2 rounded-full bg-amber-600" />
-            <h2 className="text-xs font-bold text-amber-800 uppercase tracking-wider">
-              Internal Ops View &mdash; Landing Page Performance
-            </h2>
-            <span className="text-[10px] font-medium text-amber-700/70 ml-2">
-              Visible only to logged-in Creekside team. Not shown to clients.
-            </span>
+      {/* ── Landing Page Performance ────────────────────────────────────────── */}
+      {lpData.loading ? (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+          <h2 className="text-base font-semibold text-slate-800 mb-4">Landing Page Performance</h2>
+          <div className="flex items-center justify-center py-4">
+            <div className="animate-spin rounded-full h-6 w-6 border-2 border-slate-200 border-t-[#2563eb]" />
           </div>
-
-          {lpData.loading ? (
-            <div className="flex items-center justify-center py-6">
-              <div className="animate-spin rounded-full h-6 w-6 border-2 border-slate-200 border-t-[#2563eb]" />
-            </div>
-          ) : lpData.error ? (
-            <p className="text-sm text-red-500">Unable to load landing page data from Meta.</p>
-          ) : lpData.urlResolutionFailed ? (
-            <div className="space-y-2">
-              <p className="text-sm text-amber-700/60">
-                Could not resolve destination URLs from ad creatives for this account.
-              </p>
-              {lpData.debug && (
-                <details className="text-[11px]">
-                  <summary className="cursor-pointer font-mono text-amber-800/70 hover:text-amber-900 select-none">
-                    debug info (click to expand)
-                  </summary>
-                  <pre className="mt-2 p-3 bg-amber-100/60 rounded text-amber-900 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
-                    {JSON.stringify(lpData.debug, null, 2)}
-                  </pre>
-                </details>
-              )}
-            </div>
-          ) : lpData.data.length === 0 ? (
-            <p className="text-sm text-amber-700/60">No landing page data returned for this date range.</p>
-          ) : (
-            <>
-            <BreakdownTable
-                title=""
-                defaultSortKey="spend"
-                columns={[
-                  {
-                    key: 'landing_page',
-                    label: 'Landing Page',
-                    format: (v: unknown) => {
-                      const raw = String(v ?? '').trim();
-                      if (!raw) return '--';
-                      // Dynamic/unresolved label — show as-is (starts with "(")
-                      if (raw.startsWith('(')) return raw;
-                      try {
-                        const u = new URL(raw);
-                        return u.pathname + (u.search || '');
-                      } catch {
-                        return raw;
-                      }
-                    },
-                  },
-                  { key: 'impressions',         label: 'Impressions', align: 'right', format: (v) => fmt(Number(v ?? 0)) },
-                  { key: 'clicks',              label: 'Clicks',      align: 'right', format: (v) => fmt(Number(v ?? 0)) },
-                  { key: 'ctr',                 label: 'CTR',         align: 'right', format: (v) => fmtPct(Number(v ?? 0)) },
-                  { key: 'conversions',         label: 'Pre-Q Leads', align: 'right', format: (v) => { const n = Number(v ?? 0); return n > 0 ? fmt(n) : '--'; } },
-                  { key: 'cost_per_conversion', label: 'Cost / Lead', align: 'right', format: (v) => { const n = Number(v ?? 0); return n > 0 ? fmtMoney(n) : '--'; } },
-                  { key: 'pql_conversions',     label: 'PQLs',        align: 'right', format: (v) => { const n = Number(v ?? 0); return n > 0 ? fmt(n) : '--'; } },
-                  { key: 'cost_per_pql',        label: 'Cost / PQL',  align: 'right', format: (v) => { const n = Number(v ?? 0); return n > 0 ? fmtMoney(n) : '--'; } },
-                  { key: 'spend',               label: 'Spend',       align: 'right', format: (v) => fmtMoney(Number(v ?? 0)) },
-                ]}
-                data={lpData.data}
-              />
-            </>
+        </div>
+      ) : lpData.error ? (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+          <h2 className="text-base font-semibold text-slate-800 mb-2">Landing Page Performance</h2>
+          <p className="text-sm text-red-500">Unable to load landing page data from Meta.</p>
+        </div>
+      ) : lpData.urlResolutionFailed ? (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+          <h2 className="text-base font-semibold text-slate-800 mb-2">Landing Page Performance</h2>
+          <p className="text-sm text-slate-500">Could not resolve destination URLs from ad creatives for this account.</p>
+          {isInternal && lpData.debug && (
+            <details className="text-[11px] mt-2">
+              <summary className="cursor-pointer font-mono text-slate-500 hover:text-slate-700 select-none">
+                debug info (click to expand)
+              </summary>
+              <pre className="mt-2 p-3 bg-slate-100 rounded text-slate-700 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
+                {JSON.stringify(lpData.debug, null, 2)}
+              </pre>
+            </details>
           )}
         </div>
+      ) : lpData.data.length === 0 ? (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+          <h2 className="text-base font-semibold text-slate-800 mb-2">Landing Page Performance</h2>
+          <p className="text-sm text-slate-500">No landing page data returned for this date range.</p>
+        </div>
+      ) : (
+        <BreakdownTable
+          title="Landing Page Performance"
+          defaultSortKey="spend"
+          columns={[
+            {
+              key: 'landing_page',
+              label: 'Landing Page',
+              format: (v: unknown) => {
+                const raw = String(v ?? '').trim();
+                if (!raw) return '--';
+                if (raw.startsWith('(')) return raw;
+                try {
+                  const u = new URL(raw);
+                  return u.pathname + (u.search || '');
+                } catch {
+                  return raw;
+                }
+              },
+            },
+            { key: 'impressions',         label: 'Impressions', align: 'right', format: (v) => fmt(Number(v ?? 0)) },
+            { key: 'clicks',              label: 'Clicks',      align: 'right', format: (v) => fmt(Number(v ?? 0)) },
+            { key: 'ctr',                 label: 'CTR',         align: 'right', format: (v) => fmtPct(Number(v ?? 0)) },
+            { key: 'conversions',         label: 'Pre-Q Leads', align: 'right', format: (v) => { const n = Number(v ?? 0); return n > 0 ? fmt(n) : '--'; } },
+            { key: 'cost_per_conversion', label: 'Cost / Lead', align: 'right', format: (v) => { const n = Number(v ?? 0); return n > 0 ? fmtMoney(n) : '--'; } },
+            { key: 'pql_conversions',     label: 'PQLs',        align: 'right', format: (v) => { const n = Number(v ?? 0); return n > 0 ? fmt(n) : '--'; } },
+            { key: 'cost_per_pql',        label: 'Cost / PQL',  align: 'right', format: (v) => { const n = Number(v ?? 0); return n > 0 ? fmtMoney(n) : '--'; } },
+            { key: 'spend',               label: 'Spend',       align: 'right', format: (v) => fmtMoney(Number(v ?? 0)) },
+          ]}
+          data={lpData.data}
+        />
       )}
 
       {/* ── Standard LeadGen Meta Report (Pre-Q leads + PQL columns in campaign table) */}
-      <LeadGenMetaReport client={client} mode={mode} leadConversionTypes={[PREQ_ACTION]} pqlConversionType={PQL_ACTION} hideReferralBanner />
+      <LeadGenMetaReport client={client} mode={mode} leadConversionTypes={[PREQ_ACTION]} pqlConversionType={PQL_ACTION} hideReferralBanner controlledPeriod={activePeriod} />
     </div>
   );
 }

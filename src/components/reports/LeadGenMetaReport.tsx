@@ -143,7 +143,7 @@ const ZERO: Omit<LeadGenRow, 'name'> = { impressions: 0, linkClicks: 0, spend: 0
 
 // ── Component ────────────────────────────────────────────────────────────
 
-export default function LeadGenMetaReport({ client, mode, leadConversionTypes, pqlConversionType, hideReferralBanner }: { client: ReportingClient; mode: 'internal' | 'public'; leadConversionTypes?: string[]; pqlConversionType?: string; hideReferralBanner?: boolean }) {
+export default function LeadGenMetaReport({ client, mode, leadConversionTypes, pqlConversionType, hideReferralBanner, controlledPeriod }: { client: ReportingClient; mode: 'internal' | 'public'; leadConversionTypes?: string[]; pqlConversionType?: string; hideReferralBanner?: boolean; controlledPeriod?: PriorPeriodDates }) {
   const [campaigns, setCampaigns] = useState<LeadGenRow[]>([]);
   const [totals, setTotals] = useState(ZERO);
   const [dailyData, setDailyData] = useState<DailyRow[]>([]);
@@ -161,9 +161,10 @@ export default function LeadGenMetaReport({ client, mode, leadConversionTypes, p
   const currentRange = DATE_RANGES[dateRangeIndex];
 
   const activePeriod = useMemo((): PriorPeriodDates => {
+    if (controlledPeriod) return controlledPeriod;
     if (customSince && customUntil) return computeCustomPeriod(customSince, customUntil);
     return computePriorPeriod(dateRangeIndex);
-  }, [customSince, customUntil, dateRangeIndex]);
+  }, [controlledPeriod, customSince, customUntil, dateRangeIndex]);
 
   const countLeads: LeadCounter = useMemo(() => leadConversionTypes
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -314,7 +315,8 @@ export default function LeadGenMetaReport({ client, mode, leadConversionTypes, p
       <ReportHeader clientName={client.client_name} platform={client.platform}
         dateRangeIndex={dateRangeIndex} onDateRangeChange={handleDateRangeChange}
         loading={loading} onRefresh={fetchData} lastRefreshed={lastRefreshed} cooldownRemaining={cooldownRemaining}
-        customSince={customSince} customUntil={customUntil} onCustomDateApply={handleCustomDateApply} />
+        customSince={customSince} customUntil={customUntil} onCustomDateApply={handleCustomDateApply}
+        hideDateSelector={!!controlledPeriod} />
 
       {!hideReferralBanner && <ReferralBanner />}
 

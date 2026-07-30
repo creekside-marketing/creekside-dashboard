@@ -26,7 +26,7 @@
  * CANNOT: Display Meta Ads data — Google Ads only.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import CampaignsTable from '@/components/CampaignsTable';
 import ReportHeader, {
   DATE_RANGES,
@@ -35,6 +35,7 @@ import ReportHeader, {
   fmtPct,
   computePriorPeriod,
   calcChange,
+  PriorPeriodDates,
 } from '../ReportHeader';
 import ReportChart from '../ReportChart';
 import BreakdownTable from '../BreakdownTable';
@@ -42,6 +43,18 @@ import ReportNotesTimeline from '../ReportNotesTimeline';
 import { SparklineKpiCard, DemographicChart } from '../shared';
 import { useGoogleAdsData } from '@/hooks/useGoogleAdsData';
 import { ReportingClient } from '../types';
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function computeCustomPeriod(since: string, until: string): PriorPeriodDates {
+  const sinceDate = new Date(since + 'T00:00:00');
+  const untilDate = new Date(until + 'T00:00:00');
+  const days = Math.round((untilDate.getTime() - sinceDate.getTime()) / 86400000) + 1;
+  const priorUntil = new Date(sinceDate); priorUntil.setDate(priorUntil.getDate() - 1);
+  const priorSince = new Date(priorUntil); priorSince.setDate(priorSince.getDate() - (days - 1));
+  const f = (d: Date) => d.toISOString().split('T')[0];
+  return { currentSince: since, currentUntil: until, priorSince: f(priorSince), priorUntil: f(priorUntil) };
+}
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -153,7 +166,13 @@ function extractCost(json: any): number {
  * Fetches the PQL conversion-action count and spend for the current and
  * prior periods of the selected date range.
  */
-function usePqlData(adAccountId: string | null, dateRangeIndex: number): PqlState {
+function usePqlData(
+  adAccountId: string | null,
+  since: string,
+  until: string,
+  priorSince: string,
+  priorUntil: string,
+): PqlState {
   const [state, setState] = useState<PqlState>({
     current: 0,
     prior: 0,
@@ -175,9 +194,8 @@ function usePqlData(adAccountId: string | null, dateRangeIndex: number): PqlStat
     (async () => {
       try {
         const cid = encodeURIComponent(adAccountId);
-        const p = computePriorPeriod(dateRangeIndex);
-        const currentUrl = `/api/google/insights?customer_id=${cid}&level=account&since=${p.currentSince}&until=${p.currentUntil}`;
-        const priorUrl = `/api/google/insights?customer_id=${cid}&level=account&since=${p.priorSince}&until=${p.priorUntil}`;
+        const currentUrl = `/api/google/insights?customer_id=${cid}&level=account&since=${since}&until=${until}`;
+        const priorUrl = `/api/google/insights?customer_id=${cid}&level=account&since=${priorSince}&until=${priorUntil}`;
 
         const [curRes, priRes] = await Promise.all([
           fetch(currentUrl),
@@ -207,7 +225,7 @@ function usePqlData(adAccountId: string | null, dateRangeIndex: number): PqlStat
     return () => {
       cancelled = true;
     };
-  }, [adAccountId, dateRangeIndex]);
+  }, [adAccountId, since, until, priorSince, priorUntil]);
 
   return state;
 }
@@ -247,7 +265,8 @@ const EMPTY_DIMENSIONS: DimensionsWithPql = {
  */
 function useDimensionsWithPql(
   adAccountId: string | null,
-  dateRangeIndex: number,
+  since: string,
+  until: string,
 ): DimensionsWithPql {
   const [state, setState] = useState<DimensionsWithPql>(EMPTY_DIMENSIONS);
 
@@ -263,9 +282,7 @@ function useDimensionsWithPql(
       try {
         const cid = encodeURIComponent(adAccountId);
         const action = encodeURIComponent(PQL_ACTION_PARAM);
-        const range = DATE_RANGES[dateRangeIndex];
-        const dr = range.googleParam;
-        const base = `/api/google/insights?customer_id=${cid}&date_range=${dr}&pql_action=${action}`;
+        const base = `/api/google/insights?customer_id=${cid}&since=${since}&until=${until}&pql_action=${action}`;
 
         const urls = {
           keyword: `${base}&level=keyword`,
@@ -319,7 +336,7 @@ function useDimensionsWithPql(
     return () => {
       cancelled = true;
     };
-  }, [adAccountId, dateRangeIndex]);
+  }, [adAccountId, since, until]);
 
   return state;
 }
@@ -362,7 +379,8 @@ const EMPTY_FUNNEL: InternalFunnelState = {
  */
 function useInternalFunnelData(
   adAccountId: string | null,
-  dateRangeIndex: number,
+  since: string,
+  until: string,
   enabled: boolean,
 ): InternalFunnelState {
   const [state, setState] = useState<InternalFunnelState>({ ...EMPTY_FUNNEL, loading: enabled });
@@ -378,18 +396,17 @@ function useInternalFunnelData(
     (async () => {
       try {
         const cid = encodeURIComponent(adAccountId);
-        const p = computePriorPeriod(dateRangeIndex);
         const actionsParam = encodeURIComponent(`${PQL_ACTION_PARAM},${PREQ_ACTION_NAME}`);
         const preqEncoded = encodeURIComponent(PREQ_ACTION_NAME);
 
         const accountUrl =
           `/api/google/insights?customer_id=${cid}&level=account` +
-          `&since=${p.currentSince}&until=${p.currentUntil}` +
+          `&since=${since}&until=${until}` +
           `&daily_actions=${actionsParam}`;
 
         const campaignPreQUrl =
           `/api/google/insights?customer_id=${cid}&level=campaign` +
-          `&since=${p.currentSince}&until=${p.currentUntil}` +
+          `&since=${since}&until=${until}` +
           `&pql_action=${preqEncoded}`;
 
         const [accountRes, campaignRes] = await Promise.all([
@@ -455,7 +472,7 @@ function useInternalFunnelData(
     return () => {
       cancelled = true;
     };
-  }, [adAccountId, dateRangeIndex, enabled]);
+  }, [adAccountId, since, until, enabled]);
 
   return state;
 }
@@ -475,10 +492,22 @@ export default function SouthRiverMortgageGoogleReport({
     kpiChanges,
     loading, error, lastRefreshed, cooldownRemaining,
     dateRangeIndex, currentRange, handleDateRangeChange, fetchData,
+    customSince, customUntil, handleCustomDateApply,
   } = data;
 
+  const activePeriod = useMemo((): PriorPeriodDates => {
+    if (customSince && customUntil) return computeCustomPeriod(customSince, customUntil);
+    return computePriorPeriod(dateRangeIndex);
+  }, [customSince, customUntil, dateRangeIndex]);
+
   // ── PQL primary KPI (account-level) ────────────────────────────────────
-  const pqlData = usePqlData(client.ad_account_id, dateRangeIndex);
+  const pqlData = usePqlData(
+    client.ad_account_id,
+    activePeriod.currentSince,
+    activePeriod.currentUntil,
+    activePeriod.priorSince,
+    activePeriod.priorUntil,
+  );
   const pqlCount = pqlData.current;
   const pqlPrior = pqlData.prior;
   const pqlChange = calcChange(pqlCount, pqlPrior);
@@ -494,11 +523,11 @@ export default function SouthRiverMortgageGoogleReport({
   const spendChange = calcChange(pqlData.costCurrent, pqlData.costPrior);
 
   // ── Per-dimension data with PQL columns ────────────────────────────────
-  const dims = useDimensionsWithPql(client.ad_account_id, dateRangeIndex);
+  const dims = useDimensionsWithPql(client.ad_account_id, activePeriod.currentSince, activePeriod.currentUntil);
 
   // ── Internal funnel-health data (only fetched in internal mode) ────────
   const isInternal = mode === 'internal';
-  const funnel = useInternalFunnelData(client.ad_account_id, dateRangeIndex, isInternal);
+  const funnel = useInternalFunnelData(client.ad_account_id, activePeriod.currentSince, activePeriod.currentUntil, isInternal);
 
   // Account-level funnel KPIs (internal only)
   const funnelRate = funnel.accountPreQ > 0 ? funnel.accountPql / funnel.accountPreQ : 0;
@@ -569,6 +598,9 @@ export default function SouthRiverMortgageGoogleReport({
 
   // Days elapsed in current period — used for targetCpl pacing
   const daysElapsed = (() => {
+    if (customSince && customUntil) {
+      return Math.max(Math.round((new Date(customUntil).getTime() - new Date(customSince).getTime()) / 86400000) + 1, 1);
+    }
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const label = DATE_RANGES[dateRangeIndex].label;
     if (label === 'This Month') return Math.max(Math.floor((today.getTime() - new Date(today.getFullYear(), today.getMonth(), 1).getTime()) / 86400000), 1);
@@ -600,6 +632,9 @@ export default function SouthRiverMortgageGoogleReport({
         onRefresh={fetchData}
         lastRefreshed={lastRefreshed}
         cooldownRemaining={cooldownRemaining}
+        customSince={customSince}
+        customUntil={customUntil}
+        onCustomDateApply={handleCustomDateApply}
       />
 
       {error && (
