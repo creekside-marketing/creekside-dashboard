@@ -322,7 +322,10 @@ async function getCreativeDetails(args: Record<string, unknown>): Promise<unknow
   const creativeIds = (args.creative_ids as string[] | undefined) ?? [];
   if (creativeIds.length === 0) return wrapResponse({ data: [] });
   const token = getToken();
-  const FIELDS = 'id,link_url,child_attachments,effective_object_story_id';
+  // child_attachments is NOT a valid AdCreative field — requesting it causes every
+  // batch item to fail with (#100). Carousel link data is resolved via the post
+  // lookup (step 2) using effective_object_story_id, same as VIDEO/SHARE creatives.
+  const FIELDS = 'id,link_url,effective_object_story_id';
   const BATCH_SIZE = 50; // Meta's per-batch limit
   const results: Record<string, unknown>[] = [];
 
@@ -348,17 +351,18 @@ async function getCreativeDetails(args: Record<string, unknown>): Promise<unknow
     for (const item of batchResults) {
       if (item?.code === 200) {
         try { results.push(JSON.parse(item.body) as Record<string, unknown>); } catch { /* skip malformed */ }
+      } else if (item && item.code !== 200) {
+        console.warn(`[meta-graph] creative batch item error ${item.code}:`, item.body?.slice(0, 200));
       }
     }
   }
 
-  // Step 2: For VIDEO/SHARE creatives without link_url/child_attachments,
-  // resolve destination URL via effective_object_story_id → post link.
-  // The post endpoint exposes the `link` field which is the actual destination URL.
+  // Step 2: For creatives without link_url, resolve destination URL via
+  // effective_object_story_id → post endpoint (link + call_to_action fields).
+  // Covers VIDEO, SHARE, and carousel creatives.
   const needsPostLookup = results.filter(
     (c) =>
       !c.link_url &&
-      (!Array.isArray(c.child_attachments) || (c.child_attachments as unknown[]).length === 0) &&
       typeof c.effective_object_story_id === 'string' &&
       c.effective_object_story_id,
   );

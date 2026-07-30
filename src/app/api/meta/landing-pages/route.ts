@@ -11,9 +11,9 @@
  *           for VIDEO/SHARE type creatives (the common case for SRM)
  *
  * URL resolution order (matches extractUrlFromCreative):
- *   1. child_attachments[0].link — carousel ads (direct)
- *   2. link_url                  — legacy single-image (direct, often null)
- *   3. _resolved_link            — VIDEO/SHARE via effective_object_story_id post lookup
+ *   1. link_url       — single-image ads (direct AdCreative field, often null)
+ *   2. _resolved_link — VIDEO/SHARE/carousel: resolved via effective_object_story_id
+ *                       post lookup (link + call_to_action.value.link fields)
  *
  * CANNOT: Modify ads — read-only.
  */
@@ -68,24 +68,14 @@ function decodeFbRedirect(url: string): string {
 
 /**
  * Extract destination URL from a creative details object.
- * Priority (per research on SRM account):
- *   1. child_attachments[0].link — carousel ads
- *   2. link_url                  — legacy single-image (often null on modern ads)
- *   3. _resolved_link            — VIDEO/SHARE: resolved from effective_object_story_id
- *                                  by meta-graph.ts getCreativeDetails step 2
+ *   1. link_url       — direct AdCreative field (often null on modern ads)
+ *   2. _resolved_link — resolved from effective_object_story_id post lookup
+ *                       (covers VIDEO, SHARE, and carousel creative types)
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractUrlFromCreative(creative: any): string | null {
   if (!creative || typeof creative !== 'object') return null;
-  // Carousel: URL lives in child_attachments
-  const attachments = creative.child_attachments;
-  if (Array.isArray(attachments) && attachments.length > 0) {
-    const link = attachments[0]?.link;
-    if (link) return decodeFbRedirect(String(link));
-  }
-  // Legacy single-image
   if (creative.link_url) return decodeFbRedirect(String(creative.link_url));
-  // VIDEO/SHARE type — resolved from post link via effective_object_story_id
   if (creative._resolved_link) return decodeFbRedirect(String(creative._resolved_link));
   return null;
 }
@@ -195,7 +185,6 @@ export async function GET(request: NextRequest) {
         const creatives = (unwrapMcp(creativesRaw)?.data ?? []) as Array<{
           id?: unknown;
           link_url?: string;
-          child_attachments?: Array<{ link?: string }>;
           effective_object_story_id?: string;
           _resolved_link?: string;
         }>;
@@ -207,7 +196,6 @@ export async function GET(request: NextRequest) {
           _debug.sampleCreative = {
             id: sample.id,
             link_url: sample.link_url ?? null,
-            has_child_attachments: Array.isArray(sample.child_attachments) && sample.child_attachments.length > 0,
             effective_object_story_id: sample.effective_object_story_id ?? null,
             _resolved_link: sample._resolved_link ?? null,
           };
