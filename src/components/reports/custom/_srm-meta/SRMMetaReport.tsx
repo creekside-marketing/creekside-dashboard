@@ -111,7 +111,6 @@ interface LandingPageState {
   data: LandingPageRow[];
   hasUrls: boolean;
   urlResolutionFailed: boolean;
-  droppedCampaigns: number;
   loading: boolean;
   error: boolean;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -124,12 +123,12 @@ function useMetaLandingPageData(
   enabled: boolean,
 ): LandingPageState {
   const [state, setState] = useState<LandingPageState>({
-    data: [], hasUrls: false, urlResolutionFailed: false, droppedCampaigns: 0, loading: false, error: false, debug: null,
+    data: [], hasUrls: false, urlResolutionFailed: false, loading: false, error: false, debug: null,
   });
 
   useEffect(() => {
     if (!enabled || !adAccountId) {
-      setState({ data: [], hasUrls: false, urlResolutionFailed: false, droppedCampaigns: 0, loading: false, error: false, debug: null });
+      setState({ data: [], hasUrls: false, urlResolutionFailed: false, loading: false, error: false, debug: null });
       return;
     }
     let cancelled = false;
@@ -148,13 +147,12 @@ function useMetaLandingPageData(
           data: Array.isArray(json?.data) ? json.data : [],
           hasUrls: !!json?.hasUrls,
           urlResolutionFailed: !!json?.urlResolutionFailed,
-          droppedCampaigns: Number(json?.droppedCampaigns ?? 0),
           loading: false,
           error: !res.ok,
           debug: json?._debug ?? null,
         });
       } catch {
-        if (!cancelled) setState({ data: [], hasUrls: false, urlResolutionFailed: false, droppedCampaigns: 0, loading: false, error: true, debug: null });
+        if (!cancelled) setState({ data: [], hasUrls: false, urlResolutionFailed: false, loading: false, error: true, debug: null });
       }
     })();
 
@@ -309,11 +307,6 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
             <p className="text-sm text-amber-700/60">No landing page data returned for this date range.</p>
           ) : (
             <>
-              {lpData.droppedCampaigns > 0 && (
-              <p className="text-[11px] text-amber-700/70">
-                {lpData.droppedCampaigns} campaign{lpData.droppedCampaigns > 1 ? 's' : ''} excluded — no destination URL found in creative.
-              </p>
-            )}
             <BreakdownTable
                 title=""
                 defaultSortKey="spend"
@@ -324,6 +317,8 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
                     format: (v: unknown) => {
                       const raw = String(v ?? '').trim();
                       if (!raw) return '--';
+                      // Dynamic/unresolved label — show as-is (starts with "(")
+                      if (raw.startsWith('(')) return raw;
                       try {
                         const u = new URL(raw);
                         return u.pathname + (u.search || '');

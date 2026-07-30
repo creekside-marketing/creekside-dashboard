@@ -245,10 +245,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ data: [], hasUrls: false, urlResolutionFailed: true, _debug });
     }
 
-    // Count campaigns that had no URL resolved (spend will be absent from table)
-    const droppedCampaigns = campaignRows.filter(
-      (r) => !campaignUrlMap[String(r.campaign_id ?? '')]
-    ).length;
+    // Campaigns without a resolved URL get bucketed under this label so their
+    // spend still shows in the table (typically dynamic/catalog ads whose URL
+    // comes from a product feed, not the creative).
+    const UNRESOLVED_LABEL = '(dynamic ad — URL not in creative)';
 
     // ── Step 4: aggregate campaign spend by URL ──────────────────────────
     const byUrl: Record<string, {
@@ -257,8 +257,7 @@ export async function GET(request: NextRequest) {
 
     for (const row of campaignRows) {
       const campaignId = String(row.campaign_id ?? '');
-      const url = campaignUrlMap[campaignId];
-      if (!url) continue; // skip campaigns whose URL couldn't be resolved
+      const url = campaignUrlMap[campaignId] ?? UNRESOLVED_LABEL;
 
       if (!byUrl[url]) byUrl[url] = { impressions: 0, clicks: 0, spend: 0, preq: 0, pql: 0 };
       const agg   = byUrl[url];
@@ -290,7 +289,7 @@ export async function GET(request: NextRequest) {
       .filter((r) => r.spend > 0)
       .sort((a, b) => b.spend - a.spend);
 
-    return NextResponse.json({ data, hasUrls: true, droppedCampaigns, _debug });
+    return NextResponse.json({ data, hasUrls: true, _debug });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 502 });
