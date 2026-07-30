@@ -31,6 +31,12 @@ import ReportHeader, {
   calcChange, fmt, fmtMoney, fmtPct, unwrapPipeboardResponse,
   PriorPeriodDates,
 } from './ReportHeader';
+import ReportChart from './ReportChart';
+import BreakdownTable from './BreakdownTable';
+import ReportNotesTimeline from './ReportNotesTimeline';
+import { SparklineKpiCard } from './shared';
+import { ReportingClient } from './types';
+import ReferralBanner from './shared/ReferralBanner';
 
 function computeCustomPeriod(since: string, until: string): PriorPeriodDates {
   const sinceDate = new Date(since + 'T00:00:00');
@@ -41,12 +47,6 @@ function computeCustomPeriod(since: string, until: string): PriorPeriodDates {
   const f = (d: Date) => d.toISOString().split('T')[0];
   return { currentSince: since, currentUntil: until, priorSince: f(priorSince), priorUntil: f(priorUntil) };
 }
-import ReportChart from './ReportChart';
-import BreakdownTable from './BreakdownTable';
-import ReportNotesTimeline from './ReportNotesTimeline';
-import { SparklineKpiCard } from './shared';
-import { ReportingClient } from './types';
-import ReferralBanner from './shared/ReferralBanner';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
