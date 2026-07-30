@@ -11,9 +11,10 @@
  *           for VIDEO/SHARE type creatives (the common case for SRM)
  *
  * URL resolution order (matches extractUrlFromCreative):
- *   1. link_url       — single-image ads (direct AdCreative field, often null)
- *   2. _resolved_link — VIDEO/SHARE/carousel: resolved via effective_object_story_id
- *                       post lookup (link + call_to_action.value.link fields)
+ *   1. link_url                                               — legacy (often null)
+ *   2. object_story_spec.video_data.call_to_action.value.link — VIDEO type
+ *   3. object_story_spec.link_data.link                       — LINK/SHARE type
+ *   4. object_story_spec.link_data.child_attachments[0].link  — carousel
  *
  * CANNOT: Modify ads — read-only.
  */
@@ -68,15 +69,27 @@ function decodeFbRedirect(url: string): string {
 
 /**
  * Extract destination URL from a creative details object.
- *   1. link_url       — direct AdCreative field (often null on modern ads)
- *   2. _resolved_link — resolved from effective_object_story_id post lookup
- *                       (covers VIDEO, SHARE, and carousel creative types)
+ *   1. link_url                                               — legacy (often null)
+ *   2. object_story_spec.video_data.call_to_action.value.link — VIDEO type
+ *   3. object_story_spec.link_data.link                       — LINK/SHARE type
+ *   4. object_story_spec.link_data.child_attachments[0].link  — carousel
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractUrlFromCreative(creative: any): string | null {
   if (!creative || typeof creative !== 'object') return null;
   if (creative.link_url) return decodeFbRedirect(String(creative.link_url));
-  if (creative._resolved_link) return decodeFbRedirect(String(creative._resolved_link));
+  const spec = creative.object_story_spec;
+  if (spec && typeof spec === 'object') {
+    // VIDEO
+    const videoLink = spec.video_data?.call_to_action?.value?.link;
+    if (videoLink) return decodeFbRedirect(String(videoLink));
+    // LINK / SHARE
+    const linkDataLink = spec.link_data?.link;
+    if (linkDataLink) return decodeFbRedirect(String(linkDataLink));
+    // Carousel
+    const carouselLink = spec.link_data?.child_attachments?.[0]?.link;
+    if (carouselLink) return decodeFbRedirect(String(carouselLink));
+  }
   return null;
 }
 
@@ -185,23 +198,24 @@ export async function GET(request: NextRequest) {
         const creatives = (unwrapMcp(creativesRaw)?.data ?? []) as Array<{
           id?: unknown;
           link_url?: string;
-          effective_object_story_id?: string;
-          _resolved_link?: string;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          object_story_spec?: Record<string, any>;
         }>;
         _debug.creativesReturned = creatives.length;
 
         // Sample the first creative's keys+values so failures are self-explaining
         if (creatives.length > 0) {
-          const sample = creatives[0] as typeof creatives[0] & { _samplePost?: unknown };
+          const sample = creatives[0];
+          const spec = sample.object_story_spec;
           _debug.sampleCreative = {
             id: sample.id,
             link_url: sample.link_url ?? null,
-            effective_object_story_id: sample.effective_object_story_id ?? null,
-            _resolved_link: sample._resolved_link ?? null,
+            has_object_story_spec: !!spec,
+            spec_type: spec ? Object.keys(spec).filter(k => k !== 'page_id' && k !== 'instagram_user_id').join(',') : null,
+            resolved_url: extractUrlFromCreative(sample) ?? null,
           };
-          if (sample._samplePost) _debug.samplePost = sample._samplePost;
-          _debug.creativesWithStoryId = creatives.filter((c) => !!c.effective_object_story_id).length;
-          _debug.creativesWithResolvedLink = creatives.filter((c) => !!c._resolved_link).length;
+          _debug.creativesWithSpec = creatives.filter((c) => !!c.object_story_spec).length;
+          _debug.creativesWithUrl = creatives.filter((c) => !!extractUrlFromCreative(c)).length;
         }
 
         const creativeToUrl: Record<string, string> = {};
