@@ -15,7 +15,7 @@
  * Defaults to 7-day view (index 0).
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import LeadGenMetaReport from '../../LeadGenMetaReport';
 import {
   DATE_RANGES, computePriorPeriod,
@@ -23,6 +23,24 @@ import {
 } from '../../ReportHeader';
 import BreakdownTable from '../../BreakdownTable';
 import type { ReportProps } from '../../types';
+
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+/**
+ * Compute prior period for a custom date range — same number of days,
+ * immediately preceding the selected window.
+ */
+function computeCustomPrior(since: string, until: string): { priorSince: string; priorUntil: string } {
+  const sinceDate = new Date(since + 'T00:00:00');
+  const untilDate = new Date(until + 'T00:00:00');
+  const days = Math.round((untilDate.getTime() - sinceDate.getTime()) / 86400000) + 1;
+  const priorUntil = new Date(sinceDate);
+  priorUntil.setDate(priorUntil.getDate() - 1);
+  const priorSince = new Date(priorUntil);
+  priorSince.setDate(priorSince.getDate() - (days - 1));
+  const f = (d: Date) => d.toISOString().split('T')[0];
+  return { priorSince: f(priorSince), priorUntil: f(priorUntil) };
+}
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -119,7 +137,8 @@ interface LandingPageState {
 
 function useMetaLandingPageData(
   adAccountId: string | null,
-  dateRangeIndex: number,
+  since: string,
+  until: string,
   enabled: boolean,
 ): LandingPageState {
   const [state, setState] = useState<LandingPageState>({
@@ -136,10 +155,9 @@ function useMetaLandingPageData(
 
     (async () => {
       try {
-        const { currentSince, currentUntil } = computePriorPeriod(dateRangeIndex);
         const aid = encodeURIComponent(adAccountId);
         const res = await fetch(
-          `/api/meta/landing-pages?account_id=${aid}&since=${currentSince}&until=${currentUntil}`,
+          `/api/meta/landing-pages?account_id=${aid}&since=${since}&until=${until}`,
         );
         const json = res.ok ? await res.json() : {};
         if (cancelled) return;
@@ -157,7 +175,7 @@ function useMetaLandingPageData(
     })();
 
     return () => { cancelled = true; };
-  }, [adAccountId, dateRangeIndex, enabled]);
+  }, [adAccountId, since, until, enabled]);
 
   return state;
 }
@@ -169,22 +187,39 @@ const SRM_DEFAULT_RANGE_INDEX = 0; // 7d
 export default function SRMMetaReport({ client, mode }: ReportProps) {
   const [kpi, setKpi] = useState<KpiData>(ZERO_KPI);
   const [dateRangeIndex, setDateRangeIndex] = useState(SRM_DEFAULT_RANGE_INDEX);
+  const [dateMode, setDateMode] = useState<'preset' | 'custom'>('preset');
+  const [customSince, setCustomSince] = useState('');
+  const [customUntil, setCustomUntil] = useState('');
+  const [pendingSince, setPendingSince] = useState('');
+  const [pendingUntil, setPendingUntil] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const isInternal = mode === 'internal';
-  const lpData = useMetaLandingPageData(client.ad_account_id, dateRangeIndex, isInternal);
+
+  const activePeriod = useMemo(() => {
+    if (dateMode === 'custom' && customSince && customUntil) {
+      return {
+        currentSince: customSince,
+        currentUntil: customUntil,
+        ...computeCustomPrior(customSince, customUntil),
+      };
+    }
+    const p = computePriorPeriod(dateRangeIndex);
+    return { currentSince: p.currentSince, currentUntil: p.currentUntil, priorSince: p.priorSince, priorUntil: p.priorUntil };
+  }, [dateMode, customSince, customUntil, dateRangeIndex]);
+
+  const lpData = useMetaLandingPageData(client.ad_account_id, activePeriod.currentSince, activePeriod.currentUntil, isInternal);
 
   const fetchData = useCallback(async () => {
     if (!client.ad_account_id) { setLoading(false); return; }
     setLoading(true);
     setError(false);
-    const periods = computePriorPeriod(dateRangeIndex);
     const aid = encodeURIComponent(client.ad_account_id);
     const base = `/api/meta/insights?account_id=${aid}&level=campaign&fields=conversions`;
     try {
       const [curRes, priorRes] = await Promise.all([
-        fetch(`${base}&since=${periods.currentSince}&until=${periods.currentUntil}`),
-        fetch(`${base}&since=${periods.priorSince}&until=${periods.priorUntil}`),
+        fetch(`${base}&since=${activePeriod.currentSince}&until=${activePeriod.currentUntil}`),
+        fetch(`${base}&since=${activePeriod.priorSince}&until=${activePeriod.priorUntil}`),
       ]);
       const [curJson, priorJson] = await Promise.all([
         curRes.ok ? curRes.json() : {},
@@ -202,7 +237,7 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
     } finally {
       setLoading(false);
     }
-  }, [client.ad_account_id, dateRangeIndex]);
+  }, [client.ad_account_id, activePeriod.currentSince, activePeriod.currentUntil, activePeriod.priorSince, activePeriod.priorUntil]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -224,20 +259,65 @@ export default function SRMMetaReport({ client, mode }: ReportProps) {
             Pricing Qualified Leads
             <span className="ml-2 text-xs font-normal text-slate-400">(live from Meta campaigns)</span>
           </h2>
-          <div className="inline-flex items-center rounded-lg bg-slate-100 p-1 gap-0.5">
-            {DATE_RANGES.map((range, i) => (
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="inline-flex items-center rounded-lg bg-slate-100 p-1 gap-0.5">
+              {DATE_RANGES.map((range, i) => (
+                <button
+                  key={range.label}
+                  onClick={() => { setDateRangeIndex(i); setDateMode('preset'); }}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                    dateMode === 'preset' && i === dateRangeIndex
+                      ? 'bg-white text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200'
+                      : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  {range.label}
+                </button>
+              ))}
               <button
-                key={range.label}
-                onClick={() => setDateRangeIndex(i)}
+                onClick={() => {
+                  setDateMode('custom');
+                  if (!pendingSince) setPendingSince(activePeriod.currentSince);
+                  if (!pendingUntil) setPendingUntil(activePeriod.currentUntil);
+                }}
                 className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                  i === dateRangeIndex
+                  dateMode === 'custom'
                     ? 'bg-white text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200'
                     : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
                 }`}
               >
-                {range.label}
+                Custom
               </button>
-            ))}
+            </div>
+            {dateMode === 'custom' && (
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="date"
+                  value={pendingSince}
+                  onChange={(e) => setPendingSince(e.target.value)}
+                  className="text-xs border border-slate-200 rounded-md px-2 py-1.5 text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                <span className="text-xs text-slate-400">to</span>
+                <input
+                  type="date"
+                  value={pendingUntil}
+                  onChange={(e) => setPendingUntil(e.target.value)}
+                  className="text-xs border border-slate-200 rounded-md px-2 py-1.5 text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                <button
+                  onClick={() => {
+                    if (pendingSince && pendingUntil && pendingSince <= pendingUntil) {
+                      setCustomSince(pendingSince);
+                      setCustomUntil(pendingUntil);
+                    }
+                  }}
+                  disabled={!pendingSince || !pendingUntil || pendingSince > pendingUntil}
+                  className="px-2.5 py-1.5 rounded-md text-xs font-medium bg-[#2563eb] text-white disabled:bg-slate-200 disabled:text-slate-400 transition-all"
+                >
+                  Apply
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+
 interface DateRangeOption {
   label: string;
   metaParam: string;
@@ -25,6 +27,10 @@ interface ReportHeaderProps {
   onRefresh: () => void;
   lastRefreshed: Date | null;
   cooldownRemaining: number;
+  // Optional custom date range. When onCustomDateApply is provided the "Custom" button appears.
+  customSince?: string;
+  customUntil?: string;
+  onCustomDateApply?: (since: string, until: string) => void;
 }
 
 export default function ReportHeader({
@@ -36,10 +42,39 @@ export default function ReportHeader({
   onRefresh,
   lastRefreshed,
   cooldownRemaining,
+  customSince,
+  customUntil,
+  onCustomDateApply,
 }: ReportHeaderProps) {
   const isMeta = platform?.toLowerCase() === 'meta';
   const cooldownMin = Math.floor(cooldownRemaining / 60000);
   const cooldownSec = Math.floor((cooldownRemaining % 60000) / 1000);
+  const isCustomActive = !!(customSince && customUntil);
+
+  // Local staging state for the date inputs — only shown when Custom is active
+  const [pendingSince, setPendingSince] = useState('');
+  const [pendingUntil, setPendingUntil] = useState('');
+  const [showCustomInputs, setShowCustomInputs] = useState(false);
+
+  const handleCustomClick = () => {
+    // Pre-fill inputs from existing custom dates, or from the current preset range
+    const fallback = computePriorPeriod(dateRangeIndex);
+    setPendingSince(customSince || fallback.currentSince);
+    setPendingUntil(customUntil || fallback.currentUntil);
+    setShowCustomInputs(true);
+  };
+
+  const handlePresetClick = (i: number) => {
+    setShowCustomInputs(false);
+    onDateRangeChange(i);
+  };
+
+  const handleApply = () => {
+    if (pendingSince && pendingUntil && pendingSince <= pendingUntil && onCustomDateApply) {
+      onCustomDateApply(pendingSince, pendingUntil);
+      setShowCustomInputs(false);
+    }
+  };
 
   return (
     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -62,21 +97,59 @@ export default function ReportHeader({
         )}
       </div>
 
-      <div className="flex items-center gap-3 shrink-0">
-        <div className="inline-flex items-center rounded-lg bg-slate-100 p-1 gap-0.5">
-          {DATE_RANGES.map((range, i) => (
-            <button
-              key={range.label}
-              onClick={() => onDateRangeChange(i)}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                i === dateRangeIndex
-                  ? 'bg-white text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200'
-                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-              }`}
-            >
-              {range.label}
-            </button>
-          ))}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 shrink-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="inline-flex items-center rounded-lg bg-slate-100 p-1 gap-0.5">
+            {DATE_RANGES.map((range, i) => (
+              <button
+                key={range.label}
+                onClick={() => handlePresetClick(i)}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  !isCustomActive && i === dateRangeIndex
+                    ? 'bg-white text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200'
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                {range.label}
+              </button>
+            ))}
+            {onCustomDateApply && (
+              <button
+                onClick={handleCustomClick}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  isCustomActive || showCustomInputs
+                    ? 'bg-white text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200'
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                {isCustomActive ? `${customSince} → ${customUntil}` : 'Custom'}
+              </button>
+            )}
+          </div>
+          {showCustomInputs && (
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={pendingSince}
+                onChange={(e) => setPendingSince(e.target.value)}
+                className="text-xs border border-slate-200 rounded-md px-2 py-1.5 text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <span className="text-xs text-slate-400">to</span>
+              <input
+                type="date"
+                value={pendingUntil}
+                onChange={(e) => setPendingUntil(e.target.value)}
+                className="text-xs border border-slate-200 rounded-md px-2 py-1.5 text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <button
+                onClick={handleApply}
+                disabled={!pendingSince || !pendingUntil || pendingSince > pendingUntil}
+                className="px-2.5 py-1.5 rounded-md text-xs font-medium bg-[#2563eb] text-white disabled:bg-slate-200 disabled:text-slate-400 transition-all"
+              >
+                Apply
+              </button>
+            </div>
+          )}
         </div>
         <button
           onClick={onRefresh}

@@ -8,13 +8,24 @@
  * CANNOT: Write to any API — read-only fetching.
  */
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   DATE_RANGES,
   DEFAULT_RANGE_INDEX,
   computePriorPeriod,
   calcChange,
+  PriorPeriodDates,
 } from '@/components/reports/ReportHeader';
+
+function computeCustomPeriod(since: string, until: string): PriorPeriodDates {
+  const sinceDate = new Date(since + 'T00:00:00');
+  const untilDate = new Date(until + 'T00:00:00');
+  const days = Math.round((untilDate.getTime() - sinceDate.getTime()) / 86400000) + 1;
+  const priorUntil = new Date(sinceDate); priorUntil.setDate(priorUntil.getDate() - 1);
+  const priorSince = new Date(priorUntil); priorSince.setDate(priorSince.getDate() - (days - 1));
+  const f = (d: Date) => d.toISOString().split('T')[0];
+  return { currentSince: since, currentUntil: until, priorSince: f(priorSince), priorUntil: f(priorUntil) };
+}
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -79,7 +90,10 @@ export interface GoogleAdsData {
   cooldownRemaining: number;
   dateRangeIndex: number;
   currentRange: { label: string; googleParam: string; metaParam: string };
+  customSince: string;
+  customUntil: string;
   handleDateRangeChange: (index: number) => void;
+  handleCustomDateApply: (since: string, until: string) => void;
   fetchData: () => Promise<void>;
 }
 
@@ -147,8 +161,15 @@ export function useGoogleAdsData(adAccountId: string | null): GoogleAdsData {
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
   const cooldownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const [dateRangeIndex, setDateRangeIndex] = useState(DEFAULT_RANGE_INDEX);
+  const [customSince, setCustomSince] = useState('');
+  const [customUntil, setCustomUntil] = useState('');
 
   const currentRange = DATE_RANGES[dateRangeIndex];
+
+  const activePeriod = useMemo((): PriorPeriodDates => {
+    if (customSince && customUntil) return computeCustomPeriod(customSince, customUntil);
+    return computePriorPeriod(dateRangeIndex);
+  }, [customSince, customUntil, dateRangeIndex]);
 
   const startCooldown = useCallback(() => {
     setCooldownRemaining(COOLDOWN_MS);
@@ -174,20 +195,19 @@ export function useGoogleAdsData(adAccountId: string | null): GoogleAdsData {
     setLoading(true);
     setError(null);
     try {
-      const range = DATE_RANGES[dateRangeIndex];
       const cid = encodeURIComponent(adAccountId);
-      const dr = range.googleParam;
+      // Use explicit since/until for all requests (works for both preset and custom ranges)
+      const dateParams = `since=${activePeriod.currentSince}&until=${activePeriod.currentUntil}`;
 
-      const campaignUrl = `/api/google/insights?customer_id=${cid}&level=campaign&date_range=${dr}`;
-      const accountUrl = `/api/google/insights?customer_id=${cid}&level=account&date_range=${dr}`;
-      const keywordUrl = `/api/google/insights?customer_id=${cid}&level=keyword&date_range=${dr}`;
-      const searchTermUrl = `/api/google/insights?customer_id=${cid}&level=search_term&date_range=${dr}`;
-      const geoUrl = `/api/google/insights?customer_id=${cid}&level=geo&date_range=${dr}`;
-      const ageUrl = `/api/google/insights?customer_id=${cid}&level=age&date_range=${dr}`;
-      const genderUrl = `/api/google/insights?customer_id=${cid}&level=gender&date_range=${dr}`;
+      const campaignUrl = `/api/google/insights?customer_id=${cid}&level=campaign&${dateParams}`;
+      const accountUrl = `/api/google/insights?customer_id=${cid}&level=account&${dateParams}`;
+      const keywordUrl = `/api/google/insights?customer_id=${cid}&level=keyword&${dateParams}`;
+      const searchTermUrl = `/api/google/insights?customer_id=${cid}&level=search_term&${dateParams}`;
+      const geoUrl = `/api/google/insights?customer_id=${cid}&level=geo&${dateParams}`;
+      const ageUrl = `/api/google/insights?customer_id=${cid}&level=age&${dateParams}`;
+      const genderUrl = `/api/google/insights?customer_id=${cid}&level=gender&${dateParams}`;
 
-      const periods = computePriorPeriod(dateRangeIndex);
-      const priorCampaignUrl = `/api/google/insights?customer_id=${cid}&level=campaign&since=${periods.priorSince}&until=${periods.priorUntil}`;
+      const priorCampaignUrl = `/api/google/insights?customer_id=${cid}&level=campaign&since=${activePeriod.priorSince}&until=${activePeriod.priorUntil}`;
 
       const [campaignRes, accountRes, priorRes, kwRes, stRes, geoRes, ageRes, genderRes] = await Promise.all([
         fetch(campaignUrl),
@@ -276,21 +296,30 @@ export function useGoogleAdsData(adAccountId: string | null): GoogleAdsData {
     } finally {
       setLoading(false);
     }
-  }, [adAccountId, dateRangeIndex, startCooldown]);
+  }, [adAccountId, activePeriod.currentSince, activePeriod.currentUntil, activePeriod.priorSince, activePeriod.priorUntil, startCooldown]);
 
   useEffect(() => {
     fetchData();
     return () => { if (cooldownTimer.current) clearInterval(cooldownTimer.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateRangeIndex]);
+  }, [activePeriod.currentSince, activePeriod.currentUntil]);
 
   const handleDateRangeChange = useCallback((index: number) => {
+    setCustomSince('');
+    setCustomUntil('');
     setDateRangeIndex((prev) => {
       if (index === prev) return prev;
       setCooldownRemaining(0);
       if (cooldownTimer.current) clearInterval(cooldownTimer.current);
       return index;
     });
+  }, []);
+
+  const handleCustomDateApply = useCallback((since: string, until: string) => {
+    setCustomSince(since);
+    setCustomUntil(until);
+    setCooldownRemaining(0);
+    if (cooldownTimer.current) clearInterval(cooldownTimer.current);
   }, []);
 
   return {
@@ -309,7 +338,10 @@ export function useGoogleAdsData(adAccountId: string | null): GoogleAdsData {
     cooldownRemaining,
     dateRangeIndex,
     currentRange,
+    customSince,
+    customUntil,
     handleDateRangeChange,
+    handleCustomDateApply,
     fetchData,
   };
 }

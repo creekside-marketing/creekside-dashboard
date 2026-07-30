@@ -90,7 +90,8 @@ export default function LeadGenGoogleReport({
     campaigns, totals, dailyData, keywords, searchTerms,
     geoData, ageData, genderData, kpiChanges,
     loading, error, lastRefreshed, cooldownRemaining,
-    dateRangeIndex, currentRange, handleDateRangeChange, fetchData,
+    dateRangeIndex, currentRange, customSince, customUntil,
+    handleDateRangeChange, handleCustomDateApply, fetchData,
   } = data;
 
   // ── Derived values ───────────────────────────────────────────────────
@@ -100,6 +101,9 @@ export default function LeadGenGoogleReport({
 
   // Days elapsed in current period — used for targetCpl pacing
   const daysElapsed = (() => {
+    if (customSince && customUntil) {
+      return Math.max(Math.round((new Date(customUntil).getTime() - new Date(customSince).getTime()) / 86400000) + 1, 1);
+    }
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const label = DATE_RANGES[dateRangeIndex].label;
     if (label === 'This Month') return Math.max(Math.floor((today.getTime() - new Date(today.getFullYear(), today.getMonth(), 1).getTime()) / 86400000), 1);
@@ -131,6 +135,9 @@ export default function LeadGenGoogleReport({
         onRefresh={fetchData}
         lastRefreshed={lastRefreshed}
         cooldownRemaining={cooldownRemaining}
+        customSince={customSince}
+        customUntil={customUntil}
+        onCustomDateApply={handleCustomDateApply}
       />
 
       <ReferralBanner />

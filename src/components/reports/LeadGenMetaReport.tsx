@@ -29,7 +29,18 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import ReportHeader, {
   DATE_RANGES, DEFAULT_RANGE_INDEX, computePriorPeriod,
   calcChange, fmt, fmtMoney, fmtPct, unwrapPipeboardResponse,
+  PriorPeriodDates,
 } from './ReportHeader';
+
+function computeCustomPeriod(since: string, until: string): PriorPeriodDates {
+  const sinceDate = new Date(since + 'T00:00:00');
+  const untilDate = new Date(until + 'T00:00:00');
+  const days = Math.round((untilDate.getTime() - sinceDate.getTime()) / 86400000) + 1;
+  const priorUntil = new Date(sinceDate); priorUntil.setDate(priorUntil.getDate() - 1);
+  const priorSince = new Date(priorUntil); priorSince.setDate(priorSince.getDate() - (days - 1));
+  const f = (d: Date) => d.toISOString().split('T')[0];
+  return { currentSince: since, currentUntil: until, priorSince: f(priorSince), priorUntil: f(priorUntil) };
+}
 import ReportChart from './ReportChart';
 import BreakdownTable from './BreakdownTable';
 import ReportNotesTimeline from './ReportNotesTimeline';
@@ -145,7 +156,14 @@ export default function LeadGenMetaReport({ client, mode, leadConversionTypes, p
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
   const cooldownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const [dateRangeIndex, setDateRangeIndex] = useState(DEFAULT_RANGE_INDEX);
+  const [customSince, setCustomSince] = useState('');
+  const [customUntil, setCustomUntil] = useState('');
   const currentRange = DATE_RANGES[dateRangeIndex];
+
+  const activePeriod = useMemo((): PriorPeriodDates => {
+    if (customSince && customUntil) return computeCustomPeriod(customSince, customUntil);
+    return computePriorPeriod(dateRangeIndex);
+  }, [customSince, customUntil, dateRangeIndex]);
 
   const countLeads: LeadCounter = useMemo(() => leadConversionTypes
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -172,15 +190,14 @@ export default function LeadGenMetaReport({ client, mode, leadConversionTypes, p
     setLoading(true); setError(null);
     try {
       const aid = encodeURIComponent(client.ad_account_id);
-      const tr = DATE_RANGES[dateRangeIndex].metaParam;
       const extraFields = (leadConversionTypes || pqlConversionType) ? '&fields=conversions' : '';
       const base = `/api/meta/insights?account_id=${aid}${extraFields}`;
-      const periods = computePriorPeriod(dateRangeIndex);
+      const currentDateParams = `since=${activePeriod.currentSince}&until=${activePeriod.currentUntil}`;
       const [campaignRes, accountRes, priorRes, adRes] = await Promise.all([
-        fetch(`${base}&level=campaign&time_range=${tr}`),
-        fetch(`${base}&level=account&since=${periods.currentSince}&until=${periods.currentUntil}&time_breakdown=day`),
-        fetch(`${base}&level=campaign&since=${periods.priorSince}&until=${periods.priorUntil}`),
-        fetch(`${base}&level=ad&time_range=${tr}`).catch(() => null),
+        fetch(`${base}&level=campaign&${currentDateParams}`),
+        fetch(`${base}&level=account&${currentDateParams}&time_breakdown=day`),
+        fetch(`${base}&level=campaign&since=${activePeriod.priorSince}&until=${activePeriod.priorUntil}`),
+        fetch(`${base}&level=ad&${currentDateParams}`).catch(() => null),
       ]);
       if (!campaignRes.ok) { const b = await campaignRes.json().catch(() => ({})); throw new Error(b.error || `HTTP ${campaignRes.status}`); }
 
@@ -265,15 +282,25 @@ export default function LeadGenMetaReport({ client, mode, leadConversionTypes, p
       setLastRefreshed(new Date()); startCooldown();
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed to fetch data'); }
     finally { setLoading(false); }
-  }, [client.ad_account_id, dateRangeIndex, startCooldown, countLeads, leadConversionTypes, pqlConversionType]);
+  }, [client.ad_account_id, activePeriod.currentSince, activePeriod.currentUntil, activePeriod.priorSince, activePeriod.priorUntil, startCooldown, countLeads, leadConversionTypes, pqlConversionType]);
 
   useEffect(() => { fetchData(); return () => { if (cooldownTimer.current) clearInterval(cooldownTimer.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateRangeIndex]);
+  }, [activePeriod.currentSince, activePeriod.currentUntil]);
 
   const handleDateRangeChange = (i: number) => {
-    if (i === dateRangeIndex) return;
-    setDateRangeIndex(i); setCooldownRemaining(0);
+    if (i === dateRangeIndex && !customSince) return;
+    setDateRangeIndex(i);
+    setCustomSince('');
+    setCustomUntil('');
+    setCooldownRemaining(0);
+    if (cooldownTimer.current) clearInterval(cooldownTimer.current);
+  };
+
+  const handleCustomDateApply = (since: string, until: string) => {
+    setCustomSince(since);
+    setCustomUntil(until);
+    setCooldownRemaining(0);
     if (cooldownTimer.current) clearInterval(cooldownTimer.current);
   };
 
@@ -286,7 +313,8 @@ export default function LeadGenMetaReport({ client, mode, leadConversionTypes, p
     <div className="space-y-6">
       <ReportHeader clientName={client.client_name} platform={client.platform}
         dateRangeIndex={dateRangeIndex} onDateRangeChange={handleDateRangeChange}
-        loading={loading} onRefresh={fetchData} lastRefreshed={lastRefreshed} cooldownRemaining={cooldownRemaining} />
+        loading={loading} onRefresh={fetchData} lastRefreshed={lastRefreshed} cooldownRemaining={cooldownRemaining}
+        customSince={customSince} customUntil={customUntil} onCustomDateApply={handleCustomDateApply} />
 
       {!hideReferralBanner && <ReferralBanner />}
 
