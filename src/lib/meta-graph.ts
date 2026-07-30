@@ -379,9 +379,8 @@ async function getCreativeDetails(args: Record<string, unknown>): Promise<unknow
       const sliceIds = storyIds.slice(i, i + BATCH_SIZE);
       const batch = sliceIds.map((id) => ({
         method: 'GET',
-        // link — link-type posts (single-image link ads)
-        // call_to_action — VIDEO/SHARE ads: destination URL in value.link
-        relative_url: `${id}?fields=link,call_to_action`,
+        // Request broad set of fields so we can see what the post actually has
+        relative_url: `${id}?fields=link,call_to_action,attachments{url,media_type,subattachments{url}}`,
       }));
 
       try {
@@ -398,16 +397,27 @@ async function getCreativeDetails(args: Record<string, unknown>): Promise<unknow
           const item = batchResults[j];
           if (item?.code === 200) {
             try {
-              const post = JSON.parse(item.body) as {
+              const post = JSON.parse(item.body) as Record<string, unknown> & {
                 link?: string;
                 call_to_action?: { value?: { link?: string } };
+                attachments?: { data?: Array<{ url?: string; subattachments?: { data?: Array<{ url?: string }> } }> };
               };
               const storyId = sliceIds[j];
-              const resolved = post.link || post.call_to_action?.value?.link;
+              // Store first post raw for debugging (before URL extraction)
+              if (j === 0 && i === 0 && storyToCreative[storyId]) {
+                storyToCreative[storyId]._samplePost = post;
+              }
+              const resolved =
+                post.link ||
+                post.call_to_action?.value?.link ||
+                post.attachments?.data?.[0]?.url ||
+                post.attachments?.data?.[0]?.subattachments?.data?.[0]?.url;
               if (resolved && storyToCreative[storyId]) {
                 storyToCreative[storyId]._resolved_link = resolved;
               }
             } catch { /* skip malformed */ }
+          } else if (item) {
+            console.warn(`[meta-graph] post batch item error ${item.code}:`, item.body?.slice(0, 200));
           }
         }
       } catch { /* non-fatal — continue without post links */ }

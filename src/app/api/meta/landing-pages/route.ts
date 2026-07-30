@@ -192,13 +192,14 @@ export async function GET(request: NextRequest) {
 
         // Sample the first creative's keys+values so failures are self-explaining
         if (creatives.length > 0) {
-          const sample = creatives[0];
+          const sample = creatives[0] as typeof creatives[0] & { _samplePost?: unknown };
           _debug.sampleCreative = {
             id: sample.id,
             link_url: sample.link_url ?? null,
             effective_object_story_id: sample.effective_object_story_id ?? null,
             _resolved_link: sample._resolved_link ?? null,
           };
+          if (sample._samplePost) _debug.samplePost = sample._samplePost;
           _debug.creativesWithStoryId = creatives.filter((c) => !!c.effective_object_story_id).length;
           _debug.creativesWithResolvedLink = creatives.filter((c) => !!c._resolved_link).length;
         }
