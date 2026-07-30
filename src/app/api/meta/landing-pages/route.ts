@@ -157,13 +157,12 @@ export async function GET(request: NextRequest) {
 
     // ── Steps 2+3: resolve campaign → destination URL ────────────────────
     //
-    // Step 2: get_ads returns id, campaign_id, and creative{id} only.
-    //         Build campaign_id → creative_id map (one creative per campaign).
-    //
-    // Step 3: get_creative_details batch-fetches link_url + child_attachments
-    //         for each unique creative. This uses the direct /{creative_id}
-    //         endpoint which actually exposes these fields, unlike the field-
-    //         expansion path from the ads endpoint.
+    // Step 2: get_ads → campaign_id + creative{id} mapping
+    // Step 3: get_creative_details → batch GET /{creative_id}?fields=id,link_url,
+    //         object_story_spec for each unique creative. object_story_spec works
+    //         on direct creative calls with system-user tokens (unlike field
+    //         expansion from /ads which is blocked, or the post endpoint which
+    //         requires pages_read_engagement).
     //
     const campaignUrlMap: Record<string, string> = {}; // campaign_id → URL
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -186,9 +185,7 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // Step 3 — creative details → URL (two-phase inside getCreativeDetails:
-      //   phase a: batch GET creative fields incl. effective_object_story_id
-      //   phase b: batch GET /{story_id}?fields=link,call_to_action for VIDEO/SHARE)
+      // Step 3 — creative details → URL via object_story_spec
       const uniqueCreativeIds = [...new Set(Object.values(campaignToCreativeId))];
       _debug.uniqueCreatives = uniqueCreativeIds.length;
       if (uniqueCreativeIds.length > 0) {
@@ -240,8 +237,10 @@ export async function GET(request: NextRequest) {
 
     const hasUrls = Object.keys(campaignUrlMap).length > 0;
 
-    // If no URLs resolved at all, tell the client so it can show a message
-    if (!hasUrls) {
+    // Only bail with urlResolutionFailed when the creative API itself errored
+    // (captured in _debug.error). If the API succeeded but all creatives are
+    // dynamic ads (no static URL), we still show the table with UNRESOLVED_LABEL rows.
+    if (!hasUrls && _debug.error) {
       return NextResponse.json({ data: [], hasUrls: false, urlResolutionFailed: true, _debug });
     }
 
