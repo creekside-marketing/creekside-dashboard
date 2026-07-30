@@ -15,6 +15,8 @@
  *   2. object_story_spec.video_data.call_to_action.value.link — VIDEO type
  *   3. object_story_spec.link_data.link                       — LINK/SHARE type
  *   4. object_story_spec.link_data.child_attachments[0].link  — carousel
+ *   5. asset_feed_spec.link_urls[0].website_url               — Advantage+/dynamic creative
+ *   6. object_url                                             — page/app object ads
  *
  * CANNOT: Modify ads — read-only.
  */
@@ -73,6 +75,8 @@ function decodeFbRedirect(url: string): string {
  *   2. object_story_spec.video_data.call_to_action.value.link — VIDEO type
  *   3. object_story_spec.link_data.link                       — LINK/SHARE type
  *   4. object_story_spec.link_data.child_attachments[0].link  — carousel
+ *   5. asset_feed_spec.link_urls[0].website_url               — Advantage+/dynamic creative
+ *   6. object_url                                             — page/app object ads
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractUrlFromCreative(creative: any): string | null {
@@ -90,6 +94,11 @@ function extractUrlFromCreative(creative: any): string | null {
     const carouselLink = spec.link_data?.child_attachments?.[0]?.link;
     if (carouselLink) return decodeFbRedirect(String(carouselLink));
   }
+  // Advantage+ Creative / dynamic creative — URL lives in asset_feed_spec, not object_story_spec
+  const assetFeedUrl = creative.asset_feed_spec?.link_urls?.[0]?.website_url;
+  if (assetFeedUrl) return decodeFbRedirect(String(assetFeedUrl));
+  // Page/app object ads
+  if (creative.object_url) return decodeFbRedirect(String(creative.object_url));
   return null;
 }
 
@@ -195,8 +204,11 @@ export async function GET(request: NextRequest) {
         const creatives = (unwrapMcp(creativesRaw)?.data ?? []) as Array<{
           id?: unknown;
           link_url?: string;
+          object_url?: string;
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           object_story_spec?: Record<string, any>;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          asset_feed_spec?: Record<string, any>;
         }>;
         _debug.creativesReturned = creatives.length;
 
@@ -204,11 +216,15 @@ export async function GET(request: NextRequest) {
         if (creatives.length > 0) {
           const sample = creatives[0];
           const spec = sample.object_story_spec;
+          const feed = sample.asset_feed_spec;
           _debug.sampleCreative = {
             id: sample.id,
             link_url: sample.link_url ?? null,
+            object_url: sample.object_url ?? null,
             has_object_story_spec: !!spec,
             spec_type: spec ? Object.keys(spec).filter(k => k !== 'page_id' && k !== 'instagram_user_id').join(',') : null,
+            has_asset_feed_spec: !!feed,
+            asset_feed_link_urls: feed?.link_urls ?? null,
             resolved_url: extractUrlFromCreative(sample) ?? null,
           };
           _debug.creativesWithSpec = creatives.filter((c) => !!c.object_story_spec).length;

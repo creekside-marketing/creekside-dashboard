@@ -320,7 +320,7 @@ async function getCreativeDetails(args: Record<string, unknown>): Promise<unknow
   const creativeIds = (args.creative_ids as string[] | undefined) ?? [];
   if (creativeIds.length === 0) return wrapResponse({ data: [] });
   const token = getToken();
-  const FIELDS = 'id,link_url,object_story_spec';
+  const FIELDS = 'id,link_url,object_url,object_story_spec,asset_feed_spec';
   const BATCH_SIZE = 50;
   const results: Record<string, unknown>[] = [];
 
