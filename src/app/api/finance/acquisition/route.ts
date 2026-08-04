@@ -105,16 +105,24 @@ export async function GET() {
     }
 
     // Pull canonical clients FIRST so we can dedup payment sources by client_id.
+    // start_date is used as a fallback "first payment" signal for just-landed
+    // clients whose first invoice hasn't hit Square/accounting yet (e.g. Dr Laleh
+    // Cosmetic — landed today, no invoice paid). Without this fallback, they'd be
+    // invisible on the acquisition tile until the first payment posts.
     const { data: clientsRows } = await supabase
       .from('clients')
-      .select('id, name, primary_contact_name, display_names');
+      .select('id, name, primary_contact_name, display_names, start_date, status');
 
     // normalizedNameVariant → canonical client_id (first variant wins for ties)
     const clientIdByNormName: Record<string, string> = {};
     const clientNameById: Record<string, string> = {};
+    const startDateByClientId: Record<string, string> = {};
     for (const c of clientsRows ?? []) {
       if (!c?.id) continue;
       clientNameById[c.id] = c.name;
+      if (c.start_date && (c.status ?? 'active') === 'active') {
+        startDateByClientId[c.id] = c.start_date as string;
+      }
       const variants = new Set<string>();
       variants.add(normalizeName(c.name));
       if (c.primary_contact_name) variants.add(normalizeName(c.primary_contact_name));
@@ -175,6 +183,21 @@ export async function GET() {
     for (const row of squarePayments ?? []) {
       const date = (row.source_timestamp as string | null)?.slice(0, 10) ?? null;
       recordFirstPayment(row.customer_name as string, date);
+    }
+
+    // Fallback: any active client with a start_date but NO recorded first payment
+    // gets a synthetic entry using start_date. Surfaces just-landed clients on
+    // the acquisition tile before their first Square/accounting payment lands.
+    const clientsAlreadyWithPayment = new Set<string>();
+    for (const info of Object.values(firstPaymentByKey)) {
+      if (info.clientId) clientsAlreadyWithPayment.add(info.clientId);
+    }
+    for (const [clientId, startDate] of Object.entries(startDateByClientId)) {
+      if (clientsAlreadyWithPayment.has(clientId)) continue;
+      const displayName = clientNameById[clientId] ?? '';
+      const norm = normalizeName(displayName);
+      if (!norm) continue;
+      firstPaymentByKey[clientId] = { date: startDate, displayName, normName: norm, clientId };
     }
 
     // Pull manually-entered MRR per client
