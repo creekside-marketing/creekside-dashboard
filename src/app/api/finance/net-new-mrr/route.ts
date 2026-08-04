@@ -118,18 +118,19 @@ export async function GET(req: NextRequest) {
     // 4. Build per-client comparison for every eligible client.
     const { data: clientsData, error: clientsErr } = await supabase
       .from('clients')
-      .select('id, name, status, engagement_details, primary_contact_name, display_names');
+      .select('id, name, status, engagement_details, primary_contact_name, display_names, start_date');
 
     if (clientsErr) {
       return NextResponse.json({ error: `clients read failed: ${clientsErr.message}` }, { status: 500 });
     }
 
-    const clientMeta = new Map<string, { name: string; source: string | null; status: string }>();
+    const clientMeta = new Map<string, { name: string; source: string | null; status: string; start_date: string | null }>();
     for (const c of clientsData ?? []) {
       clientMeta.set(c.id as string, {
         name: c.name as string,
         source: (c.engagement_details as { acquisition_source?: string } | null)?.acquisition_source ?? null,
         status: (c.status as string) ?? 'active',
+        start_date: (c.start_date as string | null) ?? null,
       });
     }
 
@@ -150,12 +151,20 @@ export async function GET(req: NextRequest) {
         if (widerPrior > 0) lastMrr = widerPrior;
       }
 
-      // Fallback: client has no Square data at all → use stored monthly_revenue
-      // for both windows (steady-state, no expansion / contraction).
+      // Fallback: client has no Square data at all → use stored monthly_revenue.
+      // Default: treat as steady-state (both windows equal, no expansion / contraction).
+      // Exception: if clients.start_date is inside the current window, this is a
+      // just-landed client whose first invoice hasn't hit Square yet — surface it
+      // in the NEW bucket by leaving lastMrr = 0. Prevents brand-new clients like
+      // Dr Laleh Cosmetic from being invisible until their first Square payment.
       const noSquareEver = thisMrr === 0 && lastMrr === 0;
       if (noSquareEver && (fallbackMrrById[id] ?? 0) > 0) {
+        const startedInWindow =
+          meta.start_date != null &&
+          meta.start_date >= thisStart.slice(0, 10) &&
+          meta.start_date <= thisEnd.slice(0, 10);
         thisMrr = fallbackMrrById[id];
-        lastMrr = fallbackMrrById[id];
+        lastMrr = startedInWindow ? 0 : fallbackMrrById[id];
       }
 
       // Billing-date drift: client is still active (per canonical status) and has a prior-window
