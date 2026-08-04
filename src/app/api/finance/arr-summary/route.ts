@@ -20,7 +20,7 @@ import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase';
 import { computeRevenueByClientId } from '@/lib/client-revenue';
 
-type Source = 'upwork' | 'partner' | 'other' | 'unknown';
+type Source = 'upwork' | 'partner' | 'referral' | 'other' | 'unknown';
 
 type TrailingMonth = {
   month: string;
@@ -31,7 +31,7 @@ type TrailingMonth = {
 type ArrBySource = Record<Source, number>;
 
 function emptySources(): ArrBySource {
-  return { upwork: 0, partner: 0, other: 0, unknown: 0 };
+  return { upwork: 0, partner: 0, referral: 0, other: 0, unknown: 0 };
 }
 
 function normalizeSource(raw: string | null | undefined): Source {
@@ -39,6 +39,7 @@ function normalizeSource(raw: string | null | undefined): Source {
   const lower = raw.toLowerCase();
   if (lower === 'upwork') return 'upwork';
   if (lower === 'partner') return 'partner';
+  if (lower === 'referral') return 'referral';
   if (lower === 'other') return 'other';
   return 'unknown';
 }
