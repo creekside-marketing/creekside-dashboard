@@ -1,3 +1,4 @@
+// test edit by Claude
 'use client';
 
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
