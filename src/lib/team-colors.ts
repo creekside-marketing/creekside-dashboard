@@ -28,7 +28,7 @@ const TEAM_COLORS: Record<string, TeamColor> = {
   trent:   { bg: 'bg-yellow-100', text: 'text-yellow-800', ring: 'ring-yellow-400', dot: 'bg-yellow-500' },
   ahmed:   { bg: 'bg-emerald-100', text: 'text-emerald-800', ring: 'ring-emerald-300', dot: 'bg-emerald-500' },
   ade:     { bg: 'bg-purple-100', text: 'text-purple-800', ring: 'ring-purple-300', dot: 'bg-purple-500' },
-  baran:   { bg: 'bg-cyan-100',   text: 'text-cyan-800',   ring: 'ring-cyan-300',   dot: 'bg-cyan-500' },
+  keith:   { bg: 'bg-cyan-100',   text: 'text-cyan-800',   ring: 'ring-cyan-300',   dot: 'bg-cyan-500' },
   jordan:  { bg: 'bg-blue-100',   text: 'text-blue-800',   ring: 'ring-blue-300',   dot: 'bg-blue-500' },
   aamir:   { bg: 'bg-pink-100',   text: 'text-pink-800',   ring: 'ring-pink-300',   dot: 'bg-pink-500' },
   aldo:    { bg: 'bg-indigo-100', text: 'text-indigo-800', ring: 'ring-indigo-300', dot: 'bg-indigo-500' },

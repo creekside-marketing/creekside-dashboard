@@ -13,7 +13,7 @@ const BANDWIDTH_REMAINING_HOURS: Record<string, number> = {
   'Scott Caldwell': 0,   // Cade Jun 9 clarification: current hours ~35, bandwidth gone
   'Ahmed Imran': 15,
   'Ade Aderibigbe': 10,
-  'Baran Eris': 20,
+  'Keith McGonigle': 20,
   'David': 11,           // 15 hrs/wk capacity − 4.5 currently allocated = ~11 hrs/wk available
   // Lindsey is dynamic: 45-hr weekly capacity − 5-hr admin buffer − allocated hours.
   // Jordan Tryon + Aamir + Jay + Aldo: bandwidth not tracked — will show as `--`.
@@ -42,7 +42,7 @@ const DISPLAY_ORDER: string[] = [
   'Ahmed Imran',
   'Ade Aderibigbe',
   'David',
-  'Baran Eris',
+  'Keith McGonigle',
   'Jordan Tryon',
   'Aamir',
   'Jay',

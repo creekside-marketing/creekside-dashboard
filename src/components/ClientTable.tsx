@@ -2003,7 +2003,7 @@ export default function ClientTable() {
                               field="account_manager"
                               value={client.account_manager}
                               options={teamMembers
-                                .filter(t => ['Cade', 'Peterson', 'Scott', 'Lindsey', 'Baran'].some(n => t.short_name?.includes(n) || t.name?.includes(n)))
+                                .filter(t => ['Cade', 'Peterson', 'Scott', 'Lindsey', 'Keith'].some(n => t.short_name?.includes(n) || t.name?.includes(n)))
                                 .map(t => ({ value: t.short_name, label: t.short_name }))}
                               placeholder="--"
                               onSaved={handleFieldSaved}
