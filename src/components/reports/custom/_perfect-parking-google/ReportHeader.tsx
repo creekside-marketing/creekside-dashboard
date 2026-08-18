@@ -200,7 +200,7 @@ export function fmtPct(n: number): string {
   return `${(n * 100).toFixed(2)}%`;
 }
 
-// ── PipeBoard response unwrapper ────────────────────────────────────────
+// ── AdKit response unwrapper ────────────────────────────────────────
 
 export function unwrapPipeboardResponse(json: Record<string, unknown>): Record<string, unknown> {
   if (json.structuredContent) {

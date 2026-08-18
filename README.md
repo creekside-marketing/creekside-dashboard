@@ -4,7 +4,7 @@ Internal operations dashboard for Creekside Marketing. Password-gated. Tracks ac
 
 **Repo:** `peterson-rainey/creekside-dashboard`
 **Deployed:** Railway (`creekside-agent-system-production.up.railway.app`)
-**Stack:** Next.js 16, React 19, Tailwind CSS 4, Supabase, Recharts, Google Ads API, PipeBoard (Meta Ads)
+**Stack:** Next.js 16, React 19, Tailwind CSS 4, Supabase, Recharts, Google Ads API, AdKit (Meta Ads)
 
 > This is NOT the public tools site. That is `creekside-tools` in a separate repo.
 
@@ -61,7 +61,7 @@ The main dashboard component. Renders the client table with inline editing.
 | Manager | Inline select (grouped) | `reporting_clients.account_manager` |
 | Operator | Inline select | `reporting_clients.platform_operator` |
 | Budget | Inline currency | `reporting_clients.monthly_budget` |
-| Spend | Live data | Meta: PipeBoard bulk API. Google: Google Ads API. |
+| Spend | Live data | Meta: AdKit bulk API. Google: Google Ads API. |
 | Target | Inline goal editor | `reporting_clients.goal_type` + `goal_target` |
 | Current | Auto-calculated | Live data value matching goal type |
 
@@ -112,7 +112,7 @@ Pure functions for calculating expected revenue from `fee_config` JSON + spend d
 
 ### `ClientReport.tsx`
 
-Renders on `/client/[id]`. Fetches campaign-level data from Meta (PipeBoard) or Google Ads API. Shows KPI cards, campaigns table, conversion breakdowns. Supports date range selection (7d, 14d, 30d, This Month, Last Month) with prior-period comparison.
+Renders on `/client/[id]`. Fetches campaign-level data from Meta (AdKit) or Google Ads API. Shows KPI cards, campaigns table, conversion breakdowns. Supports date range selection (7d, 14d, 30d, This Month, Last Month) with prior-period comparison.
 
 ### `CampaignsTable.tsx`
 
@@ -139,9 +139,9 @@ Public, no-auth report pages served via UUID token. Server component fetches cli
 
 **Tabbed view:** Clients with ad accounts on both Google and Meta show platform tabs (Google | Meta). Tab bar matches date range pill selector styling. Switching tabs remounts the report component.
 
-**Daily chart data (Meta):** Uses PipeBoard `time_breakdown: "day"` parameter with explicit `since`/`until` dates. Response returns `segmented_metrics` array with nested `metrics` objects per day.
+**Daily chart data (Meta):** Uses AdKit `time_breakdown: "day"` parameter with explicit `since`/`until` dates. Response returns `segmented_metrics` array with nested `metrics` objects per day.
 
-**Ad creative thumbnails (Ecom Meta):** Fetches from `/api/meta/creatives` which calls PipeBoard `get_ads` with creative fields. Thumbnails shown as 10×10 rounded images in the Ads Overview table. Falls back to "No img" placeholder.
+**Ad creative thumbnails (Ecom Meta):** Fetches from `/api/meta/creatives` which calls AdKit `get_ads` with creative fields. Thumbnails shown as 10×10 rounded images in the Ads Overview table. Falls back to "No img" placeholder.
 
 ### `ClientTypeToggle.tsx`
 
@@ -163,9 +163,9 @@ Inline editor for Target column. Dropdown for goal type (Conv, CPL, CPA, ROAS, S
 | `/api/clients/last-contact` | GET | Last contact date per client (has known column errors) |
 | `/api/clients/churn-risk` | GET | Churn risk scores (currently unused in UI) |
 | `/api/clients/revenue` | GET | Square revenue data (currently unused in UI) |
-| `/api/meta/bulk-insights` | GET | **Single call** for all Meta account insights via PipeBoard `bulk_get_insights` |
+| `/api/meta/bulk-insights` | GET | **Single call** for all Meta account insights via AdKit `bulk_get_insights` |
 | `/api/meta/insights` | GET | Individual Meta account insights. Supports `time_breakdown=day` for daily data, `breakdown` for demographics. Used by reports + ClientReport. |
-| `/api/meta/creatives` | GET | Ad creative thumbnails via PipeBoard `get_ads`. Returns creative thumbnail_url/image_url per ad. Used by Ecom Meta report. |
+| `/api/meta/creatives` | GET | Ad creative thumbnails via AdKit `get_ads`. Returns creative thumbnail_url/image_url per ad. Used by Ecom Meta report. |
 | `/api/google/insights` | GET | Google Ads data (account, campaign, keyword, search_term, geo, age, gender levels). Includes `conversion_value` for ecom ROAS. Age/gender use numeric+string enum mappings. |
 | `/api/scorecard` | GET | Agency KPIs, MRR (uses fee_config per client) |
 | `/api/goals` | GET/POST/PATCH/DELETE | Performance goals per client per month |
@@ -217,7 +217,7 @@ Key columns: `primary_contact_name`, `primary_contact_email`, `gdrive_folder_id`
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase client (anon) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase server writes |
 | `DASHBOARD_SESSION_SECRET` | Auth middleware |
-| `PIPEBOARD_API_KEY` | Meta Ads via PipeBoard |
+| `ADKIT_API_KEY` | Meta Ads via AdKit |
 | `GOOGLE_ADS_CLIENT_ID` | Google Ads API |
 | `GOOGLE_ADS_CLIENT_SECRET` | Google Ads API |
 | `GOOGLE_ADS_DEVELOPER_TOKEN` | Google Ads API |
@@ -237,7 +237,7 @@ Key columns: `primary_contact_name`, `primary_contact_email`, `gdrive_folder_id`
 7. **Use `.maybeSingle()`** not `.single()` for Supabase queries that might return 0 rows.
 8. **Google Ads `status` is numeric.** Always coerce with `String()` before calling `.toLowerCase()`.
 9. **`output: standalone`** is set in next.config but Railway runs `next start` (with a warning). Do NOT change the start command to `node .next/standalone/server.js` — it crashes.
-10. **PipeBoard uses `time_breakdown`, not `time_increment`.** For daily data, pass `time_breakdown: "day"` — response returns `segmented_metrics` array with nested `.metrics` objects. See `agent_knowledge` entry "PipeBoard Meta Ads MCP — API Reference" for full API docs.
+10. **AdKit uses `time_breakdown`, not `time_increment`.** For daily data, pass `time_breakdown: "day"` — response returns `segmented_metrics` array with nested `.metrics` objects. See `agent_knowledge` entry "AdKit Meta Ads MCP — API Reference" for full API docs.
 11. **Report routing uses `client_type` × `platform`.** Clients need both fields set in `reporting_clients`. Fallback defaults Google→lead_gen and Meta→ecom, which can misroute ecom Google or lead_gen Meta clients with missing `client_type`.
 12. **Dual-platform report tabs match by `client_name`.** The sibling lookup uses exact string equality — casing or spacing mismatches between records will break the tabbed view.
 

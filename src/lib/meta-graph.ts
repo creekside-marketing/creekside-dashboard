@@ -1,11 +1,11 @@
 /**
  * Direct Meta Graph API client.
  *
- * Replaces PipeBoard as the primary data source for Meta Ads.
+ * Replaces AdKit as the primary data source for Meta Ads.
  * Uses META_ADS_ACCESS_TOKEN (system-user token, permanent).
- * Falls back gracefully — caller should catch errors and retry via PipeBoard.
+ * Falls back gracefully — caller should catch errors and retry via AdKit.
  *
- * Response shapes match what PipeBoard returns after callPipeboard() unwraps
+ * Response shapes match what AdKit returns after callPipeboard() unwraps
  * the JSON-RPC envelope, so existing route files need zero changes.
  */
 
@@ -46,7 +46,7 @@ async function getAdAccounts(): Promise<unknown> {
     url = json.paging?.next ?? null;
   }
 
-  // Wrap in PipeBoard-compatible envelope
+  // Wrap in AdKit-compatible envelope
   return wrapResponse({ data: allAccounts });
 }
 
@@ -56,9 +56,9 @@ async function getInsights(args: Record<string, unknown>): Promise<unknown> {
 
   const level = String(args.level ?? 'account');
 
-  // Default fields — always included. PipeBoard merges caller fields with defaults;
+  // Default fields — always included. AdKit merges caller fields with defaults;
   // we do the same so `fields=conversions` doesn't strip spend/clicks/etc.
-  // NOTE: Do NOT include inline_link_clicks here. PipeBoard never returned it,
+  // NOTE: Do NOT include inline_link_clicks here. AdKit never returned it,
   // and the frontend falls back to total `clicks` for CPC/CTR calculations.
   // Adding it changes client-facing CONV. RATE and AVG CPC numbers.
   const DEFAULT_FIELDS = 'campaign_name,campaign_id,adset_name,adset_id,ad_name,ad_id,spend,impressions,unique_clicks,clicks,ctr,cpc,cpm,reach,frequency,actions,cost_per_action_type,conversions,action_values,outbound_clicks';
@@ -99,10 +99,10 @@ async function getInsights(args: Record<string, unknown>): Promise<unknown> {
 
   const result = await graphGet(`/${accountId}/insights`, params) as { data?: Record<string, unknown>[] };
 
-  // Post-process: add PipeBoard-compatible fields that Graph API doesn't include
+  // Post-process: add AdKit-compatible fields that Graph API doesn't include
   if (result.data) {
     for (const row of result.data) {
-      // PipeBoard adds account_id and account_name to every row
+      // AdKit adds account_id and account_name to every row
       if (!('account_id' in row)) row.account_id = accountId;
       if (!('account_name' in row)) row.account_name = '';
       enrichRow(row);
@@ -113,7 +113,7 @@ async function getInsights(args: Record<string, unknown>): Promise<unknown> {
 }
 
 /**
- * Enrich a Graph API insights row with top-level fields that PipeBoard provided.
+ * Enrich a Graph API insights row with top-level fields that AdKit provided.
  * The frontend expects these as top-level fields, not buried in actions[].
  */
 function enrichRow(row: Record<string, unknown>): void {
@@ -121,7 +121,7 @@ function enrichRow(row: Record<string, unknown>): void {
   const costPerAction = (row.cost_per_action_type ?? []) as Array<{ action_type: string; value: string }>;
 
   // NOTE: Do NOT promote inline_link_clicks from actions array.
-  // PipeBoard never provided it as a top-level field. The frontend falls back
+  // AdKit never provided it as a top-level field. The frontend falls back
   // to total `clicks` for CPC/CTR/CONV calculations. Adding inline_link_clicks
   // changes client-facing report numbers (CPC doubles, conv rate doubles).
 
@@ -358,7 +358,7 @@ async function getCreativeDetails(args: Record<string, unknown>): Promise<unknow
 // ── Response wrapper ─────────────────────────────────────────────────────
 
 /**
- * Wrap Graph API response in PipeBoard's MCP content envelope.
+ * Wrap Graph API response in AdKit's MCP content envelope.
  * This ensures existing route files that pass the result straight through
  * (or unwrap via unwrapMcpResponse) continue to work unchanged.
  */
@@ -375,9 +375,9 @@ function wrapResponse(data: unknown): unknown {
 /** Supported methods that can be routed to the Graph API. */
 /** Supported methods that can be routed to the Graph API.
  *
- * NOTE: bulk_get_insights and bulk_get_ad_creatives intentionally stay on PipeBoard.
+ * NOTE: bulk_get_insights and bulk_get_ad_creatives intentionally stay on AdKit.
  * Bulk calls mix accounts that Graph API can reach with accounts it can't (MedWriter,
- * LA Smiles). PipeBoard handles all accounts uniformly. The cost impact is minimal --
+ * LA Smiles). AdKit handles all accounts uniformly. The cost impact is minimal --
  * bulk calls happen once per overview page load, not per-client report view.
  */
 const GRAPH_METHODS: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {
@@ -388,10 +388,10 @@ const GRAPH_METHODS: Record<string, (args: Record<string, unknown>) => Promise<u
 };
 
 /**
- * Try to handle a PipeBoard method call via direct Graph API.
+ * Try to handle a AdKit method call via direct Graph API.
  * Returns the result if successful, or throws if:
  * - META_ADS_ACCESS_TOKEN is not set
- * - The method is not supported (caller should fall back to PipeBoard)
+ * - The method is not supported (caller should fall back to AdKit)
  * - The Graph API call fails
  */
 export async function callMetaGraphAPI(

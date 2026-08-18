@@ -776,7 +776,7 @@ export default function ClientReport({ client }: { client: ReportingClient }) {
       // ── Parse campaign data ──────────────────────────────────────────
       let campaignJson = await campaignRes.json();
 
-      // Unwrap PipeBoard response for Meta
+      // Unwrap AdKit response for Meta
       if (client.platform === 'meta') {
         campaignJson = unwrapPipeboardResponse(campaignJson);
       }

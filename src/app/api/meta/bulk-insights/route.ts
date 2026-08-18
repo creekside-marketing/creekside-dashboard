@@ -1,11 +1,11 @@
 /**
  * GET /api/meta/bulk-insights
  *
- * Fetches account-level insights for ALL Meta ad accounts in a single PipeBoard call.
+ * Fetches account-level insights for ALL Meta ad accounts in a single AdKit call.
  * Returns spend, conversions, and conversion breakdown per account_id.
  *
- * Resilience: On PipeBoard failure, falls back to meta_account_insights_cache in Supabase.
- * On PipeBoard success, writes results to cache for next time.
+ * Resilience: On AdKit failure, falls back to meta_account_insights_cache in Supabase.
+ * On AdKit success, writes results to cache for next time.
  *
  * Query params:
  *   account_ids - comma-separated list of Meta ad account IDs (with act_ prefix)
@@ -16,7 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { callPipeboard } from '@/lib/pipeboard';
 import { createServiceClient } from '@/lib/supabase';
 
-interface PipeboardAccountResult {
+interface AdKitAccountResult {
   account_id: string;
   account_name?: string;
   status: string;
@@ -29,13 +29,13 @@ interface PipeboardAccountResult {
   };
 }
 
-interface PipeboardBulkResponse {
-  results?: PipeboardAccountResult[];
+interface AdKitBulkResponse {
+  results?: AdKitAccountResult[];
   [key: string]: unknown;
 }
 
-/** Write successful PipeBoard results to cache (fire-and-forget). */
-function updateCache(results: PipeboardAccountResult[], timeRange: string) {
+/** Write successful AdKit results to cache (fire-and-forget). */
+function updateCache(results: AdKitAccountResult[], timeRange: string) {
   const supabase = createServiceClient();
   const rows = results
     .filter(r => r.status === 'success' && r.insights)
@@ -70,12 +70,12 @@ async function readCache(accountIds: string[]): Promise<NextResponse> {
 
   if (error || !data || data.length === 0) {
     return NextResponse.json(
-      { error: 'PipeBoard unavailable and no cached data', source: 'none' },
+      { error: 'AdKit unavailable and no cached data', source: 'none' },
       { status: 502 },
     );
   }
 
-  // Reshape cache rows into PipeBoard-compatible response format
+  // Reshape cache rows into AdKit-compatible response format
   const results = data.map(row => ({
     account_id: row.account_id,
     account_name: row.account_name,
@@ -115,14 +115,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No valid account IDs' }, { status: 400 });
     }
 
-    // Try PipeBoard first
+    // Try AdKit first
     try {
       const result = await callPipeboard('bulk_get_insights', {
         level: 'account',
         account_ids: accountIds,
         time_range: timeRange,
         limit: 50,
-      }) as PipeboardBulkResponse;
+      }) as AdKitBulkResponse;
 
       // Cache successful results in background
       if (result?.results) {
@@ -130,9 +130,9 @@ export async function GET(request: NextRequest) {
       }
 
       return NextResponse.json(result);
-    } catch (pipeboardError) {
-      // PipeBoard failed — fall back to cache
-      console.error('PipeBoard bulk-insights failed, using cache:', pipeboardError instanceof Error ? pipeboardError.message : pipeboardError);
+    } catch (apiError) {
+      // AdKit failed — fall back to cache
+      console.error('AdKit bulk-insights failed, using cache:', apiError instanceof Error ? apiError.message : apiError);
       return readCache(accountIds);
     }
   } catch (error) {

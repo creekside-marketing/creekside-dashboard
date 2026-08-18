@@ -738,7 +738,7 @@ function SortHeader({ label, sortKey: key, currentKey, direction, onSort }: {
 // ── Meta response parsing ──────────────────────────────────────────────
 
 function unwrapPipeboardResponse(json: Record<string, unknown>): Record<string, unknown> {
-  // PipeBoard returns MCP JSON-RPC format: { content: [{ text: "{...}" }], structuredContent: { result: "{...}" } }
+  // AdKit returns MCP JSON-RPC format: { content: [{ text: "{...}" }], structuredContent: { result: "{...}" } }
   if (json.structuredContent) {
     const sc = json.structuredContent as Record<string, unknown>;
     if (typeof sc.result === 'string') {
@@ -1125,7 +1125,7 @@ export default function ClientTable() {
         const bulkRes = await fetch(`/api/meta/bulk-insights?account_ids=${encodeURIComponent(metaIds)}&time_range=last_30d`);
         if (bulkRes.ok) {
           const bulkJson = await bulkRes.json();
-          // PipeBoard bulk response: { results: [{ account_id, insights: { data: [...] } }] }
+          // AdKit bulk response: { results: [{ account_id, insights: { data: [...] } }] }
           const unwrapped = unwrapPipeboardResponse(bulkJson);
           const results = (unwrapped as { results?: Array<Record<string, unknown>> }).results ?? [];
           for (const acct of results) {

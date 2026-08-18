@@ -3,10 +3,10 @@ import { callPipeboard } from '@/lib/pipeboard';
 import { createServiceClient } from '@/lib/supabase';
 
 /**
- * Log a PipeBoard error to pipeline_alerts (max 1 per day).
- * Also sends an email notification via the notify-pipeboard-error edge function.
+ * Log a Meta API error to pipeline_alerts (max 1 per day).
+ * Also sends an email notification via the notify edge function.
  */
-async function logPipeboardAlert(accountId: string, errorMessage: string) {
+async function logMetaApiAlert(accountId: string, errorMessage: string) {
   const supabase = createServiceClient();
   const today = new Date().toISOString().split('T')[0];
 
@@ -14,38 +14,19 @@ async function logPipeboardAlert(accountId: string, errorMessage: string) {
   const { data: existing } = await supabase
     .from('pipeline_alerts')
     .select('id')
-    .eq('alert_type', 'pipeboard_meta_error')
+    .eq('alert_type', 'meta_api_error')
     .gte('created_at', `${today}T00:00:00Z`)
     .limit(1);
 
   if (existing && existing.length > 0) return; // already alerted today
 
   await supabase.from('pipeline_alerts').insert({
-    alert_type: 'pipeboard_meta_error',
+    alert_type: 'meta_api_error',
     severity: 'critical',
-    message: `PipeBoard Meta API error for account ${accountId}: ${errorMessage}`,
+    message: `Meta API error for account ${accountId}: ${errorMessage}`,
     details: { account_id: accountId, error: errorMessage, date: today, content_table: 'meta_insights_daily' },
     acknowledged: false,
   });
-
-  // Send email notification via Supabase Edge Function (if deployed)
-  try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (supabaseUrl && serviceKey) {
-      await fetch(`${supabaseUrl}/functions/v1/notify-pipeboard-error`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${serviceKey}`,
-        },
-        body: JSON.stringify({
-          subject: 'PipeBoard Meta Connection Error',
-          body: `PipeBoard Meta Ads API is returning errors. Client reports are falling back to cached data.\n\nError: ${errorMessage}\nAccount: ${accountId}\nDetected: ${new Date().toISOString()}\n\nFix: Go to https://pipeboard.co/connections and click Reconnect on the Facebook Ads row.`,
-        }),
-      });
-    }
-  } catch { /* edge function may not be deployed yet — alert is still in pipeline_alerts */ }
 }
 
 /** Convert a time_range preset to { since, until } date strings. */
@@ -102,55 +83,54 @@ export async function GET(request: NextRequest) {
     const datePattern = /^\d{4}-\d{2}-\d{2}$/;
     const hasValidDates = since && until && datePattern.test(since) && datePattern.test(until);
 
-    // Map breakdown levels to PipeBoard params
-    const breakdownLevels: Record<string, { pipeboardLevel: string; breakdowns: string }> = {
-      age: { pipeboardLevel: 'account', breakdowns: 'age' },
-      gender: { pipeboardLevel: 'account', breakdowns: 'gender' },
-      placement: { pipeboardLevel: 'account', breakdowns: 'publisher_platform,platform_position' },
+    // Map breakdown levels to API params
+    const breakdownLevels: Record<string, { apiLevel: string; breakdowns: string }> = {
+      age: { apiLevel: 'account', breakdowns: 'age' },
+      gender: { apiLevel: 'account', breakdowns: 'gender' },
+      placement: { apiLevel: 'account', breakdowns: 'publisher_platform,platform_position' },
     };
 
     const breakdownConfig = breakdownLevels[level];
     const time_breakdown = searchParams.get('time_breakdown');
     const extraFields = searchParams.get('fields');
 
-    // Build PipeBoard args — explicit date range overrides preset time_range
-    const pipeboardArgs: Record<string, unknown> = {
+    // Build API args -- explicit date range overrides preset time_range
+    const apiArgs: Record<string, unknown> = {
       object_id: account_id,
-      level: breakdownConfig?.pipeboardLevel ?? level,
+      level: breakdownConfig?.apiLevel ?? level,
     };
 
-    // When extra fields are requested (e.g. "conversions"), pass them to PipeBoard.
-    // PipeBoard merges these with its defaults.
+    // When extra fields are requested (e.g. "conversions"), pass them through.
     if (extraFields) {
-      pipeboardArgs.fields = extraFields.split(',').map((f) => f.trim());
+      apiArgs.fields = extraFields.split(',').map((f) => f.trim());
     }
 
     if (time_breakdown) {
-      pipeboardArgs.time_breakdown = time_breakdown;
+      apiArgs.time_breakdown = time_breakdown;
     }
 
     if (breakdownConfig) {
-      pipeboardArgs.breakdowns = breakdownConfig.breakdowns;
+      apiArgs.breakdowns = breakdownConfig.breakdowns;
     }
 
     if (hasValidDates) {
-      pipeboardArgs.time_range = { since, until };
+      apiArgs.time_range = { since, until };
     } else if (since || until) {
       // One date provided but invalid — ignore and use preset
-      pipeboardArgs.time_range = time_range;
+      apiArgs.time_range = time_range;
     } else {
-      pipeboardArgs.time_range = time_range;
+      apiArgs.time_range = time_range;
     }
 
     try {
-      const result = await callPipeboard('get_insights', pipeboardArgs);
+      const result = await callPipeboard('get_insights', apiArgs);
       return NextResponse.json(result);
-    } catch (pipeboardError) {
+    } catch (apiError) {
       // Log to pipeline_alerts (deduped: max 1 per error per day)
-      const errMsg = pipeboardError instanceof Error ? pipeboardError.message : 'Unknown PipeBoard error';
-      logPipeboardAlert(account_id, errMsg).catch(() => {/* fire-and-forget */});
+      const errMsg = apiError instanceof Error ? apiError.message : 'Unknown Meta API error';
+      logMetaApiAlert(account_id, errMsg).catch(() => {/* fire-and-forget */});
 
-      // PipeBoard failed — fall back to cached data via meta_campaigns join
+      // API failed -- fall back to cached data via meta_campaigns join
       try {
         const supabase = createServiceClient();
 
@@ -160,7 +140,7 @@ export async function GET(request: NextRequest) {
           .select('campaign_id, campaign_name')
           .eq('account_id', account_id);
 
-        if (!campaigns || campaigns.length === 0) throw pipeboardError;
+        if (!campaigns || campaigns.length === 0) throw apiError;
 
         const campaignIds = campaigns.map(c => c.campaign_id);
         const campaignNames: Record<string, string> = {};
@@ -177,7 +157,7 @@ export async function GET(request: NextRequest) {
           .lte('date', dates.until)
           .order('date', { ascending: false });
 
-        if (dbError || !cachedData || cachedData.length === 0) throw pipeboardError;
+        if (dbError || !cachedData || cachedData.length === 0) throw apiError;
 
         const rows = cachedData as CachedRow[];
 
@@ -230,7 +210,7 @@ export async function GET(request: NextRequest) {
         }
         return NextResponse.json({ data: [agg], source: 'cache' });
       } catch {
-        const message = pipeboardError instanceof Error ? pipeboardError.message : 'Unknown error';
+        const message = apiError instanceof Error ? apiError.message : 'Unknown error';
         const status = message.includes('not configured') ? 500 : 502;
         return NextResponse.json({ error: message }, { status });
       }

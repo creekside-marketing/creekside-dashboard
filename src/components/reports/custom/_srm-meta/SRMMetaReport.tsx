@@ -5,7 +5,7 @@
  *
  * Renders a Pricing Qualified Leads KPI strip above the standard LeadGen
  * Meta report. The strip pulls conversion data LIVE from the Meta campaigns
- * via PipeBoard (no Google Sheet dependency).
+ * via AdKit (no Google Sheet dependency).
  *
  * Data sources (all from the `conversions` field, NOT `actions`):
  *   - Pricing Qualified Leads: offsite_conversion.fb_pixel_custom.(JTC) Pricing Qualified

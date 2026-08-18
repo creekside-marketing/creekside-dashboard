@@ -276,7 +276,7 @@ export default function EcomMetaReport({
           let accountJson = await accountRes.json();
           accountJson = unwrapPipeboardResponse(accountJson);
 
-          // PipeBoard with time_breakdown returns segmented_metrics array
+          // AdKit with time_breakdown returns segmented_metrics array
           const segments = accountJson.segmented_metrics ?? accountJson.data ?? accountJson ?? [];
           if (Array.isArray(segments)) {
             setDailyData(parseDailyRows(segments.map((seg: Record<string, unknown>) => {

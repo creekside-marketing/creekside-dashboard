@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
           time_range: { since: sinceStr, until: untilStr },
         });
 
-        // Parse the PipeBoard response — data may be nested
+        // Parse the AdKit response — data may be nested
         const rawData = result?.data ?? result ?? [];
         const rows = Array.isArray(rawData) ? rawData : [];
 

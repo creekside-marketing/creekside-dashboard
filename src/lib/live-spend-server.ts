@@ -1,7 +1,7 @@
 /**
  * Server-side live ad spend fetcher.
  *
- * Mirrors what ClientTable does client-side: bulk-fetch Meta insights via PipeBoard,
+ * Mirrors what ClientTable does client-side: bulk-fetch Meta insights via AdKit,
  * fetch each Google account via the Google Ads SDK, return a flat Map<ad_account_id, spend>.
  *
  * Used by the Finance API to compute projected revenue using actual current spend
@@ -15,7 +15,7 @@ import { getCustomer } from '@/lib/google-ads';
 
 type AccountRef = { ad_account_id: string; platform: string };
 
-/** Unwrap PipeBoard's MCP JSON-RPC envelope. */
+/** Unwrap AdKit's MCP JSON-RPC envelope. */
 function unwrapPipeboardResponse(json: Record<string, unknown>): Record<string, unknown> {
   if (json.structuredContent) {
     const sc = json.structuredContent as Record<string, unknown>;

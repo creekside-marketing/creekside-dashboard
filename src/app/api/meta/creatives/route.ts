@@ -1,5 +1,5 @@
 /**
- * GET /api/meta/creatives — Fetch ad creative thumbnails via PipeBoard.
+ * GET /api/meta/creatives — Fetch ad creative thumbnails via AdKit.
  *
  * Accepts comma-separated ad_ids, calls bulk_get_ad_creatives, and returns
  * a map of ad_id → thumbnail URL for rendering in report tables.
