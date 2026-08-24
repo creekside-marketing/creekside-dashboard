@@ -189,18 +189,14 @@ export default function FilterBar({
         </div>
       </div>
 
-      {/* Profitability target reminder — always visible so the team internalizes the goal.
-          $50/hr operator cost × 3 = $150/hr revenue = 67% gross margin. Cade + Peterson goal. */}
+      {/* Profitability target — always visible on the Client tab so the team
+          knows the number to hit per client. 67% margin = $50/hr operator cost
+          against $150/hr revenue. Cade + Peterson stated goal. */}
       <div className="ml-auto flex items-center gap-3 border-l border-slate-200 pl-6">
         <div className="text-right">
           <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider leading-tight">Profitability target</div>
-          <div className="text-sm font-semibold text-slate-700 leading-tight mt-0.5">
-            <span className="text-slate-500">$50/hr cost</span>
-            <span className="mx-1.5 text-slate-300">·</span>
-            <span className="text-emerald-700">$150/hr revenue</span>
-            <span className="mx-1.5 text-slate-300">·</span>
-            <span className="text-[var(--creekside-navy)]">67% margin</span>
-          </div>
+          <div className="text-xl font-bold text-emerald-700 leading-tight mt-0.5 tabular-nums">67% margin</div>
+          <div className="text-[11px] text-slate-500 leading-tight mt-0.5">$50/hr cost · $150/hr revenue</div>
         </div>
       </div>
     </div>
