@@ -188,6 +188,21 @@ export default function FilterBar({
           ))}
         </div>
       </div>
+
+      {/* Unit economics reminder — always visible so the team internalizes the target.
+          $50/hr operator cost × 3 = $150/hr revenue floor to hit Peterson + Cade goals. */}
+      <div className="ml-auto flex items-center gap-3 border-l border-slate-200 pl-6">
+        <div className="text-right">
+          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider leading-tight">Unit economics target</div>
+          <div className="text-sm font-semibold text-slate-700 leading-tight mt-0.5">
+            <span className="text-slate-500">$50/hr cost</span>
+            <span className="mx-1.5 text-slate-300">·</span>
+            <span className="text-emerald-700">$150/hr revenue</span>
+            <span className="mx-1.5 text-slate-300">·</span>
+            <span className="text-[var(--creekside-navy)]">3x</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
