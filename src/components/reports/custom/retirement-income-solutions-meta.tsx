@@ -8,9 +8,20 @@
  * this client. Changes to the shared template do NOT propagate back.
  *
  * Customization vs. the default template:
+ *   - Counts leads from the `conversions` array as Website Lead
+ *     (offsite_conversion.fb_pixel_lead) + Submit Application
+ *     (offsite_conversion.fb_pixel_submit_application), rather than the
+ *     template's `actions`-based 'lead' + fb_pixel_lead. Each action is also
+ *     reported on its own, with cost-per, in a second KPI row.
  *   - Adds a "Leads by Campaign" breakout to the top executive-summary section,
- *     splitting total leads into per-campaign cards (leads, share of total, CPL,
- *     and change vs. the prior period).
+ *     splitting total leads into per-campaign cards (leads, share of total, the
+ *     Website Lead / Application split, CPL, and change vs. the prior period).
+ *   - Adds Web Leads + Applications columns to the Campaign Performance table.
+ *
+ * NOTE: TabbedReport does not pass `leadConversionTypes` to custom components,
+ * so the conversion types are defaulted in the signature rather than read from
+ * the client row. `lead_conversion_types` in Supabase is left untouched — it
+ * still drives the internal ClientReport view.
  *
  * CANNOT: Modify ad account data — read-only display.
  * CANNOT: Handle non-Meta platforms — Meta-specific normalization only.
@@ -44,6 +55,8 @@ function computeCustomPeriod(since: string, until: string): PriorPeriodDates {
 interface LeadGenRow {
   name: string; impressions: number; linkClicks: number; spend: number;
   leads: number; reach: number; frequency: number; cpm: number; cpl: number; lctr: number;
+  /** Split of `leads` by conversion action — see LEAD_CONVERSION_TYPES. */
+  websiteLeads: number; applications: number;
   pql?: number; cpql?: number;
 }
 
@@ -51,6 +64,7 @@ interface DailyRow {
   [key: string]: unknown;
   date: string; impressions: number; linkClicks: number; spend: number;
   leads: number; reach: number; frequency: number; cpm: number; cpl: number; lctr: number;
+  websiteLeads: number; applications: number;
 }
 type MetaAction = { action_type: string; value: string };
 
@@ -76,6 +90,27 @@ function getLeadsFromConversions(conversions: MetaAction[] | undefined, conversi
 }
 
 /**
+ * Conversion actions this client counts, read from the `conversions` array
+ * (NOT `actions`, which lumps every lead-ish event together).
+ *
+ *   Website Lead        — the pixel `Lead` event on the client's site
+ *   Submit Application  — the pixel `SubmitApplication` event
+ *
+ * Total Leads is the sum of the two; each is also reported on its own so the
+ * client can see how many enquiries became actual applications.
+ */
+const WEBSITE_LEAD_TYPE = 'offsite_conversion.fb_pixel_lead';
+const APPLICATION_TYPE = 'offsite_conversion.fb_pixel_submit_application';
+const LEAD_CONVERSION_TYPES = [WEBSITE_LEAD_TYPE, APPLICATION_TYPE];
+
+/** Count a single conversion action_type off a raw insights row. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function countConversionType(row: any, type: string): number {
+  const conversions = (Array.isArray(row?.conversions) ? row.conversions : []) as MetaAction[];
+  return actionVal(conversions, type);
+}
+
+/**
  * LeadCounter takes the full row so it can read from `actions` or `conversions`.
  * Default implementation reads from `actions`; custom implementations can read `conversions`.
  */
@@ -95,6 +130,8 @@ function normalize(row: any, countLeads: LeadCounter = defaultLeadCounter): Lead
   return {
     name: row.campaign_name ?? row.adset_name ?? row.ad_name ?? 'Unknown',
     impressions, linkClicks, spend, leads, reach,
+    websiteLeads: countConversionType(row, WEBSITE_LEAD_TYPE),
+    applications: countConversionType(row, APPLICATION_TYPE),
     frequency: reach > 0 ? impressions / reach : 0,
     cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
     cpl: leads > 0 ? spend / leads : 0,
@@ -106,7 +143,8 @@ function computeTotals(rows: LeadGenRow[]): Omit<LeadGenRow, 'name'> {
   const s = rows.reduce((a, c) => ({
     impressions: a.impressions + c.impressions, linkClicks: a.linkClicks + c.linkClicks,
     spend: a.spend + c.spend, leads: a.leads + c.leads, reach: a.reach + c.reach,
-  }), { impressions: 0, linkClicks: 0, spend: 0, leads: 0, reach: 0 });
+    websiteLeads: a.websiteLeads + c.websiteLeads, applications: a.applications + c.applications,
+  }), { impressions: 0, linkClicks: 0, spend: 0, leads: 0, reach: 0, websiteLeads: 0, applications: 0 });
   return { ...s, frequency: s.reach > 0 ? s.impressions / s.reach : 0,
     cpm: s.impressions > 0 ? (s.spend / s.impressions) * 1000 : 0,
     cpl: s.leads > 0 ? s.spend / s.leads : 0,
@@ -122,6 +160,8 @@ function parseDailyRows(rows: any[], countLeads: LeadCounter = defaultLeadCounte
     const leads = countLeads(row);
     const reach = Number(row.reach ?? 0);
     return { date: row.date_start ?? row.date ?? '', impressions, linkClicks, spend, leads, reach,
+      websiteLeads: countConversionType(row, WEBSITE_LEAD_TYPE),
+      applications: countConversionType(row, APPLICATION_TYPE),
       frequency: reach > 0 ? impressions / reach : 0,
       cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
       cpl: leads > 0 ? spend / leads : 0, lctr: impressions > 0 ? linkClicks / impressions : 0 };
@@ -130,11 +170,11 @@ function parseDailyRows(rows: any[], countLeads: LeadCounter = defaultLeadCounte
 
 
 const COOLDOWN_MS = 5 * 60 * 1000;
-const ZERO: Omit<LeadGenRow, 'name'> = { impressions: 0, linkClicks: 0, spend: 0, leads: 0, reach: 0, frequency: 0, cpm: 0, cpl: 0, lctr: 0 };
+const ZERO: Omit<LeadGenRow, 'name'> = { impressions: 0, linkClicks: 0, spend: 0, leads: 0, reach: 0, frequency: 0, cpm: 0, cpl: 0, lctr: 0, websiteLeads: 0, applications: 0 };
 
 // ── Component ────────────────────────────────────────────────────────────
 
-export default function RetirementIncomeSolutionsMetaReport({ client, mode, leadConversionTypes, pqlConversionType, hideReferralBanner, controlledPeriod }: { client: ReportingClient; mode: 'internal' | 'public'; leadConversionTypes?: string[]; pqlConversionType?: string; hideReferralBanner?: boolean; controlledPeriod?: PriorPeriodDates }) {
+export default function RetirementIncomeSolutionsMetaReport({ client, mode, leadConversionTypes = LEAD_CONVERSION_TYPES, pqlConversionType, hideReferralBanner, controlledPeriod }: { client: ReportingClient; mode: 'internal' | 'public'; leadConversionTypes?: string[]; pqlConversionType?: string; hideReferralBanner?: boolean; controlledPeriod?: PriorPeriodDates }) {
   const [campaigns, setCampaigns] = useState<LeadGenRow[]>([]);
   const [totals, setTotals] = useState(ZERO);
   const [dailyData, setDailyData] = useState<DailyRow[]>([]);
@@ -259,7 +299,15 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
             spend: calcChange(t.spend, pt.spend), cpm: calcChange(t.cpm, pt.cpm),
             frequency: calcChange(t.frequency, pt.frequency), linkClicks: calcChange(t.linkClicks, pt.linkClicks),
             lctr: calcChange(t.lctr, pt.lctr), impressions: calcChange(t.impressions, pt.impressions),
-            reach: calcChange(t.reach, pt.reach) });
+            reach: calcChange(t.reach, pt.reach),
+            websiteLeads: calcChange(t.websiteLeads, pt.websiteLeads),
+            applications: calcChange(t.applications, pt.applications),
+            costPerWebsiteLead: calcChange(
+              t.websiteLeads > 0 ? t.spend / t.websiteLeads : 0,
+              pt.websiteLeads > 0 ? pt.spend / pt.websiteLeads : 0),
+            costPerApplication: calcChange(
+              t.applications > 0 ? t.spend / t.applications : 0,
+              pt.applications > 0 ? pt.spend / pt.applications : 0) });
         } catch { setKpiChanges(null); setPriorLeadsByCampaign({}); }
       }
       const parseBd = async (res: Response | null) => {
@@ -374,6 +422,24 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
             sparklineData={dailyData.map((d) => d.linkClicks > 0 ? d.spend / d.linkClicks : 0)} />
         </div>
 
+        {/* Tracked conversion actions — Total Leads above is the sum of these two */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <SparklineKpiCard label="Website Leads" value={fmt(totals.websiteLeads)}
+            change={kpiChanges?.websiteLeads.pct} changeDirection={kpiChanges?.websiteLeads.direction}
+            changeSentiment="positive-up" sparklineData={dailyData.map((d) => d.websiteLeads)} />
+          <SparklineKpiCard label="Cost / Website Lead"
+            value={totals.websiteLeads > 0 ? fmtMoney(totals.spend / totals.websiteLeads) : '--'}
+            change={kpiChanges?.costPerWebsiteLead.pct} changeDirection={kpiChanges?.costPerWebsiteLead.direction}
+            changeSentiment="negative-up" />
+          <SparklineKpiCard label="Submit Application" value={fmt(totals.applications)}
+            change={kpiChanges?.applications.pct} changeDirection={kpiChanges?.applications.direction}
+            changeSentiment="positive-up" sparklineData={dailyData.map((d) => d.applications)} />
+          <SparklineKpiCard label="Cost / Application"
+            value={totals.applications > 0 ? fmtMoney(totals.spend / totals.applications) : '--'}
+            change={kpiChanges?.costPerApplication.pct} changeDirection={kpiChanges?.costPerApplication.direction}
+            changeSentiment="negative-up" />
+        </div>
+
         {/* Leads by Campaign — top-section breakout of the Total Leads KPI */}
         {campaignLeads.length > 0 && (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -399,6 +465,10 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
                   </div>
                   <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
                     <div className="h-full rounded-full bg-[#10B981]" style={{ width: `${Math.round(c.share * 100)}%` }} />
+                  </div>
+                  <div className="flex justify-between text-xs text-slate-500 tabular-nums">
+                    <span>Website Lead <span className="text-slate-900 font-medium">{fmt(c.websiteLeads)}</span></span>
+                    <span>Application <span className="text-slate-900 font-medium">{fmt(c.applications)}</span></span>
                   </div>
                   <div className="flex justify-between text-xs text-slate-500 tabular-nums">
                     <span>CPL {c.leads > 0 ? fmtMoney(c.cpl) : '--'}</span>
@@ -427,6 +497,8 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
           { key: 'lctr', label: 'LC-CTR', align: 'right', format: pctCol },
           { key: 'spend', label: 'Spent', align: 'right', format: moneyCol },
           { key: 'leads', label: 'Leads', align: 'right', format: numCol },
+          { key: 'websiteLeads', label: 'Web Leads', align: 'right', format: numCol },
+          { key: 'applications', label: 'Applications', align: 'right', format: numCol },
           { key: 'cpl', label: 'CPL', align: 'right', format: nullMoney },
           ...(pqlConversionType ? [
             { key: 'pql', label: 'PQL', align: 'right' as const, format: numCol },
