@@ -6,10 +6,11 @@ import {
   BarChart as ReBarChart, Bar, XAxis, YAxis,
   Tooltip, Legend, ResponsiveContainer, CartesianGrid, Cell,
 } from 'recharts';
-import type { RawSalesLead, Partner } from '@/lib/types/sales-funnel';
+import type { RawSalesLead, RawStatusTransition, Partner } from '@/lib/types/sales-funnel';
 import {
   normalizeLeads, filterByDateRange, computeFunnel, computeOutcomeSummary,
-  computeBySalesperson, computeReferrals, computeLostBreakdown, OUTCOME_LABELS,
+  computeBySalesperson, computeReferrals, computeLostBreakdown, computeLeaks,
+  filterTransitionsByDateRange, OUTCOME_LABELS, STAGE_LABELS,
 } from '@/lib/engine/sales-funnel';
 
 /* ── Helpers ── */
@@ -58,6 +59,7 @@ const DATE_PRESETS = [
 
 export default function SalesFunnelPage() {
   const [rawLeads, setRawLeads] = useState<RawSalesLead[]>([]);
+  const [rawTransitions, setRawTransitions] = useState<RawStatusTransition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<{ start: string | null; end: string | null }>({ start: null, end: null });
@@ -68,7 +70,10 @@ export default function SalesFunnelPage() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
       })
-      .then((data) => setRawLeads(data.leads ?? []))
+      .then((data) => {
+        setRawLeads(data.leads ?? []);
+        setRawTransitions(data.transitions ?? []);
+      })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }, []);
@@ -90,16 +95,24 @@ export default function SalesFunnelPage() {
   const leads = useMemo(() => filterByDateRange(allLeads, dateRange), [allLeads, dateRange]);
 
   const funnel = useMemo(() => computeFunnel(leads), [leads]);
+  const funnelDisplay = useMemo(
+    () => funnel.map((row) => ({ ...row, name: STAGE_LABELS[row.name] ?? row.name })),
+    [funnel],
+  );
   const outcomes = useMemo(() => computeOutcomeSummary(leads), [leads]);
   const salespersonRows = useMemo(() => computeBySalesperson(leads), [leads]);
   const referrals = useMemo(() => computeReferrals(leads), [leads]);
   const lost = useMemo(() => computeLostBreakdown(leads), [leads]);
+  const leaks = useMemo(
+    () => computeLeaks(filterTransitionsByDateRange(rawTransitions, dateRange)),
+    [rawTransitions, dateRange],
+  );
 
   const totalLeads = leads.length;
   const callsBooked = funnel.find((f) => f.name === 'Call Booked')?.count ?? 0;
   const contractsProposed = funnel.find((f) => f.name === 'Contract Proposed')?.count ?? 0;
   const mrrWon = salespersonRows.find((r) => r.segment === 'Total')?.mrrWon ?? 0;
-  const closedLeads = outcomes.won + outcomes.lost_followup + outcomes.lost_dnd + outcomes.referred;
+  const closedLeads = outcomes.won + outcomes.nurture + outcomes.lost + outcomes.referred;
 
   // Bold best/worst win-rate rows among real segments with volume
   const rankedSegments = salespersonRows.filter((r) => r.segment !== 'Total' && r.leads >= 5);
@@ -169,7 +182,7 @@ export default function SalesFunnelPage() {
           <h3 className="text-sm font-semibold text-slate-900 mb-1">Customer Journey Funnel</h3>
           <p className="text-xs text-slate-500 mb-4">Each bar counts leads that reached that stage or further.</p>
           <ResponsiveContainer width="100%" height={320}>
-            <ReBarChart data={funnel} layout="vertical" margin={{ left: 10, right: 60, top: 0, bottom: 0 }}>
+            <ReBarChart data={funnelDisplay} layout="vertical" margin={{ left: 10, right: 60, top: 0, bottom: 0 }}>
               <XAxis type="number" hide />
               <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748b', fontSize: 12 }} axisLine={false} tickLine={false} />
               <Tooltip
@@ -184,7 +197,7 @@ export default function SalesFunnelPage() {
                 }}
               />
               <Bar dataKey="count" radius={[0, 6, 6, 0]} barSize={26}>
-                {funnel.map((_, i) => <Cell key={i} fill={FUNNEL_COLORS[i % FUNNEL_COLORS.length]} />)}
+                {funnelDisplay.map((_, i) => <Cell key={i} fill={FUNNEL_COLORS[i % FUNNEL_COLORS.length]} />)}
               </Bar>
             </ReBarChart>
           </ResponsiveContainer>
@@ -203,6 +216,33 @@ export default function SalesFunnelPage() {
         ))}
       </div>
 
+      {/* Leaks & Saves (from status-transition history) */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+        <h3 className="text-sm font-semibold text-slate-900 mb-1">Leaks &amp; Saves</h3>
+        <p className="text-xs text-slate-500 mb-4">
+          Computed from status movements, not current status. Date filter applies to when the move happened.
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <KpiCard
+            label="No-Shows"
+            value={leaks.noShows.toLocaleString()}
+            change={leaks.callBookedEntries > 0 ? `${pct(leaks.noShowRate)} of ${leaks.callBookedEntries} bookings` : undefined}
+          />
+          <KpiCard label="Calls Booked (tracked)" value={leaks.callBookedEntries.toLocaleString()} />
+          <KpiCard
+            label="Saved from Nurture"
+            value={leaks.nurtureSaves.toLocaleString()}
+            change={leaks.nurtureEntries > 0 ? `${pct(leaks.saveRate)} of ${leaks.nurtureEntries} entered` : undefined}
+          />
+          <KpiCard label="Entered Nurture (tracked)" value={leaks.nurtureEntries.toLocaleString()} />
+        </div>
+        <p className="mt-3 text-[11px] text-slate-400">
+          {leaks.trackingSince
+            ? `Status movement tracking since ${leaks.trackingSince.slice(0, 10)}. Moves before that date are not counted; numbers grow as history accumulates.`
+            : 'No status movements recorded yet — tracking starts with the next ClickUp sync.'}
+        </p>
+      </div>
+
       {/* By Salesperson */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
         <div className="px-4 py-3 border-b border-slate-100">
@@ -217,6 +257,7 @@ export default function SalesFunnelPage() {
               <th className="text-right py-2.5 px-3 font-semibold">Call %</th>
               <th className="text-right py-2.5 px-3 font-semibold">Won</th>
               <th className="text-right py-2.5 px-3 font-semibold">Win %</th>
+              <th className="text-right py-2.5 px-3 font-semibold">Referred</th>
               <th className="text-right py-2.5 px-4 font-semibold">MRR Won</th>
             </tr>
           </thead>
@@ -238,6 +279,7 @@ export default function SalesFunnelPage() {
                   <td className={`text-slate-900 text-right py-2 px-3 ${rowWeight}`}>{pct(row.callRate)}</td>
                   <td className={`text-slate-900 text-right py-2 px-3 ${rowWeight}`}>{row.won.toLocaleString()}</td>
                   <td className={`text-slate-900 text-right py-2 px-3 ${rowWeight}`}>{pct(row.winRate)}</td>
+                  <td className={`text-slate-600 text-right py-2 px-3 ${rowWeight}`}>{row.referred.toLocaleString()}</td>
                   <td className={`text-slate-900 text-right py-2 px-4 ${rowWeight}`}>{money(row.mrrWon)}</td>
                 </tr>
               );
@@ -245,8 +287,9 @@ export default function SalesFunnelPage() {
           </tbody>
         </table>
         <p className="px-4 py-2.5 text-[11px] text-slate-400 border-t border-slate-100">
-          Lindsey attribution is derived from ClickUp status only (she never appears in the salesman field), so her numbers are likely undercounted.
-          Unassigned = leads with no salesman recorded, mostly pre-call.
+          Attribution: salesman field, then convo/assignee inference, then ClickUp status.
+          Lindsey rarely appears in the salesman field, so her numbers may be undercounted.
+          Unassigned = no attribution signal at all, mostly pre-call leads.
         </p>
       </div>
 
@@ -290,16 +333,16 @@ export default function SalesFunnelPage() {
       <div className="space-y-4">
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           <KpiCard
-            label="Total Lost"
+            label="Nurture + Lost"
             value={lost.total.toLocaleString()}
             change={closedLeads > 0 ? `${pct((lost.total / closedLeads) * 100)} of closed leads` : undefined}
           />
           {lost.reasons.map((reason) => (
             <KpiCard
               key={reason.key}
-              label={reason.key === 'lost_followup' ? 'Lost — Follow Up' : reason.key === 'lost_dnd' ? 'Lost — DND' : reason.label}
+              label={reason.key === 'nurture' ? 'In Nurture' : reason.key === 'lost' ? 'Lost' : reason.label}
               value={reason.count.toLocaleString()}
-              change={lost.total > 0 ? `${pct((reason.count / lost.total) * 100)} of lost` : undefined}
+              change={lost.total > 0 ? `${pct((reason.count / lost.total) * 100)} of nurture + lost` : undefined}
             />
           ))}
         </div>

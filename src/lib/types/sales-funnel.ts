@@ -17,16 +17,27 @@ export interface RawSalesLead {
   mrr: number | null;
   qualified: string | null;
   business_name: string | null;
+  salesman_inferred: string | null;
+}
+
+/** Row from upwork_lead_status_history (populated by the ClickUp sync + backfill). */
+export interface RawStatusTransition {
+  clickup_task_id: string;
+  from_status: string | null;
+  to_status: string;
+  detected_at: string;
+  source: string;
 }
 
 export interface SalesFunnelApiResponse {
   leads: RawSalesLead[];
+  transitions: RawStatusTransition[];
   fetchedAt: string;
 }
 
 /* ── Normalized lead ── */
 
-export type Outcome = 'open' | 'won' | 'lost_followup' | 'lost_dnd' | 'referred';
+export type Outcome = 'open' | 'won' | 'nurture' | 'lost' | 'referred';
 export type Salesperson = 'Peterson' | 'Cade' | 'Lindsey' | 'Unassigned';
 export type Partner = 'Brad' | 'Scott' | 'Keith' | 'Other';
 
@@ -58,6 +69,19 @@ export interface SalespersonRow {
   won: number;
   winRate: number;  // 0-100
   mrrWon: number;
+  referred: number; // leads referred out to a partner
+}
+
+/* ── Leaks & Saves (from status transitions) ── */
+
+export interface LeakStats {
+  callBookedEntries: number; // transitions INTO a call-booked status
+  noShows: number;           // call-booked → backward status
+  noShowRate: number;        // 0-100, noShows / callBookedEntries
+  nurtureEntries: number;    // transitions INTO nurture / lost (follow up)
+  nurtureSaves: number;      // nurture → re-engaged (non-lost) status
+  saveRate: number;          // 0-100, nurtureSaves / nurtureEntries
+  trackingSince: string | null; // earliest detected_at (ISO) — null when no data
 }
 
 export interface ReferralData {

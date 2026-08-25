@@ -10,26 +10,38 @@
 import type {
   RawSalesLead, NormalizedLead, Outcome, Salesperson, Partner,
   FunnelStageRow, OutcomeSummary, SalespersonRow, ReferralData, LostBreakdown,
+  RawStatusTransition, LeakStats,
 } from '@/lib/types/sales-funnel';
 
+/**
+ * Stage order mirrors the ClickUp status workflow: Pursuing is a POST-call
+ * stage (white-label/deal pursuit after the call), per Peterson 2026-08-24.
+ * Values still match the "Lead Funnel Tracker" dropdown for exact matching.
+ */
 export const FUNNEL_STAGES = [
   'New Lead',
-  'Pursuing',
   'In Discussion',
   'Call Requested',
   'Booking Link Sent',
   'Call Booked',
+  'Pursuing',
   'Contract Proposed',
 ] as const;
 
+/** Display names where the tracker value reads poorly. */
+export const STAGE_LABELS: Record<string, string> = {
+  'Contract Proposed': 'Invoice & Contract',
+};
+
 const CALL_BOOKED_INDEX = FUNNEL_STAGES.indexOf('Call Booked');
+const PURSUING_INDEX = FUNNEL_STAGES.indexOf('Pursuing');
 const CONTRACT_PROPOSED_INDEX = FUNNEL_STAGES.indexOf('Contract Proposed');
 
 export const OUTCOME_LABELS: Record<Outcome, string> = {
   open: 'Open',
   won: 'Won',
-  lost_followup: 'Lost (Follow Up)',
-  lost_dnd: 'Lost (DND)',
+  nurture: 'Nurture',
+  lost: 'Lost',
   referred: 'Referred Out',
 };
 
@@ -45,6 +57,8 @@ export function cleanStatus(s: string | null): string {
 
 /**
  * Canonical outcome from ClickUp status only (mutually exclusive partition).
+ * Status vocabulary changed 2026-08: "lost (follow up)" → "nurture",
+ * "lost (dnd)" → "lost"; both legacy and current forms map to the same bucket.
  * "referred to lindsey" is an internal reassignment, not a partner referral.
  * "send invoice & contract" is late-stage open; the win is recorded when the
  * status flips to "won".
@@ -52,16 +66,17 @@ export function cleanStatus(s: string | null): string {
 export function resolveOutcome(status: string | null): Outcome {
   const s = cleanStatus(status);
   if (s === 'won') return 'won';
-  if (s.startsWith('lost (dnd')) return 'lost_dnd';
-  if (s.startsWith('lost (follow')) return 'lost_followup';
+  if (s === 'lost' || s.startsWith('lost (dnd')) return 'lost';
+  if (s === 'nurture' || s.startsWith('lost (follow')) return 'nurture';
   if (s.startsWith('referred to ') && s !== 'referred to lindsey') return 'referred';
   return 'open';
 }
 
 /**
- * Salesperson attribution. The salesman column is primary; Lindsey never
- * appears there, so her attribution is entirely status-derived and likely
- * undercounted (surface this as a footnote in the UI).
+ * Salesperson attribution. The salesman column is primary, then
+ * salesman_inferred (convo/assignee-derived, see infer script), then status.
+ * Lindsey rarely appears in the column, so her attribution leans on the
+ * fallbacks and is likely undercounted (surface this as a footnote in the UI).
  */
 export function resolveSalesperson(salesman: string | null, status: string | null): Salesperson {
   const col = (salesman ?? '').trim().toLowerCase();
@@ -102,13 +117,19 @@ export function resolvePartner(status: string | null, referredTo: string | null)
 
 /**
  * Furthest funnel stage reached. Null stage (42 legacy rows) counts as
- * "New Lead" — every lead reached that by definition. Won leads are floored
- * to Contract Proposed so the funnel stays monotonic.
+ * "New Lead" — every lead reached that by definition. The current status
+ * floors the stage when the tracker field wasn't advanced: post-call
+ * statuses imply Call Booked, "pursuing" implies Pursuing, "send invoice &
+ * contract" and won imply Invoice & Contract. Keeps the funnel monotonic.
  */
-export function resolveStageIndex(leadFunnelStage: string | null, outcome: Outcome): number {
+export function resolveStageIndex(leadFunnelStage: string | null, status: string | null, outcome: Outcome): number {
   let index = FUNNEL_STAGES.indexOf((leadFunnelStage ?? '') as typeof FUNNEL_STAGES[number]);
   if (index < 0) index = 0;
-  if (outcome === 'won') index = Math.max(index, CONTRACT_PROPOSED_INDEX);
+
+  const s = cleanStatus(status);
+  if (s.startsWith('call booked') || s === 'follow up post-call') index = Math.max(index, CALL_BOOKED_INDEX);
+  if (s === 'pursuing') index = Math.max(index, PURSUING_INDEX);
+  if (s === 'send invoice & contract' || outcome === 'won') index = Math.max(index, CONTRACT_PROPOSED_INDEX);
   return index;
 }
 
@@ -129,9 +150,9 @@ export function normalizeLeads(raw: RawSalesLead[]): NormalizedLead[] {
     return {
       raw: lead,
       outcome,
-      salesperson: resolveSalesperson(lead.salesman, lead.status),
+      salesperson: resolveSalesperson(lead.salesman ?? lead.salesman_inferred, lead.status),
       partner: resolvePartner(lead.status, lead.referred_to),
-      stageIndex: resolveStageIndex(lead.lead_funnel_stage, outcome),
+      stageIndex: resolveStageIndex(lead.lead_funnel_stage, lead.status, outcome),
       wonValue: lead.mrr ?? parseDealValue(lead.deal_value),
     };
   });
@@ -178,7 +199,7 @@ export function computeFunnel(leads: NormalizedLead[]): FunnelStageRow[] {
 }
 
 export function computeOutcomeSummary(leads: NormalizedLead[]): OutcomeSummary {
-  const summary: OutcomeSummary = { open: 0, won: 0, lost_followup: 0, lost_dnd: 0, referred: 0 };
+  const summary: OutcomeSummary = { open: 0, won: 0, nurture: 0, lost: 0, referred: 0 };
   for (const l of leads) summary[l.outcome] += 1;
   return summary;
 }
@@ -195,6 +216,7 @@ export function computeBySalesperson(leads: NormalizedLead[]): SalespersonRow[] 
       won: won.length,
       winRate: segLeads.length > 0 ? (won.length / segLeads.length) * 100 : 0,
       mrrWon: won.reduce((sum, l) => sum + (l.wonValue ?? 0), 0),
+      referred: segLeads.filter((l) => l.partner !== null).length,
     };
   };
 
@@ -236,13 +258,72 @@ export function computeReferrals(leads: NormalizedLead[]): ReferralData {
  * function changes — the UI renders whatever reasons come back.
  */
 export function computeLostBreakdown(leads: NormalizedLead[]): LostBreakdown {
-  const lostFollowup = leads.filter((l) => l.outcome === 'lost_followup').length;
-  const lostDnd = leads.filter((l) => l.outcome === 'lost_dnd').length;
+  const nurture = leads.filter((l) => l.outcome === 'nurture').length;
+  const lost = leads.filter((l) => l.outcome === 'lost').length;
   return {
-    total: lostFollowup + lostDnd,
+    total: nurture + lost,
     reasons: [
-      { key: 'lost_followup', label: 'Lost — Follow Up (went quiet, still contactable)', count: lostFollowup },
-      { key: 'lost_dnd', label: 'Lost — Do Not Disturb (asked us to stop)', count: lostDnd },
+      { key: 'nurture', label: 'Nurture (went quiet — weekly/monthly touches to win back)', count: nurture },
+      { key: 'lost', label: 'Lost (asked us to stop, or outright dead)', count: lost },
     ],
+  };
+}
+
+/* ── Leaks & Saves (status-transition history) ── */
+
+const NO_SHOW_DESTINATIONS = new Set([
+  'follow up pre-call', 'in discussion', 'call requested', 'new lead',
+]);
+const NURTURE_STATUSES = new Set(['nurture', 'lost (follow up)']);
+const LOST_STATUSES = new Set(['lost', 'lost (dnd)']);
+
+export function filterTransitionsByDateRange(
+  transitions: RawStatusTransition[],
+  range: { start: string | null; end: string | null },
+): RawStatusTransition[] {
+  if (!range.start && !range.end) return transitions;
+  return transitions.filter((t) => {
+    const d = t.detected_at?.slice(0, 10);
+    if (!d) return false;
+    if (range.start && d < range.start) return false;
+    if (range.end && d > range.end) return false;
+    return true;
+  });
+}
+
+/**
+ * No-show: a lead moves from a call-booked status BACKWARD (follow up
+ * pre-call, in discussion, call requested, new lead) — Peterson's definition.
+ * Nurture save: a lead leaves nurture (or legacy lost (follow up)) for any
+ * non-lost status, i.e. we re-engaged them.
+ */
+export function computeLeaks(transitions: RawStatusTransition[]): LeakStats {
+  let callBookedEntries = 0;
+  let noShows = 0;
+  let nurtureEntries = 0;
+  let nurtureSaves = 0;
+  let trackingSince: string | null = null;
+
+  for (const t of transitions) {
+    const from = cleanStatus(t.from_status);
+    const to = cleanStatus(t.to_status);
+
+    if (!trackingSince || t.detected_at < trackingSince) trackingSince = t.detected_at;
+
+    if (to.startsWith('call booked')) callBookedEntries += 1;
+    if (from.startsWith('call booked') && NO_SHOW_DESTINATIONS.has(to)) noShows += 1;
+
+    if (NURTURE_STATUSES.has(to)) nurtureEntries += 1;
+    if (NURTURE_STATUSES.has(from) && !NURTURE_STATUSES.has(to) && !LOST_STATUSES.has(to)) nurtureSaves += 1;
+  }
+
+  return {
+    callBookedEntries,
+    noShows,
+    noShowRate: callBookedEntries > 0 ? (noShows / callBookedEntries) * 100 : 0,
+    nurtureEntries,
+    nurtureSaves,
+    saveRate: nurtureEntries > 0 ? (nurtureSaves / nurtureEntries) * 100 : 0,
+    trackingSince,
   };
 }
