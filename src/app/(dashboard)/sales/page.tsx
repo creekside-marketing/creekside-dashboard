@@ -1,0 +1,336 @@
+'use client';
+
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import KpiCard from '@/components/KpiCard';
+import {
+  BarChart as ReBarChart, Bar, XAxis, YAxis,
+  Tooltip, Legend, ResponsiveContainer, CartesianGrid, Cell,
+} from 'recharts';
+import type { RawSalesLead, Partner } from '@/lib/types/sales-funnel';
+import {
+  normalizeLeads, filterByDateRange, computeFunnel, computeOutcomeSummary,
+  computeBySalesperson, computeReferrals, computeLostBreakdown, OUTCOME_LABELS,
+} from '@/lib/engine/sales-funnel';
+
+/* ── Helpers ── */
+
+function pct(v: number): string {
+  return `${v.toFixed(1)}%`;
+}
+
+function money(v: number): string {
+  return `$${v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+}
+
+function toISODate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function formatMonth(month: string): string {
+  const [y, m] = month.split('-');
+  return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+}
+
+// 7 journey stages + Won
+const FUNNEL_COLORS = ['#14B8A6', '#3B82F6', '#6366F1', '#F59E0B', '#8B5CF6', '#EC4899', '#0EA5E9', '#10B981'];
+
+const PARTNER_COLORS: Record<Partner, string> = {
+  Brad: '#3B82F6',
+  Scott: '#F59E0B',
+  Keith: '#14B8A6',
+  Other: '#94A3B8',
+};
+
+const DATE_PRESETS = [
+  { label: 'Last 30d', days: 30 },
+  { label: 'Last 90d', days: 90 },
+  { label: 'Last 6mo', days: 180 },
+  { label: 'YTD', days: -1 },
+  { label: 'All', days: 0 },
+] as const;
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/*  PAGE                                                                     */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+export default function SalesFunnelPage() {
+  const [rawLeads, setRawLeads] = useState<RawSalesLead[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [dateRange, setDateRange] = useState<{ start: string | null; end: string | null }>({ start: null, end: null });
+
+  useEffect(() => {
+    fetch('/api/sales-funnel')
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data) => setRawLeads(data.leads ?? []))
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const setDatePreset = useCallback((preset: typeof DATE_PRESETS[number]) => {
+    if (preset.days === 0) {
+      setDateRange({ start: null, end: null });
+    } else if (preset.days === -1) {
+      setDateRange({ start: `${new Date().getFullYear()}-01-01`, end: null });
+    } else {
+      const start = new Date();
+      start.setDate(start.getDate() - preset.days);
+      setDateRange({ start: toISODate(start), end: null });
+    }
+  }, []);
+
+  /* ── Normalize + aggregate ── */
+  const allLeads = useMemo(() => normalizeLeads(rawLeads), [rawLeads]);
+  const leads = useMemo(() => filterByDateRange(allLeads, dateRange), [allLeads, dateRange]);
+
+  const funnel = useMemo(() => computeFunnel(leads), [leads]);
+  const outcomes = useMemo(() => computeOutcomeSummary(leads), [leads]);
+  const salespersonRows = useMemo(() => computeBySalesperson(leads), [leads]);
+  const referrals = useMemo(() => computeReferrals(leads), [leads]);
+  const lost = useMemo(() => computeLostBreakdown(leads), [leads]);
+
+  const totalLeads = leads.length;
+  const callsBooked = funnel.find((f) => f.name === 'Call Booked')?.count ?? 0;
+  const contractsProposed = funnel.find((f) => f.name === 'Contract Proposed')?.count ?? 0;
+  const mrrWon = salespersonRows.find((r) => r.segment === 'Total')?.mrrWon ?? 0;
+  const closedLeads = outcomes.won + outcomes.lost_followup + outcomes.lost_dnd + outcomes.referred;
+
+  // Bold best/worst win-rate rows among real segments with volume
+  const rankedSegments = salespersonRows.filter((r) => r.segment !== 'Total' && r.leads >= 5);
+  const bestWinRate = rankedSegments.length > 1 ? Math.max(...rankedSegments.map((r) => r.winRate)) : null;
+  const worstWinRate = rankedSegments.length > 1 ? Math.min(...rankedSegments.map((r) => r.winRate)) : null;
+
+  const monthlyReferrals = useMemo(
+    () => referrals.monthly.map((m) => ({ ...m, label: formatMonth(m.month) })),
+    [referrals],
+  );
+
+  /* ── Loading / Error ── */
+  if (loading) return <div className="p-12 text-center text-slate-400">Loading sales funnel data...</div>;
+  if (error) return <div className="p-12 text-center text-red-500">Error: {error}</div>;
+
+  return (
+    <div className="space-y-8">
+      {/* Header */}
+      <div>
+        <h2 className="text-2xl font-semibold text-slate-900">Sales Funnel</h2>
+        <p className="text-sm text-slate-500 mt-1">
+          {totalLeads.toLocaleString()} of {allLeads.length.toLocaleString()} leads · ClickUp Upwork Sales &amp; Leads board
+        </p>
+      </div>
+
+      {/* Date filter */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+        <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Date Range (lead created)</p>
+        <div className="flex flex-wrap items-center gap-2">
+          {DATE_PRESETS.map((preset) => (
+            <button
+              key={preset.label}
+              onClick={() => setDatePreset(preset)}
+              className="px-2.5 py-1 text-xs rounded-md border border-slate-200 bg-white text-slate-600 hover:border-slate-300 transition-colors"
+            >
+              {preset.label}
+            </button>
+          ))}
+          <input
+            type="date"
+            value={dateRange.start ?? ''}
+            onChange={(e) => setDateRange((prev) => ({ ...prev, start: e.target.value || null }))}
+            className="border border-slate-200 rounded-md px-2 py-1 text-xs text-slate-700"
+          />
+          <span className="text-slate-400 text-xs">to</span>
+          <input
+            type="date"
+            value={dateRange.end ?? ''}
+            onChange={(e) => setDateRange((prev) => ({ ...prev, end: e.target.value || null }))}
+            className="border border-slate-200 rounded-md px-2 py-1 text-xs text-slate-700"
+          />
+        </div>
+      </div>
+
+      {/* KPI Row */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        <KpiCard label="Total Leads" value={totalLeads.toLocaleString()} />
+        <KpiCard label="Calls Booked" value={callsBooked.toLocaleString()} change={totalLeads > 0 ? `${pct((callsBooked / totalLeads) * 100)} call rate` : undefined} />
+        <KpiCard label="Contracts Proposed" value={contractsProposed.toLocaleString()} />
+        <KpiCard label="Won" value={outcomes.won.toLocaleString()} change={totalLeads > 0 ? `${pct((outcomes.won / totalLeads) * 100)} win rate` : undefined} />
+        <KpiCard label="MRR Won" value={money(mrrWon)} />
+      </div>
+
+      {/* Company Funnel */}
+      {totalLeads > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+          <h3 className="text-sm font-semibold text-slate-900 mb-1">Customer Journey Funnel</h3>
+          <p className="text-xs text-slate-500 mb-4">Each bar counts leads that reached that stage or further.</p>
+          <ResponsiveContainer width="100%" height={320}>
+            <ReBarChart data={funnel} layout="vertical" margin={{ left: 10, right: 60, top: 0, bottom: 0 }}>
+              <XAxis type="number" hide />
+              <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748b', fontSize: 12 }} axisLine={false} tickLine={false} />
+              <Tooltip
+                contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: 12 }}
+                formatter={(value, _name, entry) => {
+                  const v = typeof value === 'number' ? value : Number(value);
+                  const p = entry?.payload as { pctOfTotal?: number; stepConversion?: number } | undefined;
+                  return [
+                    `${v.toLocaleString()} (${(p?.pctOfTotal ?? 0).toFixed(1)}% of leads, ${(p?.stepConversion ?? 0).toFixed(1)}% from prior stage)`,
+                    'Count',
+                  ];
+                }}
+              />
+              <Bar dataKey="count" radius={[0, 6, 6, 0]} barSize={26}>
+                {funnel.map((_, i) => <Cell key={i} fill={FUNNEL_COLORS[i % FUNNEL_COLORS.length]} />)}
+              </Bar>
+            </ReBarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Outcome reconciliation strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        {(Object.keys(outcomes) as (keyof typeof outcomes)[]).map((key) => (
+          <KpiCard
+            key={key}
+            label={OUTCOME_LABELS[key]}
+            value={outcomes[key].toLocaleString()}
+            change={totalLeads > 0 ? `${pct((outcomes[key] / totalLeads) * 100)} of leads` : undefined}
+          />
+        ))}
+      </div>
+
+      {/* By Salesperson */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+        <div className="px-4 py-3 border-b border-slate-100">
+          <h3 className="text-sm font-semibold text-slate-900">By Salesperson</h3>
+        </div>
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="bg-slate-50 text-slate-500 uppercase tracking-wider">
+              <th className="text-left py-2.5 px-4 font-semibold">Segment</th>
+              <th className="text-right py-2.5 px-3 font-semibold">Leads</th>
+              <th className="text-right py-2.5 px-3 font-semibold">Calls</th>
+              <th className="text-right py-2.5 px-3 font-semibold">Call %</th>
+              <th className="text-right py-2.5 px-3 font-semibold">Won</th>
+              <th className="text-right py-2.5 px-3 font-semibold">Win %</th>
+              <th className="text-right py-2.5 px-4 font-semibold">MRR Won</th>
+            </tr>
+          </thead>
+          <tbody>
+            {salespersonRows.map((row) => {
+              const isTotal = row.segment === 'Total';
+              const isBest = !isTotal && bestWinRate !== null && row.leads >= 5 && row.winRate === bestWinRate;
+              const isWorst = !isTotal && worstWinRate !== null && row.leads >= 5 && row.winRate === worstWinRate && !isBest;
+              const rowWeight = isTotal || isBest || isWorst ? 'font-bold' : 'font-medium';
+              return (
+                <tr key={row.segment} className={`border-t hover:bg-slate-50/50 ${isTotal ? 'border-t-2 border-slate-200 bg-slate-50/50' : 'border-slate-100'}`}>
+                  <td className={`text-slate-900 py-2 px-4 ${rowWeight}`}>
+                    {row.segment}
+                    {isBest && <span className="ml-1.5 text-[10px] text-emerald-600 font-semibold">BEST</span>}
+                    {isWorst && <span className="ml-1.5 text-[10px] text-red-500 font-semibold">WORST</span>}
+                  </td>
+                  <td className={`text-slate-600 text-right py-2 px-3 ${rowWeight}`}>{row.leads.toLocaleString()}</td>
+                  <td className={`text-slate-600 text-right py-2 px-3 ${rowWeight}`}>{row.callsBooked.toLocaleString()}</td>
+                  <td className={`text-slate-900 text-right py-2 px-3 ${rowWeight}`}>{pct(row.callRate)}</td>
+                  <td className={`text-slate-900 text-right py-2 px-3 ${rowWeight}`}>{row.won.toLocaleString()}</td>
+                  <td className={`text-slate-900 text-right py-2 px-3 ${rowWeight}`}>{pct(row.winRate)}</td>
+                  <td className={`text-slate-900 text-right py-2 px-4 ${rowWeight}`}>{money(row.mrrWon)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <p className="px-4 py-2.5 text-[11px] text-slate-400 border-t border-slate-100">
+          Lindsey attribution is derived from ClickUp status only (she never appears in the salesman field), so her numbers are likely undercounted.
+          Unassigned = leads with no salesman recorded, mostly pre-call.
+        </p>
+      </div>
+
+      {/* Referral Partners */}
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          <KpiCard
+            label="Referred Out"
+            value={referrals.total.toLocaleString()}
+            change={totalLeads > 0 ? `${pct((referrals.total / totalLeads) * 100)} of leads` : undefined}
+          />
+          {referrals.byPartner.map((row) => (
+            <KpiCard key={row.partner} label={`→ ${row.partner}`} value={row.count.toLocaleString()} />
+          ))}
+        </div>
+
+        {monthlyReferrals.length > 0 && (
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <h3 className="text-sm font-semibold text-slate-900 mb-4">Referrals Out by Month</h3>
+            <ResponsiveContainer width="100%" height={260}>
+              <ReBarChart data={monthlyReferrals} margin={{ left: 0, right: 10, top: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis allowDecimals={false} tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                {(Object.keys(PARTNER_COLORS) as Partner[]).map((partner) => (
+                  <Bar key={partner} dataKey={partner} stackId="referrals" fill={PARTNER_COLORS[partner]} radius={[0, 0, 0, 0]} />
+                ))}
+              </ReBarChart>
+            </ResponsiveContainer>
+            <p className="mt-2 text-[11px] text-slate-400">
+              Bucketed by lead-created month (referral date is not tracked). &quot;Other&quot; = legacy partners no longer active.
+              {referrals.referredAndWon > 0 && ` ${referrals.referredAndWon} referred lead${referrals.referredAndWon === 1 ? '' : 's'} later closed as won.`}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Lost Deals */}
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          <KpiCard
+            label="Total Lost"
+            value={lost.total.toLocaleString()}
+            change={closedLeads > 0 ? `${pct((lost.total / closedLeads) * 100)} of closed leads` : undefined}
+          />
+          {lost.reasons.map((reason) => (
+            <KpiCard
+              key={reason.key}
+              label={reason.key === 'lost_followup' ? 'Lost — Follow Up' : reason.key === 'lost_dnd' ? 'Lost — DND' : reason.label}
+              value={reason.count.toLocaleString()}
+              change={lost.total > 0 ? `${pct((reason.count / lost.total) * 100)} of lost` : undefined}
+            />
+          ))}
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+          <div className="px-4 py-3 border-b border-slate-100">
+            <h3 className="text-sm font-semibold text-slate-900">Loss Reasons</h3>
+          </div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-slate-50 text-slate-500 uppercase tracking-wider">
+                <th className="text-left py-2.5 px-4 font-semibold">Reason</th>
+                <th className="text-right py-2.5 px-3 font-semibold">Leads</th>
+                <th className="text-right py-2.5 px-4 font-semibold">% of Lost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lost.reasons.map((reason) => (
+                <tr key={reason.key} className="border-t border-slate-100 hover:bg-slate-50/50">
+                  <td className="text-slate-900 py-2 px-4 font-medium">{reason.label}</td>
+                  <td className="text-slate-600 text-right py-2 px-3">{reason.count.toLocaleString()}</td>
+                  <td className="text-slate-900 text-right py-2 px-4">{lost.total > 0 ? pct((reason.count / lost.total) * 100) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="px-4 py-2.5 text-[11px] text-slate-400 border-t border-slate-100">
+            We do not yet capture WHY deals are lost. This table will break out structured loss reasons automatically once a loss-reason field is added to the ClickUp sales board.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
