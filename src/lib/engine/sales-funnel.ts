@@ -273,6 +273,8 @@ export function computeLostBreakdown(leads: NormalizedLead[]): LostBreakdown {
 
 const NO_SHOW_DESTINATIONS = new Set([
   'follow up pre-call', 'in discussion', 'call requested', 'new lead',
+  // Legacy board statuses (pre-2026 vocabulary, present in backfilled history)
+  'follow-up', 'follow up - pre-call', 'follow up 1', 'follow up 2', 'follow up 3',
 ]);
 const NURTURE_STATUSES = new Set(['nurture', 'lost (follow up)']);
 const LOST_STATUSES = new Set(['lost', 'lost (dnd)']);
