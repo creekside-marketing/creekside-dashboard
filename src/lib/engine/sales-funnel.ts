@@ -324,6 +324,16 @@ function inferredKeyOf(lead: RawSalesLead): LossReasonKey {
   return (inferred in REASON_LABELS ? inferred : 'no_data') as LossReasonKey;
 }
 
+// The ClickUp dropdown collapses no-show and silent-after-proposal into
+// "Ghosted" (Peterson, 2026-08-27). A manual "Ghosted" on a lead whose AI
+// subtype is in this family is consistent, not an override — keep the
+// subtype for dashboard granularity.
+const GHOSTED_FAMILY = new Set<LossReasonKey>([
+  'ghosted',
+  'no_show_never_rebooked',
+  'stopped_after_proposal',
+]);
+
 /**
  * Manual field wins over the AI inference. Unmapped manual text buckets as
  * "other" rather than being dropped; a manual "unknown" is not a real signal
@@ -333,6 +343,9 @@ export function resolveLossReason(lead: RawSalesLead): { key: LossReasonKey; man
   const manualText = (lead.loss_reason_manual ?? '').trim().toLowerCase();
   if (manualText) {
     const mapped = MANUAL_LABEL_TO_KEY[manualText] ?? 'other';
+    if (mapped === 'ghosted' && GHOSTED_FAMILY.has(inferredKeyOf(lead))) {
+      return { key: inferredKeyOf(lead), manual: false };
+    }
     if (mapped !== 'no_data') return { key: mapped, manual: true };
   }
   return { key: inferredKeyOf(lead), manual: false };
