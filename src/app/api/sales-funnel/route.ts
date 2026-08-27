@@ -6,7 +6,7 @@ const SALES_LEAD_COLUMNS = [
   'id', 'clickup_task_id', 'lead_name', 'status', 'lead_funnel_stage',
   'how_found', 'date_created', 'date_closed', 'date_last_contacted',
   'salesman', 'appt_setter', 'referred_to', 'deal_value', 'mrr',
-  'qualified', 'business_name', 'salesman_inferred',
+  'qualified', 'business_name', 'salesman_inferred', 'mrr_inferred',
 ].join(', ');
 
 const TRANSITION_COLUMNS = 'clickup_task_id, from_status, to_status, detected_at, source';

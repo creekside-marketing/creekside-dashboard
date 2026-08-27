@@ -18,6 +18,7 @@ export interface RawSalesLead {
   qualified: string | null;
   business_name: string | null;
   salesman_inferred: string | null;
+  mrr_inferred: number | null; // Square-billing-derived (median month), won leads missing the ClickUp MRR field
 }
 
 /** Row from upwork_lead_status_history (populated by the ClickUp sync + backfill). */

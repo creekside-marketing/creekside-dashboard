@@ -125,7 +125,7 @@ export default function SalesFunnelPage() {
   }, []);
 
   /* ── Normalize + aggregate ── */
-  const allLeads = useMemo(() => normalizeLeads(rawLeads), [rawLeads]);
+  const allLeads = useMemo(() => normalizeLeads(rawLeads, rawTransitions), [rawLeads, rawTransitions]);
   const leads = useMemo(() => filterByDateRange(allLeads, dateRange), [allLeads, dateRange]);
 
   const funnel = useMemo(() => computeFunnel(leads), [leads]);
@@ -375,6 +375,7 @@ export default function SalesFunnelPage() {
           </tbody>
         </table>
         <p className="px-4 py-2.5 text-[11px] text-slate-400 border-t border-slate-100">
+          MRR Won: ClickUp MRR field when present, otherwise inferred from Square billing (median billed month).
           Attribution: salesman field, then convo/assignee inference, then ClickUp status.
           Lindsey rarely appears in the salesman field, so her numbers may be undercounted.
           Unassigned = no attribution signal at all, mostly pre-call leads.

@@ -144,16 +144,29 @@ export function parseDealValue(text: string | null): number | null {
 
 /* ── Normalize + filter ── */
 
-export function normalizeLeads(raw: RawSalesLead[]): NormalizedLead[] {
+/**
+ * Transitions (when provided) floor the stage at Call Booked for leads whose
+ * history shows a booking the tracker field / current status no longer reflect
+ * (e.g. booked, then moved to nurture without the tracker being advanced).
+ */
+export function normalizeLeads(raw: RawSalesLead[], transitions: RawStatusTransition[] = []): NormalizedLead[] {
+  const everBooked = new Set<string>();
+  for (const t of transitions) {
+    if (cleanStatus(t.to_status).startsWith('call booked')) everBooked.add(t.clickup_task_id);
+  }
   return raw.map((lead) => {
     const outcome = resolveOutcome(lead.status);
+    let stageIndex = resolveStageIndex(lead.lead_funnel_stage, lead.status, outcome);
+    if (lead.clickup_task_id && everBooked.has(lead.clickup_task_id)) {
+      stageIndex = Math.max(stageIndex, CALL_BOOKED_INDEX);
+    }
     return {
       raw: lead,
       outcome,
       salesperson: resolveSalesperson(lead.salesman ?? lead.salesman_inferred, lead.status),
       partner: resolvePartner(lead.status, lead.referred_to),
-      stageIndex: resolveStageIndex(lead.lead_funnel_stage, lead.status, outcome),
-      wonValue: lead.mrr ?? parseDealValue(lead.deal_value),
+      stageIndex,
+      wonValue: lead.mrr ?? lead.mrr_inferred ?? parseDealValue(lead.deal_value),
     };
   });
 }
