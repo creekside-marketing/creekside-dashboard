@@ -19,6 +19,8 @@ export interface RawSalesLead {
   business_name: string | null;
   salesman_inferred: string | null;
   mrr_inferred: number | null; // Square-billing-derived (median month), won leads missing the ClickUp MRR field
+  loss_reason_inferred: string | null; // AI-classified from Upwork threads + ClickUp comments (backfill 2026-08-26)
+  loss_reason_confidence: string | null; // high | medium | low
 }
 
 /** Row from upwork_lead_status_history (populated by the ClickUp sync + backfill). */
@@ -96,9 +98,13 @@ export interface LostReasonRow {
   key: string;
   label: string;
   count: number;
+  nurture: number; // still in nurture (winback possible)
+  lost: number;    // hard lost
 }
 
 export interface LostBreakdown {
   total: number;
+  nurtureTotal: number;
+  lostTotal: number;
   reasons: LostReasonRow[];
 }

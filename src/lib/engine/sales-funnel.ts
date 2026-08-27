@@ -9,7 +9,7 @@
 
 import type {
   RawSalesLead, NormalizedLead, Outcome, Salesperson, Partner,
-  FunnelStageRow, OutcomeSummary, SalespersonRow, ReferralData, LostBreakdown,
+  FunnelStageRow, OutcomeSummary, SalespersonRow, ReferralData, LostBreakdown, LostReasonRow,
   RawStatusTransition, LeakStats,
 } from '@/lib/types/sales-funnel';
 
@@ -266,20 +266,48 @@ export function computeReferrals(leads: NormalizedLead[]): ReferralData {
 }
 
 /**
- * Lost-deal breakdown. The reasons[] array shape is the scaffold for
- * structured loss reasons: when ClickUp gains a loss-reason field, only this
- * function changes — the UI renders whatever reasons come back.
+ * Lost-deal breakdown, grouped by AI-inferred loss reason
+ * (upwork_leads.loss_reason_inferred, backfilled 2026-08-26 from Upwork
+ * threads + ClickUp comments). Leads without a value fall into no_data.
  */
+const REASON_LABELS: Record<string, string> = {
+  ghosted: 'Ghosted (went silent pre-pricing)',
+  stopped_after_proposal: 'Silent after pricing/proposal',
+  no_show_never_rebooked: 'No-show, never rebooked',
+  price: 'Price objection',
+  chose_competitor: 'Chose competitor / stayed put',
+  bad_timing: 'Bad timing / revisit later',
+  diy_in_house: 'DIY / took it in-house',
+  unqualified_too_small: 'Unqualified / too small',
+  dnd_asked_to_stop: 'Asked us to stop (DND)',
+  other: 'Other',
+  no_data: 'No conversation data',
+};
+
 export function computeLostBreakdown(leads: NormalizedLead[]): LostBreakdown {
-  const nurture = leads.filter((l) => l.outcome === 'nurture').length;
-  const lost = leads.filter((l) => l.outcome === 'lost').length;
-  return {
-    total: nurture + lost,
-    reasons: [
-      { key: 'nurture', label: 'Nurture (went quiet — weekly/monthly touches to win back)', count: nurture },
-      { key: 'lost', label: 'Lost (asked us to stop, or outright dead)', count: lost },
-    ],
-  };
+  const lostish = leads.filter((l) => l.outcome === 'nurture' || l.outcome === 'lost');
+  const nurtureTotal = lostish.filter((l) => l.outcome === 'nurture').length;
+  const lostTotal = lostish.length - nurtureTotal;
+
+  const byReason = new Map<string, { count: number; nurture: number; lost: number }>();
+  for (const l of lostish) {
+    const key = l.raw.loss_reason_inferred ?? 'no_data';
+    const entry = byReason.get(key) ?? { count: 0, nurture: 0, lost: 0 };
+    entry.count += 1;
+    if (l.outcome === 'nurture') entry.nurture += 1;
+    else entry.lost += 1;
+    byReason.set(key, entry);
+  }
+
+  const reasons: LostReasonRow[] = [...byReason.entries()]
+    .map(([key, v]) => ({ key, label: REASON_LABELS[key] ?? key, ...v }))
+    .sort((a, b) => {
+      if (a.key === 'no_data') return 1;
+      if (b.key === 'no_data') return -1;
+      return b.count - a.count;
+    });
+
+  return { total: lostish.length, nurtureTotal, lostTotal, reasons };
 }
 
 /* ── Leaks & Saves (status-transition history) ── */

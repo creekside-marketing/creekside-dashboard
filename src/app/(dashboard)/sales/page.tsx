@@ -420,20 +420,22 @@ export default function SalesFunnelPage() {
 
       {/* Lost Deals */}
       <div className="space-y-4">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <KpiCard
             label="Nurture + Lost"
             value={lost.total.toLocaleString()}
             change={closedLeads > 0 ? `${pct((lost.total / closedLeads) * 100)} of closed leads` : undefined}
           />
-          {lost.reasons.map((reason) => (
-            <KpiCard
-              key={reason.key}
-              label={reason.key === 'nurture' ? 'In Nurture' : reason.key === 'lost' ? 'Lost' : reason.label}
-              value={reason.count.toLocaleString()}
-              change={lost.total > 0 ? `${pct((reason.count / lost.total) * 100)} of nurture + lost` : undefined}
-            />
-          ))}
+          <KpiCard
+            label="In Nurture"
+            value={lost.nurtureTotal.toLocaleString()}
+            change={lost.total > 0 ? `${pct((lost.nurtureTotal / lost.total) * 100)} of nurture + lost` : undefined}
+          />
+          <KpiCard
+            label="Hard Lost"
+            value={lost.lostTotal.toLocaleString()}
+            change={lost.total > 0 ? `${pct((lost.lostTotal / lost.total) * 100)} of nurture + lost` : undefined}
+          />
         </div>
 
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
@@ -445,6 +447,8 @@ export default function SalesFunnelPage() {
               <tr className="bg-slate-50 text-slate-500 uppercase tracking-wider">
                 <th className="text-left py-2.5 px-4 font-semibold">Reason</th>
                 <th className="text-right py-2.5 px-3 font-semibold">Leads</th>
+                <th className="text-right py-2.5 px-3 font-semibold">In Nurture</th>
+                <th className="text-right py-2.5 px-3 font-semibold">Hard Lost</th>
                 <th className="text-right py-2.5 px-4 font-semibold">% of Lost</th>
               </tr>
             </thead>
@@ -453,13 +457,15 @@ export default function SalesFunnelPage() {
                 <tr key={reason.key} className="border-t border-slate-100 hover:bg-slate-50/50">
                   <td className="text-slate-900 py-2 px-4 font-medium">{reason.label}</td>
                   <td className="text-slate-600 text-right py-2 px-3">{reason.count.toLocaleString()}</td>
+                  <td className="text-slate-600 text-right py-2 px-3">{reason.nurture.toLocaleString()}</td>
+                  <td className="text-slate-600 text-right py-2 px-3">{reason.lost.toLocaleString()}</td>
                   <td className="text-slate-900 text-right py-2 px-4">{lost.total > 0 ? pct((reason.count / lost.total) * 100) : '—'}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           <p className="px-4 py-2.5 text-[11px] text-slate-400 border-t border-slate-100">
-            We do not yet capture WHY deals are lost. This table will break out structured loss reasons automatically once a loss-reason field is added to the ClickUp sales board.
+            Reasons are AI-inferred from Upwork message threads and ClickUp task comments (backfilled 2026-08-26). &quot;In Nurture&quot; leads are still receiving winback touches; &quot;Hard Lost&quot; are closed out.
           </p>
         </div>
       </div>
