@@ -6,7 +6,7 @@ import {
   BarChart as ReBarChart, Bar, XAxis, YAxis,
   Tooltip, Legend, ResponsiveContainer, CartesianGrid, Cell,
 } from 'recharts';
-import type { RawSalesLead, RawStatusTransition, Partner } from '@/lib/types/sales-funnel';
+import type { RawSalesLead, RawStatusTransition, Partner, Salesperson, FunnelStageRow } from '@/lib/types/sales-funnel';
 import {
   normalizeLeads, filterByDateRange, computeFunnel, computeOutcomeSummary,
   computeBySalesperson, computeReferrals, computeLostBreakdown, computeLeaks,
@@ -44,6 +44,40 @@ const PARTNER_COLORS: Record<Partner, string> = {
   Keith: '#14B8A6',
   Other: '#94A3B8',
 };
+
+// Per-person journey funnels: salespeople + referral partners (Keith excluded per Peterson 2026-08-26)
+const JOURNEY_SALESPEOPLE: Salesperson[] = ['Peterson', 'Cade', 'Lindsey'];
+const JOURNEY_PARTNERS: Partner[] = ['Brad', 'Scott', 'Other'];
+
+/** Small-multiple version of the company journey funnel, one per person/partner. */
+function MiniFunnel({ title, leadCount, data }: { title: string; leadCount: number; data: FunnelStageRow[] }) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+      <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
+      <p className="text-xs text-slate-500 mb-3">{leadCount.toLocaleString()} leads</p>
+      <ResponsiveContainer width="100%" height={240}>
+        <ReBarChart data={data} layout="vertical" margin={{ left: 0, right: 40, top: 0, bottom: 0 }}>
+          <XAxis type="number" hide />
+          <YAxis type="category" dataKey="name" width={118} tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+          <Tooltip
+            contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: 12 }}
+            formatter={(value, _name, entry) => {
+              const v = typeof value === 'number' ? value : Number(value);
+              const p = entry?.payload as { pctOfTotal?: number; stepConversion?: number } | undefined;
+              return [
+                `${v.toLocaleString()} (${(p?.pctOfTotal ?? 0).toFixed(1)}% of leads, ${(p?.stepConversion ?? 0).toFixed(1)}% from prior stage)`,
+                'Count',
+              ];
+            }}
+          />
+          <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={16}>
+            {data.map((_, i) => <Cell key={i} fill={FUNNEL_COLORS[i % FUNNEL_COLORS.length]} />)}
+          </Bar>
+        </ReBarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
 
 const DATE_PRESETS = [
   { label: 'Last 30d', days: 30 },
@@ -98,6 +132,28 @@ export default function SalesFunnelPage() {
   const funnelDisplay = useMemo(
     () => funnel.map((row) => ({ ...row, name: STAGE_LABELS[row.name] ?? row.name })),
     [funnel],
+  );
+  const journeyBySalesperson = useMemo(
+    () => JOURNEY_SALESPEOPLE.map((person) => {
+      const segLeads = leads.filter((l) => l.salesperson === person);
+      return {
+        name: person,
+        leadCount: segLeads.length,
+        funnel: computeFunnel(segLeads).map((row) => ({ ...row, name: STAGE_LABELS[row.name] ?? row.name })),
+      };
+    }),
+    [leads],
+  );
+  const journeyByPartner = useMemo(
+    () => JOURNEY_PARTNERS.map((partner) => {
+      const segLeads = leads.filter((l) => l.partner === partner);
+      return {
+        name: partner === 'Other' ? 'Other (legacy)' : partner,
+        leadCount: segLeads.length,
+        funnel: computeFunnel(segLeads).map((row) => ({ ...row, name: STAGE_LABELS[row.name] ?? row.name })),
+      };
+    }).filter((seg) => seg.leadCount > 0),
+    [leads],
   );
   const outcomes = useMemo(() => computeOutcomeSummary(leads), [leads]);
   const salespersonRows = useMemo(() => computeBySalesperson(leads), [leads]);
@@ -201,6 +257,38 @@ export default function SalesFunnelPage() {
               </Bar>
             </ReBarChart>
           </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Customer Journey by Salesperson */}
+      {totalLeads > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-slate-900">Customer Journey by Salesperson</h3>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {journeyBySalesperson.map((seg) => (
+              <MiniFunnel key={seg.name} title={seg.name} leadCount={seg.leadCount} data={seg.funnel} />
+            ))}
+          </div>
+          <p className="text-[11px] text-slate-400">
+            Salesperson attribution mostly comes from call-booking signals, so pre-call stages track closely with
+            Call Booked for each person. Unassigned leads (no attribution signal) are excluded here.
+          </p>
+        </div>
+      )}
+
+      {/* Customer Journey by Referral Partner */}
+      {journeyByPartner.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-slate-900">Customer Journey by Referral Partner</h3>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {journeyByPartner.map((seg) => (
+              <MiniFunnel key={seg.name} title={`→ ${seg.name}`} leadCount={seg.leadCount} data={seg.funnel} />
+            ))}
+          </div>
+          <p className="text-[11px] text-slate-400">
+            How far each partner&apos;s referred leads got in OUR funnel before (or after) the referral — a referred
+            lead can still close as won. Keith is intentionally excluded. &quot;Other&quot; = legacy partners no longer active.
+          </p>
         </div>
       )}
 
