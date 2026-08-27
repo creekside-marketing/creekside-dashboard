@@ -6,11 +6,12 @@ import {
   BarChart as ReBarChart, Bar, XAxis, YAxis,
   Tooltip, Legend, ResponsiveContainer, CartesianGrid, Cell,
 } from 'recharts';
-import type { RawSalesLead, RawStatusTransition, Partner, Salesperson, FunnelStageRow } from '@/lib/types/sales-funnel';
+import type { RawSalesLead, RawStatusTransition, Partner, Salesperson, FunnelStageRow, LossReasonKey } from '@/lib/types/sales-funnel';
 import {
   normalizeLeads, filterByDateRange, computeFunnel, computeOutcomeSummary,
   computeBySalesperson, computeReferrals, computeLostBreakdown, computeLeaks,
-  filterTransitionsByDateRange, OUTCOME_LABELS, STAGE_LABELS,
+  computeLossReasonsBySalesperson, computeLossReasonsMonthly,
+  filterTransitionsByDateRange, OUTCOME_LABELS, STAGE_LABELS, REASON_LABELS, LOSS_REASON_KEYS,
 } from '@/lib/engine/sales-funnel';
 
 /* ── Helpers ── */
@@ -43,6 +44,20 @@ const PARTNER_COLORS: Record<Partner, string> = {
   Scott: '#F59E0B',
   Keith: '#14B8A6',
   Other: '#94A3B8',
+};
+
+const REASON_COLORS: Record<LossReasonKey, string> = {
+  ghosted: '#3B82F6',
+  stopped_after_proposal: '#6366F1',
+  no_show_never_rebooked: '#F59E0B',
+  price: '#EF4444',
+  chose_competitor: '#8B5CF6',
+  bad_timing: '#14B8A6',
+  diy_in_house: '#0EA5E9',
+  unqualified_too_small: '#EC4899',
+  dnd_asked_to_stop: '#475569',
+  other: '#64748B',
+  no_data: '#CBD5E1',
 };
 
 // Per-person journey funnels: salespeople + referral partners (Keith excluded per Peterson 2026-08-26)
@@ -159,6 +174,11 @@ export default function SalesFunnelPage() {
   const salespersonRows = useMemo(() => computeBySalesperson(leads), [leads]);
   const referrals = useMemo(() => computeReferrals(leads), [leads]);
   const lost = useMemo(() => computeLostBreakdown(leads), [leads]);
+  const lossBySalesperson = useMemo(() => computeLossReasonsBySalesperson(leads), [leads]);
+  const lossMonthly = useMemo(
+    () => computeLossReasonsMonthly(leads).map((m) => ({ ...m, label: formatMonth(m.month) })),
+    [leads],
+  );
   const leaks = useMemo(
     () => computeLeaks(filterTransitionsByDateRange(rawTransitions, dateRange)),
     [rawTransitions, dateRange],
@@ -449,7 +469,8 @@ export default function SalesFunnelPage() {
                 <th className="text-right py-2.5 px-3 font-semibold">Leads</th>
                 <th className="text-right py-2.5 px-3 font-semibold">In Nurture</th>
                 <th className="text-right py-2.5 px-3 font-semibold">Hard Lost</th>
-                <th className="text-right py-2.5 px-4 font-semibold">% of Lost</th>
+                <th className="text-right py-2.5 px-3 font-semibold">% of Lost</th>
+                <th className="text-right py-2.5 px-4 font-semibold">High Conf.</th>
               </tr>
             </thead>
             <tbody>
@@ -459,13 +480,69 @@ export default function SalesFunnelPage() {
                   <td className="text-slate-600 text-right py-2 px-3">{reason.count.toLocaleString()}</td>
                   <td className="text-slate-600 text-right py-2 px-3">{reason.nurture.toLocaleString()}</td>
                   <td className="text-slate-600 text-right py-2 px-3">{reason.lost.toLocaleString()}</td>
-                  <td className="text-slate-900 text-right py-2 px-4">{lost.total > 0 ? pct((reason.count / lost.total) * 100) : '—'}</td>
+                  <td className="text-slate-900 text-right py-2 px-3">{lost.total > 0 ? pct((reason.count / lost.total) * 100) : '—'}</td>
+                  <td className="text-slate-500 text-right py-2 px-4">{reason.key === 'no_data' ? '—' : pct(reason.highConfPct)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           <p className="px-4 py-2.5 text-[11px] text-slate-400 border-t border-slate-100">
-            Reasons are AI-inferred from Upwork message threads and ClickUp task comments (backfilled 2026-08-26). &quot;In Nurture&quot; leads are still receiving winback touches; &quot;Hard Lost&quot; are closed out.
+            Human-entered ClickUp &quot;Reason lost&quot; values take precedence; the rest are AI-inferred from Upwork message threads and raw ClickUp task comments.
+            &quot;High Conf.&quot; = share with a human label or high AI confidence. &quot;In Nurture&quot; leads are still receiving winback touches; &quot;Hard Lost&quot; are closed out.
+          </p>
+        </div>
+
+        {lossMonthly.length > 0 && (
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <h3 className="text-sm font-semibold text-slate-900 mb-4">Loss Reasons by Month</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <ReBarChart data={lossMonthly} margin={{ left: 0, right: 10, top: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis allowDecimals={false} tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                {LOSS_REASON_KEYS.map((key) => (
+                  <Bar key={key} dataKey={key} name={REASON_LABELS[key]} stackId="loss" fill={REASON_COLORS[key]} />
+                ))}
+              </ReBarChart>
+            </ResponsiveContainer>
+            <p className="mt-2 text-[11px] text-slate-400">
+              Bucketed by close date when tracked, otherwise lead-created month. Reasons are mostly AI-inferred — see confidence note above.
+            </p>
+          </div>
+        )}
+
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+          <div className="px-4 py-3 border-b border-slate-100">
+            <h3 className="text-sm font-semibold text-slate-900">Loss Reasons by Salesperson</h3>
+          </div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-slate-50 text-slate-500 uppercase tracking-wider">
+                <th className="text-left py-2.5 px-4 font-semibold">Reason</th>
+                <th className="text-right py-2.5 px-3 font-semibold">Total</th>
+                <th className="text-right py-2.5 px-3 font-semibold">Peterson</th>
+                <th className="text-right py-2.5 px-3 font-semibold">Cade</th>
+                <th className="text-right py-2.5 px-3 font-semibold">Lindsey</th>
+                <th className="text-right py-2.5 px-4 font-semibold">Unassigned</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lossBySalesperson.map((row) => (
+                <tr key={row.key} className="border-t border-slate-100 hover:bg-slate-50/50">
+                  <td className="text-slate-900 py-2 px-4 font-medium">{row.label}</td>
+                  <td className="text-slate-900 text-right py-2 px-3 font-medium">{row.total.toLocaleString()}</td>
+                  <td className="text-slate-600 text-right py-2 px-3">{row.Peterson.toLocaleString()}</td>
+                  <td className="text-slate-600 text-right py-2 px-3">{row.Cade.toLocaleString()}</td>
+                  <td className="text-slate-600 text-right py-2 px-3">{row.Lindsey.toLocaleString()}</td>
+                  <td className="text-slate-600 text-right py-2 px-4">{row.Unassigned.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="px-4 py-2.5 text-[11px] text-slate-400 border-t border-slate-100">
+            Salesperson attribution follows the By Salesperson table (salesman field → inference → status). Unassigned is mostly pre-call leads, which is why it dominates ghosted/no_data.
           </p>
         </div>
       </div>

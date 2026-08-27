@@ -21,6 +21,7 @@ export interface RawSalesLead {
   mrr_inferred: number | null; // Square-billing-derived (median month), won leads missing the ClickUp MRR field
   loss_reason_inferred: string | null; // AI-classified from Upwork threads + ClickUp comments (backfill 2026-08-26)
   loss_reason_confidence: string | null; // high | medium | low
+  loss_reason_manual: string | null; // ClickUp "Reason lost" custom field (human-entered; takes precedence)
 }
 
 /** Row from upwork_lead_status_history (populated by the ClickUp sync + backfill). */
@@ -94,12 +95,18 @@ export interface ReferralData {
   referredAndWon: number;
 }
 
+export type LossReasonKey =
+  | 'ghosted' | 'price' | 'chose_competitor' | 'bad_timing' | 'diy_in_house'
+  | 'no_show_never_rebooked' | 'unqualified_too_small' | 'stopped_after_proposal'
+  | 'dnd_asked_to_stop' | 'other' | 'no_data';
+
 export interface LostReasonRow {
   key: string;
   label: string;
   count: number;
-  nurture: number; // still in nurture (winback possible)
-  lost: number;    // hard lost
+  nurture: number;     // still in nurture (winback possible)
+  lost: number;        // hard lost
+  highConfPct: number; // 0-100: share with a human label or high AI confidence
 }
 
 export interface LostBreakdown {
@@ -108,3 +115,15 @@ export interface LostBreakdown {
   lostTotal: number;
   reasons: LostReasonRow[];
 }
+
+export interface LossReasonSalespersonRow {
+  key: LossReasonKey;
+  label: string;
+  total: number;
+  Peterson: number;
+  Cade: number;
+  Lindsey: number;
+  Unassigned: number;
+}
+
+export type LossReasonMonthlyRow = { month: string } & Record<LossReasonKey, number>;

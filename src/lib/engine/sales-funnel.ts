@@ -10,6 +10,7 @@
 import type {
   RawSalesLead, NormalizedLead, Outcome, Salesperson, Partner,
   FunnelStageRow, OutcomeSummary, SalespersonRow, ReferralData, LostBreakdown, LostReasonRow,
+  LossReasonKey, LossReasonSalespersonRow, LossReasonMonthlyRow,
   RawStatusTransition, LeakStats,
 } from '@/lib/types/sales-funnel';
 
@@ -268,11 +269,12 @@ export function computeReferrals(leads: NormalizedLead[]): ReferralData {
 }
 
 /**
- * Lost-deal breakdown, grouped by AI-inferred loss reason
- * (upwork_leads.loss_reason_inferred, backfilled 2026-08-26 from Upwork
- * threads + ClickUp comments). Leads without a value fall into no_data.
+ * Lost-deal breakdown, grouped by loss reason. The human-entered ClickUp
+ * "Reason lost" field (loss_reason_manual) takes precedence; the AI-inferred
+ * classification (loss_reason_inferred, from Upwork threads + raw ClickUp
+ * comments) fills the rest. Leads without either fall into no_data.
  */
-const REASON_LABELS: Record<string, string> = {
+export const REASON_LABELS: Record<string, string> = {
   ghosted: 'Ghosted (went silent pre-pricing)',
   stopped_after_proposal: 'Silent after pricing/proposal',
   no_show_never_rebooked: 'No-show, never rebooked',
@@ -286,23 +288,77 @@ const REASON_LABELS: Record<string, string> = {
   no_data: 'No conversation data',
 };
 
+/** Display/sort order for charts (highest-signal buckets first, no_data last). */
+export const LOSS_REASON_KEYS: LossReasonKey[] = [
+  'ghosted', 'stopped_after_proposal', 'no_show_never_rebooked', 'price',
+  'chose_competitor', 'bad_timing', 'diy_in_house', 'unqualified_too_small',
+  'dnd_asked_to_stop', 'other', 'no_data',
+];
+
+/** Free-text / dropdown values seen in the ClickUp "Reason lost" field → taxonomy key. */
+const MANUAL_LABEL_TO_KEY: Record<string, LossReasonKey> = {
+  ghosted: 'ghosted',
+  price: 'price',
+  'too expensive': 'price',
+  'chose competitor': 'chose_competitor',
+  'bad timing': 'bad_timing',
+  'diy / in-house': 'diy_in_house',
+  'diy': 'diy_in_house',
+  'in-house': 'diy_in_house',
+  'no-show': 'no_show_never_rebooked',
+  'no show': 'no_show_never_rebooked',
+  'too small / unqualified': 'unqualified_too_small',
+  'too small': 'unqualified_too_small',
+  'unqualified': 'unqualified_too_small',
+  'went silent after proposal': 'stopped_after_proposal',
+  'asked us to stop': 'dnd_asked_to_stop',
+  other: 'other',
+};
+
+/**
+ * Manual field wins over the AI inference. Unmapped manual text buckets as
+ * "other" rather than being dropped. Returns whether the value was
+ * human-entered (used for the high-confidence share).
+ */
+export function resolveLossReason(lead: RawSalesLead): { key: LossReasonKey; manual: boolean } {
+  const manualText = (lead.loss_reason_manual ?? '').trim().toLowerCase();
+  if (manualText) return { key: MANUAL_LABEL_TO_KEY[manualText] ?? 'other', manual: true };
+  const inferred = lead.loss_reason_inferred ?? '';
+  return {
+    key: (inferred in REASON_LABELS ? inferred : 'no_data') as LossReasonKey,
+    manual: false,
+  };
+}
+
+function lostishOf(leads: NormalizedLead[]): NormalizedLead[] {
+  return leads.filter((l) => l.outcome === 'nurture' || l.outcome === 'lost');
+}
+
 export function computeLostBreakdown(leads: NormalizedLead[]): LostBreakdown {
-  const lostish = leads.filter((l) => l.outcome === 'nurture' || l.outcome === 'lost');
+  const lostish = lostishOf(leads);
   const nurtureTotal = lostish.filter((l) => l.outcome === 'nurture').length;
   const lostTotal = lostish.length - nurtureTotal;
 
-  const byReason = new Map<string, { count: number; nurture: number; lost: number }>();
+  const byReason = new Map<string, { count: number; nurture: number; lost: number; highConf: number }>();
   for (const l of lostish) {
-    const key = l.raw.loss_reason_inferred ?? 'no_data';
-    const entry = byReason.get(key) ?? { count: 0, nurture: 0, lost: 0 };
+    const { key, manual } = resolveLossReason(l.raw);
+    const entry = byReason.get(key) ?? { count: 0, nurture: 0, lost: 0, highConf: 0 };
     entry.count += 1;
     if (l.outcome === 'nurture') entry.nurture += 1;
     else entry.lost += 1;
+    if (manual || l.raw.loss_reason_confidence === 'high') entry.highConf += 1;
     byReason.set(key, entry);
   }
 
   const reasons: LostReasonRow[] = [...byReason.entries()]
-    .map(([key, v]) => ({ key, label: REASON_LABELS[key] ?? key, ...v }))
+    .map(([key, v]) => ({
+      key,
+      label: REASON_LABELS[key] ?? key,
+      count: v.count,
+      nurture: v.nurture,
+      lost: v.lost,
+      highConfPct: v.count > 0 ? (v.highConf / v.count) * 100 : 0,
+    }))
     .sort((a, b) => {
       if (a.key === 'no_data') return 1;
       if (b.key === 'no_data') return -1;
@@ -310,6 +366,50 @@ export function computeLostBreakdown(leads: NormalizedLead[]): LostBreakdown {
     });
 
   return { total: lostish.length, nurtureTotal, lostTotal, reasons };
+}
+
+/** Loss reasons × salesperson pivot (lost + nurture leads only). */
+export function computeLossReasonsBySalesperson(leads: NormalizedLead[]): LossReasonSalespersonRow[] {
+  const map = new Map<LossReasonKey, LossReasonSalespersonRow>();
+  for (const l of lostishOf(leads)) {
+    const { key } = resolveLossReason(l.raw);
+    if (!map.has(key)) {
+      map.set(key, {
+        key, label: REASON_LABELS[key] ?? key, total: 0,
+        Peterson: 0, Cade: 0, Lindsey: 0, Unassigned: 0,
+      });
+    }
+    const row = map.get(key)!;
+    row.total += 1;
+    row[l.salesperson] += 1;
+  }
+  return [...map.values()].sort((a, b) => {
+    if (a.key === 'no_data') return 1;
+    if (b.key === 'no_data') return -1;
+    return b.total - a.total;
+  });
+}
+
+/**
+ * Loss reasons by month for the stacked trend chart. Bucketed by date_closed
+ * when present (when the loss actually happened), else date_created.
+ */
+export function computeLossReasonsMonthly(leads: NormalizedLead[]): LossReasonMonthlyRow[] {
+  const monthMap = new Map<string, LossReasonMonthlyRow>();
+  for (const l of lostishOf(leads)) {
+    const month = (l.raw.date_closed ?? l.raw.date_created)?.slice(0, 7);
+    if (!month) continue;
+    if (!monthMap.has(month)) {
+      const base = { month } as LossReasonMonthlyRow;
+      for (const k of LOSS_REASON_KEYS) base[k] = 0;
+      monthMap.set(month, base);
+    }
+    const { key } = resolveLossReason(l.raw);
+    monthMap.get(month)![key] += 1;
+  }
+  return [...monthMap.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, v]) => v);
 }
 
 /* ── Leaks & Saves (status-transition history) ── */

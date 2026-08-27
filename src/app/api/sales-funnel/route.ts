@@ -7,7 +7,7 @@ const SALES_LEAD_COLUMNS = [
   'how_found', 'date_created', 'date_closed', 'date_last_contacted',
   'salesman', 'appt_setter', 'referred_to', 'deal_value', 'mrr',
   'qualified', 'business_name', 'salesman_inferred', 'mrr_inferred',
-  'loss_reason_inferred', 'loss_reason_confidence',
+  'loss_reason_inferred', 'loss_reason_confidence', 'loss_reason_manual',
 ].join(', ');
 
 const TRANSITION_COLUMNS = 'clickup_task_id, from_status, to_status, detected_at, source';
