@@ -53,9 +53,14 @@ export async function GET() {
     if (jobsResult.error) throw jobsResult.error;
     if (leadsResult.error) throw leadsResult.error;
 
+    // Junk/test rows excluded from all funnel analytics (Peterson, 2026-08-27)
+    const leads = ((leadsResult.data ?? []) as any[]).filter(
+      (l) => (l.lead_name ?? '').trim().toLowerCase() !== 'test',
+    );
+
     return NextResponse.json({
       upworkJobs: jobsResult.data ?? [],
-      upworkLeads: leadsResult.data ?? [],
+      upworkLeads: leads,
       fetchedAt: new Date().toISOString(),
     });
   } catch (err) {
