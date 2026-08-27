@@ -154,7 +154,9 @@ export function normalizeLeads(raw: RawSalesLead[], transitions: RawStatusTransi
   for (const t of transitions) {
     if (cleanStatus(t.to_status).startsWith('call booked')) everBooked.add(t.clickup_task_id);
   }
-  return raw.map((lead) => {
+  // Junk/test rows excluded from all Sales-tab analytics (Peterson, 2026-08-27)
+  const real = raw.filter((l) => (l.lead_name ?? '').trim().toLowerCase() !== 'test');
+  return real.map((lead) => {
     const outcome = resolveOutcome(lead.status);
     let stageIndex = resolveStageIndex(lead.lead_funnel_stage, lead.status, outcome);
     if (lead.clickup_task_id && everBooked.has(lead.clickup_task_id)) {
