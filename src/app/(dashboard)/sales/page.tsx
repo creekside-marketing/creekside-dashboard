@@ -487,8 +487,8 @@ export default function SalesFunnelPage() {
             </tbody>
           </table>
           <p className="px-4 py-2.5 text-[11px] text-slate-400 border-t border-slate-100">
-            Human-entered ClickUp &quot;Reason lost&quot; values take precedence; the rest are AI-inferred from Upwork message threads and raw ClickUp task comments.
-            &quot;High Conf.&quot; = share with a human label or high AI confidence. &quot;In Nurture&quot; leads are still receiving winback touches; &quot;Hard Lost&quot; are closed out.
+            Human-entered ClickUp &quot;Loss Reason&quot; values take precedence; the rest are AI-inferred from Upwork message threads and raw ClickUp task comments.
+            &quot;High Conf.&quot; = share with a human override or high AI confidence. &quot;In Nurture&quot; leads are still receiving winback touches; &quot;Hard Lost&quot; are closed out.
           </p>
         </div>
 

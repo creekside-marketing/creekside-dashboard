@@ -295,7 +295,10 @@ export const LOSS_REASON_KEYS: LossReasonKey[] = [
   'dnd_asked_to_stop', 'other', 'no_data',
 ];
 
-/** Free-text / dropdown values seen in the ClickUp "Reason lost" field → taxonomy key. */
+/**
+ * ClickUp "Loss Reason" dropdown labels (Peterson, 2026-08-27) plus legacy
+ * free-text "Reason lost" values → taxonomy key. Matched lowercase.
+ */
 const MANUAL_LABEL_TO_KEY: Record<string, LossReasonKey> = {
   ghosted: 'ghosted',
   price: 'price',
@@ -313,21 +316,26 @@ const MANUAL_LABEL_TO_KEY: Record<string, LossReasonKey> = {
   'went silent after proposal': 'stopped_after_proposal',
   'asked us to stop': 'dnd_asked_to_stop',
   other: 'other',
+  unknown: 'no_data',
 };
+
+function inferredKeyOf(lead: RawSalesLead): LossReasonKey {
+  const inferred = lead.loss_reason_inferred ?? '';
+  return (inferred in REASON_LABELS ? inferred : 'no_data') as LossReasonKey;
+}
 
 /**
  * Manual field wins over the AI inference. Unmapped manual text buckets as
- * "other" rather than being dropped. Returns whether the value was
- * human-entered (used for the high-confidence share).
+ * "other" rather than being dropped; a manual "unknown" is not a real signal
+ * and falls through to the AI. Returns whether the value was human-entered.
  */
 export function resolveLossReason(lead: RawSalesLead): { key: LossReasonKey; manual: boolean } {
   const manualText = (lead.loss_reason_manual ?? '').trim().toLowerCase();
-  if (manualText) return { key: MANUAL_LABEL_TO_KEY[manualText] ?? 'other', manual: true };
-  const inferred = lead.loss_reason_inferred ?? '';
-  return {
-    key: (inferred in REASON_LABELS ? inferred : 'no_data') as LossReasonKey,
-    manual: false,
-  };
+  if (manualText) {
+    const mapped = MANUAL_LABEL_TO_KEY[manualText] ?? 'other';
+    if (mapped !== 'no_data') return { key: mapped, manual: true };
+  }
+  return { key: inferredKeyOf(lead), manual: false };
 }
 
 function lostishOf(leads: NormalizedLead[]): NormalizedLead[] {
@@ -346,7 +354,11 @@ export function computeLostBreakdown(leads: NormalizedLead[]): LostBreakdown {
     entry.count += 1;
     if (l.outcome === 'nurture') entry.nurture += 1;
     else entry.lost += 1;
-    if (manual || l.raw.loss_reason_confidence === 'high') entry.highConf += 1;
+    // The 2026-08-27 migration backfilled the ClickUp dropdown FROM the AI
+    // values, so manual === inferred usually means AI provenance. Only a
+    // human OVERRIDE (manual differs from the inference) counts as human
+    // signal; otherwise fall back to the AI's own confidence.
+    if ((manual && key !== inferredKeyOf(l.raw)) || l.raw.loss_reason_confidence === 'high') entry.highConf += 1;
     byReason.set(key, entry);
   }
 
