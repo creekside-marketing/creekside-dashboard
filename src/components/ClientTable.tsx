@@ -1131,13 +1131,13 @@ export default function ClientTable() {
           for (const acct of results) {
             const acctId = (acct.account_id as string) ?? '';
             const insights = acct.insights as Record<string, unknown> | undefined;
+            const keyId = metaAccounts.has(acctId) ? acctId : metaAccounts.has(`act_${acctId}`) ? `act_${acctId}` : acctId;
             if (insights && acct.status === 'success') {
               const spend = Number(insights.spend ?? 0);
               const conversions = Number(insights.conversions ?? 0);
               const purchaseConversions = Number(insights.purchase_conversions ?? 0);
               // Use purchase_conversions if available, otherwise total conversions
               const convCount = purchaseConversions > 0 ? purchaseConversions : conversions;
-              const keyId = metaAccounts.has(acctId) ? acctId : metaAccounts.has(`act_${acctId}`) ? `act_${acctId}` : acctId;
               const roas = insights.roas != null ? Number(insights.roas) : undefined;
               newLiveData[keyId] = {
                 spend,
@@ -1145,6 +1145,15 @@ export default function ClientTable() {
                 costPerConversion: convCount > 0 ? spend / convCount : 0,
                 conversionBreakdown: [],
                 roas,
+              };
+            } else {
+              // Surface the failure instead of leaving the cell blank
+              newLiveData[keyId] = {
+                spend: 0,
+                conversions: 0,
+                costPerConversion: 0,
+                conversionBreakdown: [],
+                error: String(acct.error ?? 'No data returned'),
               };
             }
           }

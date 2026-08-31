@@ -20,6 +20,7 @@ interface AdKitAccountResult {
   account_id: string;
   account_name?: string;
   status: string;
+  error?: string;
   insights?: {
     spend?: number;
     conversions?: number;
@@ -32,6 +33,46 @@ interface AdKitAccountResult {
 interface AdKitBulkResponse {
   results?: AdKitAccountResult[];
   [key: string]: unknown;
+}
+
+/** Unwrap the MCP content envelope callPipeboard returns. */
+function unwrapEnvelope(json: Record<string, unknown>): Record<string, unknown> {
+  if (json.structuredContent) {
+    const sc = json.structuredContent as Record<string, unknown>;
+    if (typeof sc.result === 'string') {
+      try { return JSON.parse(sc.result); } catch { /* fall through */ }
+    }
+  }
+  if (Array.isArray(json.content) && json.content.length > 0) {
+    const first = json.content[0] as Record<string, unknown>;
+    if (typeof first.text === 'string') {
+      try { return JSON.parse(first.text); } catch { /* fall through */ }
+    }
+  }
+  return json;
+}
+
+/** Log a bulk-insights failure to pipeline_alerts (deduped: max 1/day). */
+async function logBulkAlert(errorMessage: string) {
+  const supabase = createServiceClient();
+  const today = new Date().toISOString().split('T')[0];
+
+  const { data: existing } = await supabase
+    .from('pipeline_alerts')
+    .select('id')
+    .eq('alert_type', 'meta_api_error')
+    .gte('created_at', `${today}T00:00:00Z`)
+    .limit(1);
+
+  if (existing && existing.length > 0) return;
+
+  await supabase.from('pipeline_alerts').insert({
+    alert_type: 'meta_api_error',
+    severity: 'critical',
+    message: `Meta bulk-insights failed: ${errorMessage}`,
+    details: { error: errorMessage, date: today, source: 'bulk-insights' },
+    acknowledged: false,
+  });
 }
 
 /** Write successful AdKit results to cache (fire-and-forget). */
@@ -117,22 +158,37 @@ export async function GET(request: NextRequest) {
 
     // Try AdKit first
     try {
-      const result = await callPipeboard('bulk_get_insights', {
+      const raw = await callPipeboard('bulk_get_insights', {
         level: 'account',
         account_ids: accountIds,
         time_range: timeRange,
         limit: 50,
-      }) as AdKitBulkResponse;
+      });
 
-      // Cache successful results in background
-      if (result?.results) {
-        updateCache(result.results, timeRange);
+      // callPipeboard returns an MCP envelope — unwrap before reading results
+      const result = unwrapEnvelope(raw as Record<string, unknown>) as AdKitBulkResponse;
+      const results = result.results ?? [];
+      const successful = results.filter(r => r.status === 'success').length;
+
+      // Every account failed — treat as a total outage and use cache
+      if (results.length > 0 && successful === 0) {
+        const firstError = results[0]?.error ?? 'all accounts failed';
+        logBulkAlert(firstError).catch(() => {/* fire-and-forget */});
+        console.error('AdKit bulk-insights: all accounts failed, using cache:', firstError);
+        return readCache(accountIds);
       }
 
-      return NextResponse.json(result);
+      // Cache successful results in background
+      if (results.length > 0) {
+        updateCache(results, timeRange);
+      }
+
+      return NextResponse.json({ ...result, source: 'live' });
     } catch (apiError) {
       // AdKit failed — fall back to cache
-      console.error('AdKit bulk-insights failed, using cache:', apiError instanceof Error ? apiError.message : apiError);
+      const errMsg = apiError instanceof Error ? apiError.message : 'Unknown error';
+      logBulkAlert(errMsg).catch(() => {/* fire-and-forget */});
+      console.error('AdKit bulk-insights failed, using cache:', errMsg);
       return readCache(accountIds);
     }
   } catch (error) {

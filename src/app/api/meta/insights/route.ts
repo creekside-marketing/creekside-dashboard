@@ -62,6 +62,71 @@ interface CachedRow {
   ctr: number; cpc: number; cpm: number;
 }
 
+/**
+ * Serve a daily time series directly from meta_insights_daily.
+ * AdKit's results endpoint has no time breakdown, so day-series requests
+ * never hit the live API — the Railway pipeline keeps this table current.
+ * Synthesizes an actions[] array from the conversions scalar so default
+ * lead counting (action_type 'lead') keeps working in the charts.
+ */
+async function serveDaySeries(
+  account_id: string,
+  time_range: string,
+  since: string | null,
+  until: string | null,
+): Promise<NextResponse> {
+  const supabase = createServiceClient();
+
+  const { data: campaigns } = await supabase
+    .from('meta_campaigns')
+    .select('campaign_id')
+    .eq('account_id', account_id);
+
+  const campaignIds = (campaigns ?? []).map(c => c.campaign_id);
+  if (campaignIds.length === 0) {
+    return NextResponse.json({ segmented_metrics: [], source: 'cache' });
+  }
+
+  const dates = resolveTimeRange(time_range, since, until);
+
+  const { data: cachedData, error: dbError } = await supabase
+    .from('meta_insights_daily')
+    .select('*')
+    .in('campaign_id', campaignIds)
+    .gte('date', dates.since)
+    .lte('date', dates.until)
+    .order('date', { ascending: true });
+
+  if (dbError) {
+    return NextResponse.json({ error: dbError.message }, { status: 502 });
+  }
+
+  const byDate: Record<string, { date_start: string; spend: number; impressions: number; clicks: number; inline_link_clicks: number; reach: number; conversions: number }> = {};
+  for (const r of (cachedData ?? []) as CachedRow[]) {
+    if (!byDate[r.date]) {
+      byDate[r.date] = { date_start: r.date, spend: 0, impressions: 0, clicks: 0, inline_link_clicks: 0, reach: 0, conversions: 0 };
+    }
+    const d = byDate[r.date];
+    d.spend += Number(r.spend || 0);
+    d.impressions += Number(r.impressions || 0);
+    d.clicks += Number(r.clicks || 0);
+    // meta_insights_daily has no inline_link_clicks column — approximate with
+    // clicks (consumers fall back to clicks anyway via `?? row.clicks`)
+    d.inline_link_clicks += Number(r.clicks || 0);
+    d.reach += Number(r.reach || 0);
+    d.conversions += Number(r.conversions || 0);
+  }
+
+  const sorted = Object.values(byDate).sort((a, b) => a.date_start.localeCompare(b.date_start));
+  return NextResponse.json({
+    segmented_metrics: sorted.map(m => ({
+      period: m.date_start,
+      metrics: { ...m, actions: [{ action_type: 'lead', value: String(m.conversions) }] },
+    })),
+    source: 'cache',
+  });
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
@@ -93,6 +158,12 @@ export async function GET(request: NextRequest) {
     const breakdownConfig = breakdownLevels[level];
     const time_breakdown = searchParams.get('time_breakdown');
     const extraFields = searchParams.get('fields');
+
+    // Daily series comes straight from meta_insights_daily — AdKit cannot
+    // segment by day, and the pipeline refreshes this table every morning.
+    if (time_breakdown === 'day' && !breakdownConfig) {
+      return serveDaySeries(account_id, time_range, since, until);
+    }
 
     // Build API args -- explicit date range overrides preset time_range
     const apiArgs: Record<string, unknown> = {
