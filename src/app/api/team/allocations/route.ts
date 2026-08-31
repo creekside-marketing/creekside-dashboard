@@ -42,6 +42,7 @@ const DISPLAY_ORDER: string[] = [
   'Aldo',
   'Ahmed Imran',
   'Ade Aderibigbe',
+  'Sophie Rainey',
   'David',
   'Keith McGonigle',
   'Jordan Tryon',
