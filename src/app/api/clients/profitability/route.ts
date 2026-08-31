@@ -130,7 +130,9 @@ export async function GET() {
     // raw allocations so it shows which clients they touch.
     // Jordan: Peterson+Cade decision — evaluate his cost as fixed overhead
     // rather than trying to attribute across clients (2026-07-06).
-    const UNATTRIBUTED_TO_CLIENTS = new Set(['Jordan Tryon']);
+    // Jonathan: same treatment — handles landing pages across all clients,
+    // Cade wants $400/mo as fixed overhead not scattered per-client.
+    const UNATTRIBUTED_TO_CLIENTS = new Set(['Jordan Tryon', 'Jonathan']);
     // Interns whose $0 allocations should still surface as labor chips on the
     // Client tab (they touch the client, just at no cost right now). Once we
     // set their hourly_rate they roll into normal cost math.
@@ -246,7 +248,7 @@ export async function GET() {
     // in the active client breakdown. Everyone else (Scott/Ahmed/Ade/Jordan/etc) is on
     // per-client fixed rates — their monthly_retainer field is the SUM of those rates,
     // not a cap target, so their allocations naturally equal their retainer with no gap.
-    const FULL_TIME_SALARIED_MEMBERS = new Set(['Lindsey Bouffard', 'David', 'Jordan Tryon']);
+    const FULL_TIME_SALARIED_MEMBERS = new Set(['Lindsey Bouffard', 'David', 'Jordan Tryon', 'Jonathan']);
     let salaryGap = 0;
     for (const [memberName, retainer] of Object.entries(retainerByMember)) {
       if (!FULL_TIME_SALARIED_MEMBERS.has(memberName)) continue;

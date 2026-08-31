@@ -15,8 +15,9 @@ const BANDWIDTH_REMAINING_HOURS: Record<string, number> = {
   'Ade Aderibigbe': 10,
   'Keith McGonigle': 20,
   'David': 11,           // 15 hrs/wk capacity − 4.5 currently allocated = ~11 hrs/wk available
+  'Jonathan': 20,        // Landing pages contractor, essentially unlimited bandwidth per Cade
   // Lindsey is dynamic: 45-hr weekly capacity − 5-hr admin buffer − allocated hours.
-  // Jordan Tryon + Aamir + Jay + Aldo: bandwidth not tracked — will show as `--`.
+  // Jordan Tryon + Jay + Aldo: bandwidth not tracked — will show as `--`.
   // Aldo is a brand-new intern; his weekly capacity is still being established.
   // Jay is an external partner (brings his own clients, does his own fulfillment);
   // Creekside doesn't manage his capacity.
@@ -44,7 +45,7 @@ const DISPLAY_ORDER: string[] = [
   'David',
   'Keith McGonigle',
   'Jordan Tryon',
-  'Aamir',
+  'Jonathan',
   'Jay',
 ];
 
