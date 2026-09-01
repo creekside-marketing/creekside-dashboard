@@ -483,6 +483,7 @@ export default function EcomReport({
                 return {
                   ...row,
                   ad_name: r.ad_name ?? r.name ?? 'Unknown Ad',
+                  inline_link_clicks: r.inline_link_clicks ?? r.clicks ?? 0,
                   purchases,
                   cpp: purchases > 0 ? spend / purchases : 0,
                 };
@@ -503,8 +504,9 @@ export default function EcomReport({
                 { key: 'purchases', label: 'Purchases', align: 'right', format: numCol },
               ]}
               data={ageData.map((row) => {
-                const actions = ((row as Record<string, unknown>).actions ?? []) as Array<{ action_type: string; value: string }>;
-                return { ...row, purchases: getActionValue(actions, 'offsite_conversion.fb_pixel_purchase') };
+                const r = row as Record<string, unknown>;
+                const actions = (r.actions ?? []) as Array<{ action_type: string; value: string }>;
+                return { ...row, inline_link_clicks: r.inline_link_clicks ?? r.clicks ?? 0, purchases: getActionValue(actions, 'offsite_conversion.fb_pixel_purchase') };
               })}
             />
           )}
@@ -520,8 +522,9 @@ export default function EcomReport({
                 { key: 'purchases', label: 'Purchases', align: 'right', format: numCol },
               ]}
               data={genderData.map((row) => {
-                const actions = ((row as Record<string, unknown>).actions ?? []) as Array<{ action_type: string; value: string }>;
-                return { ...row, purchases: getActionValue(actions, 'offsite_conversion.fb_pixel_purchase') };
+                const r = row as Record<string, unknown>;
+                const actions = (r.actions ?? []) as Array<{ action_type: string; value: string }>;
+                return { ...row, inline_link_clicks: r.inline_link_clicks ?? r.clicks ?? 0, purchases: getActionValue(actions, 'offsite_conversion.fb_pixel_purchase') };
               })}
             />
           )}

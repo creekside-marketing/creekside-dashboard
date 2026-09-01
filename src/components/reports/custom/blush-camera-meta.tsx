@@ -566,7 +566,7 @@ export default function BlushCameraMetaReport({
                 adId: String(r.ad_id ?? r.id ?? ''),
                 adName: String(r.ad_name ?? r.name ?? 'Unknown Ad'),
                 impressions: Number(r.impressions ?? 0),
-                linkClicks: Number(r.inline_link_clicks ?? 0),
+                linkClicks: Number(r.inline_link_clicks ?? r.clicks ?? 0),
                 spend,
                 purchases,
                 cpp: purchases > 0 ? spend / purchases : 0,
