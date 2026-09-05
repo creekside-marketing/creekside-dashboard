@@ -46,6 +46,7 @@ const registry: Record<string, ComponentType<ReportProps>> = {
   'chattanooga-skydiving-meta': dynamic(() => import('./chattanooga-skydiving-meta'), { loading: Spinner }),
   'chattanooga-skydiving-other': dynamic(() => import('./chattanooga-skydiving-other'), { loading: Spinner }),
   'fusion-dental-implants-programmatic': dynamic(() => import('./fusion-dental-implants-programmatic'), { loading: Spinner }),
+  'integrity-naturopathic-google': dynamic(() => import('./integrity-naturopathic-google'), { loading: Spinner }),
   'perfect-parking-google': dynamic(() => import('./perfect-parking-google'), { loading: Spinner }),
   'quivr-meta': dynamic(() => import('./quivr-meta'), { loading: Spinner }),
   'retirement-income-solutions-meta': dynamic(() => import('./retirement-income-solutions-meta'), { loading: Spinner }),
