@@ -84,6 +84,8 @@ export interface GoogleAdsData {
   ageData: Record<string, unknown>[];
   genderData: Record<string, unknown>[];
   kpiChanges: KpiChangeSet | null;
+  /** Per-conversion-action totals for the selected period (account level). */
+  conversionBreakdown: { name: string; conversions: number }[];
   loading: boolean;
   error: string | null;
   lastRefreshed: Date | null;
@@ -155,6 +157,7 @@ export function useGoogleAdsData(adAccountId: string | null): GoogleAdsData {
   const [ageData, setAgeData] = useState<Record<string, unknown>[]>([]);
   const [genderData, setGenderData] = useState<Record<string, unknown>[]>([]);
   const [kpiChanges, setKpiChanges] = useState<KpiChangeSet | null>(null);
+  const [conversionBreakdown, setConversionBreakdown] = useState<{ name: string; conversions: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
@@ -254,6 +257,10 @@ export function useGoogleAdsData(adAccountId: string | null): GoogleAdsData {
             })).sort((a, b) => a.date.localeCompare(b.date));
             setDailyData(daily);
           }
+          // Per-action conversion totals — used by clients configured with
+          // booked_conversion_actions to surface a booked-outcome panel.
+          const cb = accountJson.conversionBreakdown;
+          setConversionBreakdown(Array.isArray(cb) ? cb : []);
         } catch { /* optional */ }
       }
 
@@ -332,6 +339,7 @@ export function useGoogleAdsData(adAccountId: string | null): GoogleAdsData {
     ageData,
     genderData,
     kpiChanges,
+    conversionBreakdown,
     loading,
     error,
     lastRefreshed,

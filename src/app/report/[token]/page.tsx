@@ -22,7 +22,7 @@ export default async function PublicReportPage({ params }: { params: Promise<{ t
   const supabase = createServiceClient();
   const { data: client } = await supabase
     .from('reporting_clients')
-    .select('id, client_name, platform, ad_account_id, monthly_budget, client_report_notes, client_type, report_token, report_mode, custom_report_slug, lead_conversion_types')
+    .select('id, client_name, platform, ad_account_id, monthly_budget, client_report_notes, client_type, report_token, report_mode, custom_report_slug, lead_conversion_types, booked_conversion_actions')
     .eq('report_token', token)
     .single();
 
@@ -33,7 +33,7 @@ export default async function PublicReportPage({ params }: { params: Promise<{ t
   // Look up sibling records (same client_name, different platform) for tabbed view
   const { data: allClients } = await supabase
     .from('reporting_clients')
-    .select('id, client_name, platform, ad_account_id, monthly_budget, client_report_notes, client_type, report_token, report_mode, custom_report_slug, lead_conversion_types')
+    .select('id, client_name, platform, ad_account_id, monthly_budget, client_report_notes, client_type, report_token, report_mode, custom_report_slug, lead_conversion_types, booked_conversion_actions')
     .eq('client_name', client.client_name)
     .not('ad_account_id', 'is', null);
 
