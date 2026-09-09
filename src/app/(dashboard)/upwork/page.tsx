@@ -197,6 +197,9 @@ export default function UpworkFunnelPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  /* ── Profile toggle ── */
+  const [profileFilter, setProfileFilter] = useState<'all' | 'peterson' | 'lindsey'>('all');
+
   /* ── Filters ── */
   const [filters, setFilters] = useState<UpworkFunnelFilters>(INITIAL_FILTERS);
   const [showClosedLeads, setShowClosedLeads] = useState(false);
@@ -222,22 +225,37 @@ export default function UpworkFunnelPage() {
       .catch(() => setResponseTimeWeekly([]));
   }, []);
 
+  /* ── Profile-filtered data ── */
+  const profileJobs = useMemo(() => {
+    if (profileFilter === 'all') return allJobs;
+    if (profileFilter === 'lindsey') return allJobs.filter((j) => j.profile_used === 'Lindsey');
+    // peterson = everything not Lindsey
+    return allJobs.filter((j) => j.profile_used !== 'Lindsey');
+  }, [allJobs, profileFilter]);
+
+  const profileLeads = useMemo(() => {
+    if (profileFilter === 'all') return upworkLeads;
+    if (profileFilter === 'lindsey') return upworkLeads.filter((l) => l.salesman === 'Lindsey');
+    // peterson = Peterson + Cade + NULL (historical leads before salesman tracking)
+    return upworkLeads.filter((l) => l.salesman !== 'Lindsey');
+  }, [upworkLeads, profileFilter]);
+
   /* ── Enrich jobs with ClickUp-derived funnel data ── */
   const CALL_STAGES = new Set(['Call Booked', 'Pursuing', 'Contract Proposed']);
   const CALL_STATUSES = new Set(['follow up post-call', 'call booked pete', 'call booked cade']);
   const WON_STATUSES = new Set(['won', 'send invoice & contract']);
 
   const enrichedJobs = useMemo(() => {
-    // Build lookup: clickup_task_id → lead
-    const leadsById = new Map<string, typeof upworkLeads[0]>();
-    for (const lead of upworkLeads) {
+    // Build lookup: clickup_task_id → lead (from profile-filtered leads)
+    const leadsById = new Map<string, typeof profileLeads[0]>();
+    for (const lead of profileLeads) {
       if (lead.clickup_task_id) leadsById.set(lead.clickup_task_id, lead);
     }
 
     // Track which leads get matched to a job
     const matchedLeadIds = new Set<string>();
 
-    const enriched = allJobs.map((job) => {
+    const enriched = profileJobs.map((job) => {
       const lead = job.clickup_task_id ? leadsById.get(job.clickup_task_id) : undefined;
       if (lead) matchedLeadIds.add(lead.clickup_task_id);
       const leadStatus = (lead?.status ?? '').toLowerCase();
@@ -251,7 +269,7 @@ export default function UpworkFunnelPage() {
     });
 
     // Add unmatched leads as synthetic job entries so they count in the funnel
-    for (const lead of upworkLeads) {
+    for (const lead of profileLeads) {
       if (matchedLeadIds.has(lead.clickup_task_id)) continue;
       const leadStatus = (lead.status ?? '').toLowerCase();
       const leadStage = lead.lead_funnel_stage ?? '';
@@ -262,7 +280,7 @@ export default function UpworkFunnelPage() {
         job_name: lead.lead_name,
         script_used: null,
         source_type: null,
-        profile_used: null,
+        profile_used: profileFilter === 'lindsey' ? 'Lindsey' : null,
         platform: null,
         business_type: null,
         connects_spent: null,
@@ -282,7 +300,7 @@ export default function UpworkFunnelPage() {
     }
 
     return enriched;
-  }, [allJobs, upworkLeads]);
+  }, [profileJobs, profileLeads]);
 
   /* ── Filter options (derived from data) ── */
   const filterOptions = useMemo(() => {
@@ -374,8 +392,8 @@ export default function UpworkFunnelPage() {
 
   const salesmanStats = useMemo(() => {
     // Build lead lookup
-    const leadsById = new Map<string, typeof upworkLeads[0]>();
-    for (const lead of upworkLeads) {
+    const leadsById = new Map<string, typeof profileLeads[0]>();
+    for (const lead of profileLeads) {
       if (lead.clickup_task_id) leadsById.set(lead.clickup_task_id, lead);
     }
 
@@ -407,7 +425,7 @@ export default function UpworkFunnelPage() {
         connectsPerWin: s.won > 0 ? s.connectsSpent / s.won : 0,
       }))
       .sort((a, b) => b.leads - a.leads);
-  }, [filteredJobs, upworkLeads]);
+  }, [filteredJobs, profileLeads]);
 
   const KNOWN_LEAD_STATUSES = [
     'won', 'send invoice & contract', 'call booked pete', 'call booked cade',
@@ -424,7 +442,7 @@ export default function UpworkFunnelPage() {
     const dateStart = filters.dateRange.start;
     const dateEnd = filters.dateRange.end;
 
-    for (const lead of upworkLeads) {
+    for (const lead of profileLeads) {
       const created = lead.date_created?.slice(0, 10) ?? '';
       if (dateStart && created < dateStart) continue;
       if (dateEnd && created > dateEnd) continue;
@@ -432,7 +450,7 @@ export default function UpworkFunnelPage() {
       counts[stage] = (counts[stage] ?? 0) + 1;
     }
     return counts;
-  }, [upworkLeads, filters.dateRange]);
+  }, [profileLeads, filters.dateRange]);
 
   /* ── Filter handlers ── */
   const toggleFilter = useCallback((key: keyof Pick<UpworkFunnelFilters, 'scriptUsed' | 'sourceType' | 'businessType' | 'profileUsed' | 'platform'>, value: string) => {
@@ -501,13 +519,41 @@ export default function UpworkFunnelPage() {
 
   return (
     <div className="space-y-8">
-      {/* Header */}
-      <div>
-        <h2 className="text-2xl font-semibold text-slate-900">Upwork Funnel</h2>
-        <p className="text-sm text-slate-500 mt-1">
-          {filteredJobs.length.toLocaleString()} of {enrichedJobs.length.toLocaleString()} applications
-          {upworkLeads.length > 0 && ` · ${upworkLeads.length} ClickUp leads`}
-        </p>
+      {/* Header + Profile Toggle */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-semibold text-slate-900">Upwork Funnel</h2>
+          <p className="text-sm text-slate-500 mt-1">
+            {filteredJobs.length.toLocaleString()} of {enrichedJobs.length.toLocaleString()} applications
+            {profileLeads.length > 0 && ` · ${profileLeads.length} ClickUp leads`}
+          </p>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+            {([
+              { key: 'all' as const, label: 'Both Profiles' },
+              { key: 'peterson' as const, label: 'Peterson' },
+              { key: 'lindsey' as const, label: 'Lindsey' },
+            ]).map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setProfileFilter(key)}
+                className={`px-4 py-1.5 text-xs font-medium transition-colors ${
+                  profileFilter === key
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {profileFilter !== 'all' && (
+            <p className="text-[10px] text-slate-400">
+              Lead attribution uses job linkage; unlinked leads use salesman field
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Weekly Trend Charts */}
@@ -1214,11 +1260,11 @@ export default function UpworkFunnelPage() {
           )}
         </div>
 
-        {upworkLeads.length > 0 && (
+        {profileLeads.length > 0 && (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
             <h3 className="text-sm font-semibold text-slate-900 mb-4">Recent Leads</h3>
             <div className="space-y-2">
-              {upworkLeads.slice(0, 10).map((lead) => (
+              {profileLeads.slice(0, 10).map((lead) => (
                 <div key={lead.clickup_task_id} className="flex items-center justify-between gap-4 py-2 border-b border-slate-100 last:border-0">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -1243,8 +1289,8 @@ export default function UpworkFunnelPage() {
         {/* Linked Applications (matched to ClickUp leads via task ID) */}
         {(() => {
           // Build a map of ClickUp task IDs to leads for O(1) lookup
-          const leadsById = new Map<string, typeof upworkLeads[0]>();
-          for (const lead of upworkLeads) {
+          const leadsById = new Map<string, typeof profileLeads[0]>();
+          for (const lead of profileLeads) {
             if (lead.clickup_task_id) {
               leadsById.set(lead.clickup_task_id, lead);
             }
