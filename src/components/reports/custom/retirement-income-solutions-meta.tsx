@@ -16,7 +16,19 @@
  *   - Adds a "Leads by Campaign" breakout to the top executive-summary section,
  *     splitting total leads into per-campaign cards (leads, share of total, the
  *     Website Lead / Application split, CPL, and change vs. the prior period).
- *   - Adds Web Leads + Applications columns to the Campaign Performance table.
+ *   - Adds Web Leads + Applications columns to the Campaign Performance table,
+ *     and an Applications column to Ads Overview.
+ *   - Executive summary is three headline cards: Leads, Submit Applications,
+ *     Total Spend. Efficiency metrics (CPL, Cost/Application, Website Leads,
+ *     Cost/Website Lead) moved to a supporting row beneath.
+ *   - CPL and every other cost-per metric divide `leadSpend` — spend from
+ *     campaigns that recorded at least one lead in the period — rather than
+ *     total account spend, so budget in non-converting campaigns no longer
+ *     inflates cost per lead. Total Spend still reports the full figure, and a
+ *     note under the cards reconciles the two whenever they differ.
+ *     CAVEAT: a genuine lead campaign that records zero leads in a short
+ *     window drops out of the denominator, biasing CPL downward. The bias
+ *     grows as the date range shrinks.
  *
  * NOTE: TabbedReport does not pass `leadConversionTypes` to custom components,
  * so the conversion types are defaulted in the signature rather than read from
@@ -54,6 +66,11 @@ function computeCustomPeriod(since: string, until: string): PriorPeriodDates {
 
 interface LeadGenRow {
   name: string; impressions: number; linkClicks: number; spend: number;
+  /**
+   * Spend attributed to lead-tracking rows only — the CPL denominator.
+   * Equals `spend` when the row recorded at least one lead, else 0.
+   */
+  leadSpend: number;
   leads: number; reach: number; frequency: number; cpm: number; cpl: number; lctr: number;
   /** Split of `leads` by conversion action — see LEAD_CONVERSION_TYPES. */
   websiteLeads: number; applications: number;
@@ -63,6 +80,7 @@ interface LeadGenRow {
 interface DailyRow {
   [key: string]: unknown;
   date: string; impressions: number; linkClicks: number; spend: number;
+  leadSpend: number;
   leads: number; reach: number; frequency: number; cpm: number; cpl: number; lctr: number;
   websiteLeads: number; applications: number;
 }
@@ -130,6 +148,7 @@ function normalize(row: any, countLeads: LeadCounter = defaultLeadCounter): Lead
   return {
     name: row.campaign_name ?? row.adset_name ?? row.ad_name ?? 'Unknown',
     impressions, linkClicks, spend, leads, reach,
+    leadSpend: leads > 0 ? spend : 0,
     websiteLeads: countConversionType(row, WEBSITE_LEAD_TYPE),
     applications: countConversionType(row, APPLICATION_TYPE),
     frequency: reach > 0 ? impressions / reach : 0,
@@ -142,12 +161,15 @@ function normalize(row: any, countLeads: LeadCounter = defaultLeadCounter): Lead
 function computeTotals(rows: LeadGenRow[]): Omit<LeadGenRow, 'name'> {
   const s = rows.reduce((a, c) => ({
     impressions: a.impressions + c.impressions, linkClicks: a.linkClicks + c.linkClicks,
-    spend: a.spend + c.spend, leads: a.leads + c.leads, reach: a.reach + c.reach,
+    spend: a.spend + c.spend, leadSpend: a.leadSpend + c.leadSpend,
+    leads: a.leads + c.leads, reach: a.reach + c.reach,
     websiteLeads: a.websiteLeads + c.websiteLeads, applications: a.applications + c.applications,
-  }), { impressions: 0, linkClicks: 0, spend: 0, leads: 0, reach: 0, websiteLeads: 0, applications: 0 });
+  }), { impressions: 0, linkClicks: 0, spend: 0, leadSpend: 0, leads: 0, reach: 0, websiteLeads: 0, applications: 0 });
   return { ...s, frequency: s.reach > 0 ? s.impressions / s.reach : 0,
     cpm: s.impressions > 0 ? (s.spend / s.impressions) * 1000 : 0,
-    cpl: s.leads > 0 ? s.spend / s.leads : 0,
+    // CPL divides lead-tracking spend only — campaigns that recorded no leads
+    // in the period contribute their spend to `spend`, but not to `leadSpend`.
+    cpl: s.leads > 0 ? s.leadSpend / s.leads : 0,
     lctr: s.impressions > 0 ? s.linkClicks / s.impressions : 0 };
 }
 
@@ -160,6 +182,7 @@ function parseDailyRows(rows: any[], countLeads: LeadCounter = defaultLeadCounte
     const leads = countLeads(row);
     const reach = Number(row.reach ?? 0);
     return { date: row.date_start ?? row.date ?? '', impressions, linkClicks, spend, leads, reach,
+      leadSpend: leads > 0 ? spend : 0,
       websiteLeads: countConversionType(row, WEBSITE_LEAD_TYPE),
       applications: countConversionType(row, APPLICATION_TYPE),
       frequency: reach > 0 ? impressions / reach : 0,
@@ -170,7 +193,7 @@ function parseDailyRows(rows: any[], countLeads: LeadCounter = defaultLeadCounte
 
 
 const COOLDOWN_MS = 5 * 60 * 1000;
-const ZERO: Omit<LeadGenRow, 'name'> = { impressions: 0, linkClicks: 0, spend: 0, leads: 0, reach: 0, frequency: 0, cpm: 0, cpl: 0, lctr: 0, websiteLeads: 0, applications: 0 };
+const ZERO: Omit<LeadGenRow, 'name'> = { impressions: 0, linkClicks: 0, spend: 0, leadSpend: 0, leads: 0, reach: 0, frequency: 0, cpm: 0, cpl: 0, lctr: 0, websiteLeads: 0, applications: 0 };
 
 // ── Component ────────────────────────────────────────────────────────────
 
@@ -302,12 +325,14 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
             reach: calcChange(t.reach, pt.reach),
             websiteLeads: calcChange(t.websiteLeads, pt.websiteLeads),
             applications: calcChange(t.applications, pt.applications),
+            // Cost-per changes use leadSpend on both sides so the % move is
+            // apples-to-apples with the new CPL basis.
             costPerWebsiteLead: calcChange(
-              t.websiteLeads > 0 ? t.spend / t.websiteLeads : 0,
-              pt.websiteLeads > 0 ? pt.spend / pt.websiteLeads : 0),
+              t.websiteLeads > 0 ? t.leadSpend / t.websiteLeads : 0,
+              pt.websiteLeads > 0 ? pt.leadSpend / pt.websiteLeads : 0),
             costPerApplication: calcChange(
-              t.applications > 0 ? t.spend / t.applications : 0,
-              pt.applications > 0 ? pt.spend / pt.applications : 0) });
+              t.applications > 0 ? t.leadSpend / t.applications : 0,
+              pt.applications > 0 ? pt.leadSpend / pt.applications : 0) });
         } catch { setKpiChanges(null); setPriorLeadsByCampaign({}); }
       }
       const parseBd = async (res: Response | null) => {
@@ -401,44 +426,47 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
       )}
 
       {!loading && !error && (<>
-        {/* Executive Summary KPIs — matches Lead Gen Google layout */}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-          <SparklineKpiCard label="Total Leads" value={fmt(totals.leads)} change={kpiChanges?.leads.pct}
+        {/* Executive Summary KPIs — the three headline numbers. */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <SparklineKpiCard label="Leads" value={fmt(totals.leads)} change={kpiChanges?.leads.pct}
             changeDirection={kpiChanges?.leads.direction} changeSentiment="positive-up" size="lg"
             sparklineData={dailyData.map((d) => d.leads)} />
-          <SparklineKpiCard label="Cost Per Lead" value={totals.leads > 0 ? fmtMoney(totals.cpl) : '--'}
-            change={kpiChanges?.cpl.pct} changeDirection={kpiChanges?.cpl.direction}
-            changeSentiment="negative-up" size="lg" sparklineData={dailyData.map((d) => d.cpl)} />
+          <SparklineKpiCard label="Submit Applications" value={fmt(totals.applications)}
+            change={kpiChanges?.applications.pct} changeDirection={kpiChanges?.applications.direction}
+            changeSentiment="positive-up" size="lg"
+            sparklineData={dailyData.map((d) => d.applications)} />
           <SparklineKpiCard label="Total Spend" value={fmtMoney(totals.spend)} change={kpiChanges?.spend.pct}
             changeDirection={kpiChanges?.spend.direction} changeSentiment="neutral" size="lg"
             sparklineData={dailyData.map((d) => d.spend)} />
-          <SparklineKpiCard label="Conv. Rate" value={totals.linkClicks > 0 ? fmtPct(totals.leads / totals.linkClicks) : '--'}
-            change={kpiChanges?.lctr.pct} changeDirection={kpiChanges?.lctr.direction}
-            changeSentiment="positive-up" size="lg"
-            sparklineData={dailyData.map((d) => d.linkClicks > 0 ? d.leads / d.linkClicks : 0)} />
-          <SparklineKpiCard label="Avg CPC" value={totals.linkClicks > 0 ? fmtMoney(totals.spend / totals.linkClicks) : '--'}
-            change={kpiChanges?.cpm.pct} changeDirection={kpiChanges?.cpm.direction}
-            changeSentiment="negative-up" size="lg"
-            sparklineData={dailyData.map((d) => d.linkClicks > 0 ? d.spend / d.linkClicks : 0)} />
         </div>
 
-        {/* Tracked conversion actions — Total Leads above is the sum of these two */}
+        {/* Supporting efficiency metrics. Every cost-per figure divides
+            `leadSpend` — spend from campaigns that recorded at least one lead
+            in the period — not total account spend. */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <SparklineKpiCard label="Cost Per Lead" value={totals.leads > 0 ? fmtMoney(totals.cpl) : '--'}
+            change={kpiChanges?.cpl.pct} changeDirection={kpiChanges?.cpl.direction}
+            changeSentiment="negative-up" sparklineData={dailyData.map((d) => d.cpl)} />
+          <SparklineKpiCard label="Cost / Application"
+            value={totals.applications > 0 ? fmtMoney(totals.leadSpend / totals.applications) : '--'}
+            change={kpiChanges?.costPerApplication.pct} changeDirection={kpiChanges?.costPerApplication.direction}
+            changeSentiment="negative-up" />
           <SparklineKpiCard label="Website Leads" value={fmt(totals.websiteLeads)}
             change={kpiChanges?.websiteLeads.pct} changeDirection={kpiChanges?.websiteLeads.direction}
             changeSentiment="positive-up" sparklineData={dailyData.map((d) => d.websiteLeads)} />
           <SparklineKpiCard label="Cost / Website Lead"
-            value={totals.websiteLeads > 0 ? fmtMoney(totals.spend / totals.websiteLeads) : '--'}
+            value={totals.websiteLeads > 0 ? fmtMoney(totals.leadSpend / totals.websiteLeads) : '--'}
             change={kpiChanges?.costPerWebsiteLead.pct} changeDirection={kpiChanges?.costPerWebsiteLead.direction}
             changeSentiment="negative-up" />
-          <SparklineKpiCard label="Submit Application" value={fmt(totals.applications)}
-            change={kpiChanges?.applications.pct} changeDirection={kpiChanges?.applications.direction}
-            changeSentiment="positive-up" sparklineData={dailyData.map((d) => d.applications)} />
-          <SparklineKpiCard label="Cost / Application"
-            value={totals.applications > 0 ? fmtMoney(totals.spend / totals.applications) : '--'}
-            change={kpiChanges?.costPerApplication.pct} changeDirection={kpiChanges?.costPerApplication.direction}
-            changeSentiment="negative-up" />
         </div>
+
+        {totals.spend > totals.leadSpend && (
+          <p className="text-xs text-slate-500">
+            Cost-per figures are based on {fmtMoney(totals.leadSpend)} of lead-tracking spend.
+            {' '}{fmtMoney(totals.spend - totals.leadSpend)} ran in campaigns that recorded no leads
+            in this period and is excluded from them; Total Spend still shows the full amount.
+          </p>
+        )}
 
         {/* Leads by Campaign — top-section breakout of the Total Leads KPI */}
         {campaignLeads.length > 0 && (
@@ -521,6 +549,7 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
               linkClicks: Number(r.inline_link_clicks ?? r.clicks ?? 0),
               spend,
               leads,
+              applications: countConversionType(r, APPLICATION_TYPE),
               cpl: leads > 0 ? spend / leads : 0,
             };
           }).sort((a, b) => b.leads - a.leads).slice(0, 15);
@@ -539,6 +568,7 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
                       <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-right">Clicks</th>
                       <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-right">Spent</th>
                       <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-right">Leads</th>
+                      <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-right">Applications</th>
                       <th className="text-xs font-semibold text-slate-500 uppercase tracking-wider py-3 px-4 text-right">CPL</th>
                     </tr>
                   </thead>
@@ -570,6 +600,7 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
                           <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums">{fmt(ad.linkClicks)}</td>
                           <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums">{fmtMoney(ad.spend)}</td>
                           <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums">{fmt(ad.leads)}</td>
+                          <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums">{fmt(ad.applications)}</td>
                           <td className="text-sm text-right text-slate-700 py-3 px-4 tabular-nums">{ad.leads > 0 ? fmtMoney(ad.cpl) : '--'}</td>
                         </tr>
                       );
