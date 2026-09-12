@@ -8,14 +8,18 @@
  * this client. Changes to the shared template do NOT propagate back.
  *
  * Customization vs. the default template:
- *   - Counts leads from the `conversions` array as Website Lead
- *     (offsite_conversion.fb_pixel_lead) + Submit Application
- *     (offsite_conversion.fb_pixel_submit_application), rather than the
- *     template's `actions`-based 'lead' + fb_pixel_lead. Each action is also
- *     reported on its own, with cost-per, in a second KPI row.
- *   - Adds a "Results by Campaign" breakout to the top executive-summary section,
- *     splitting total leads into per-campaign cards (leads, share of total, the
- *     Website Lead / Application split, CPL, and change vs. the prior period).
+ *   - Two distinct conversion measures, deliberately kept apart:
+ *       leads   — ONLY the lead-type conversions (WEBSITE_LEAD_TYPES).
+ *                 Submit Applications are NOT folded in; they have their own
+ *                 KPI card, so combining them would double-report.
+ *       results — websiteLeads + applications, i.e. every tracked conversion.
+ *                 Drives the Results by Campaign breakout.
+ *   - Adds a "Results by Campaign" breakout to the top executive-summary section:
+ *     per-campaign cards showing results, share of total results, the Website
+ *     Lead / Application split, Cost/Result, and change vs. the prior period.
+ *     Keyed on `results` rather than `leads` so the workshop campaigns — which
+ *     convert almost entirely as applications — do not read 0 directly above an
+ *     Application count in the double figures.
  *   - Adds Web Leads + Applications columns to the Campaign Performance table,
  *     and an Applications column to Ads Overview.
  *   - Executive summary is exactly three cards: Leads, Submit Applications,
@@ -79,6 +83,8 @@ interface LeadGenRow {
   leads: number; reach: number; frequency: number; cpm: number; cpl: number; lctr: number;
   /** Split of `leads` by conversion action — see LEAD_CONVERSION_TYPES. */
   websiteLeads: number; applications: number;
+  /** websiteLeads + applications — every tracked conversion on the row. */
+  results: number;
   pql?: number; cpql?: number;
 }
 
@@ -87,7 +93,7 @@ interface DailyRow {
   date: string; impressions: number; linkClicks: number; spend: number;
   leadSpend: number;
   leads: number; reach: number; frequency: number; cpm: number; cpl: number; lctr: number;
-  websiteLeads: number; applications: number;
+  websiteLeads: number; applications: number; results: number;
 }
 type MetaAction = { action_type: string; value: string };
 
@@ -146,7 +152,12 @@ const APPLICATION_TYPES = [
   'submit_application_website',
   'offsite_conversion.fb_pixel_submit_application',
 ];
-const LEAD_CONVERSION_TYPES = [...WEBSITE_LEAD_TYPES, ...APPLICATION_TYPES];
+/**
+ * Leads counts ONLY the lead-type conversions — Submit Applications are a
+ * separate event with their own KPI card and are deliberately NOT folded in.
+ * `results` (below) is the combined figure.
+ */
+const LEAD_CONVERSION_TYPES = [...WEBSITE_LEAD_TYPES];
 
 /** Sum every matching conversion action_type off a raw insights row. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -172,12 +183,14 @@ function normalize(row: any, countLeads: LeadCounter = defaultLeadCounter): Lead
   const spend = Number(row.spend ?? 0);
   const leads = countLeads(row);
   const reach = Number(row.reach ?? 0);
+  const websiteLeads = countConversionTypes(row, WEBSITE_LEAD_TYPES);
+  const applications = countConversionTypes(row, APPLICATION_TYPES);
   return {
     name: row.campaign_name ?? row.adset_name ?? row.ad_name ?? 'Unknown',
     impressions, linkClicks, spend, leads, reach,
     leadSpend: leads > 0 ? spend : 0,
-    websiteLeads: countConversionTypes(row, WEBSITE_LEAD_TYPES),
-    applications: countConversionTypes(row, APPLICATION_TYPES),
+    websiteLeads, applications,
+    results: websiteLeads + applications,
     frequency: reach > 0 ? impressions / reach : 0,
     cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
     cpl: leads > 0 ? spend / leads : 0,
@@ -191,7 +204,8 @@ function computeTotals(rows: LeadGenRow[]): Omit<LeadGenRow, 'name'> {
     spend: a.spend + c.spend, leadSpend: a.leadSpend + c.leadSpend,
     leads: a.leads + c.leads, reach: a.reach + c.reach,
     websiteLeads: a.websiteLeads + c.websiteLeads, applications: a.applications + c.applications,
-  }), { impressions: 0, linkClicks: 0, spend: 0, leadSpend: 0, leads: 0, reach: 0, websiteLeads: 0, applications: 0 });
+    results: a.results + c.results,
+  }), { impressions: 0, linkClicks: 0, spend: 0, leadSpend: 0, leads: 0, reach: 0, websiteLeads: 0, applications: 0, results: 0 });
   return { ...s, frequency: s.reach > 0 ? s.impressions / s.reach : 0,
     cpm: s.impressions > 0 ? (s.spend / s.impressions) * 1000 : 0,
     // CPL divides lead-tracking spend only — campaigns that recorded no leads
@@ -208,10 +222,15 @@ function parseDailyRows(rows: any[], countLeads: LeadCounter = defaultLeadCounte
     const linkClicks = Number(row.inline_link_clicks ?? row.clicks ?? 0);
     const leads = countLeads(row);
     const reach = Number(row.reach ?? 0);
+    const websiteLeads = countConversionTypes(row, WEBSITE_LEAD_TYPES);
+    const applications = countConversionTypes(row, APPLICATION_TYPES);
     return { date: row.date_start ?? row.date ?? '', impressions, linkClicks, spend, leads, reach,
       leadSpend: leads > 0 ? spend : 0,
-      websiteLeads: countConversionTypes(row, WEBSITE_LEAD_TYPES),
-      applications: countConversionTypes(row, APPLICATION_TYPES),
+      websiteLeads, applications,
+      // The day series carries no conversions[], so the split is 0/0 and
+      // `leads` already fell back to the synthesized total. Use that total as
+      // the results figure rather than reporting 0.
+      results: websiteLeads + applications > 0 ? websiteLeads + applications : leads,
       frequency: reach > 0 ? impressions / reach : 0,
       cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
       cpl: leads > 0 ? spend / leads : 0, lctr: impressions > 0 ? linkClicks / impressions : 0 };
@@ -220,7 +239,7 @@ function parseDailyRows(rows: any[], countLeads: LeadCounter = defaultLeadCounte
 
 
 const COOLDOWN_MS = 5 * 60 * 1000;
-const ZERO: Omit<LeadGenRow, 'name'> = { impressions: 0, linkClicks: 0, spend: 0, leadSpend: 0, leads: 0, reach: 0, frequency: 0, cpm: 0, cpl: 0, lctr: 0, websiteLeads: 0, applications: 0 };
+const ZERO: Omit<LeadGenRow, 'name'> = { impressions: 0, linkClicks: 0, spend: 0, leadSpend: 0, leads: 0, reach: 0, frequency: 0, cpm: 0, cpl: 0, lctr: 0, websiteLeads: 0, applications: 0, results: 0 };
 
 // ── Component ────────────────────────────────────────────────────────────
 
@@ -232,9 +251,10 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
   const [adCreatives, setAdCreatives] = useState<Record<string, { thumbnail: string | null; imageUrl: string | null }>>({});
   const [kpiChanges, setKpiChanges] = useState<Record<string, { pct: string; direction: 'up' | 'down' | 'flat' }> | null>(null);
   // Prior-period leads keyed by campaign name — powers the per-campaign change chips
-  // in the Results by Campaign breakout. Populated from the same prior-period fetch
+  // Prior-period results keyed by campaign name — powers the per-campaign change
+  // chips in the Results by Campaign breakout. From the same prior-period fetch
   // the KPI cards already use, so this costs no extra API calls.
-  const [priorLeadsByCampaign, setPriorLeadsByCampaign] = useState<Record<string, number>>({});
+  const [priorResultsByCampaign, setPriorResultsByCampaign] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
@@ -271,17 +291,17 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
    * campaign's share of total leads. Campaigns with spend but no leads are kept
    * so a client can see where budget went without converting.
    */
-  const campaignLeads = useMemo(() => {
-    const totalLeads = campaigns.reduce((sum, c) => sum + c.leads, 0);
+  const campaignResults = useMemo(() => {
+    const totalResults = campaigns.reduce((sum, c) => sum + c.results, 0);
     return campaigns
-      .filter((c) => c.leads > 0 || c.spend > 0)
-      .sort((a, b) => b.leads - a.leads || b.spend - a.spend)
+      .filter((c) => c.results > 0 || c.spend > 0)
+      .sort((a, b) => b.results - a.results || b.spend - a.spend)
       .map((c) => ({
         ...c,
-        share: totalLeads > 0 ? c.leads / totalLeads : 0,
-        change: calcChange(c.leads, priorLeadsByCampaign[c.name] ?? 0),
+        share: totalResults > 0 ? c.results / totalResults : 0,
+        change: calcChange(c.results, priorResultsByCampaign[c.name] ?? 0),
       }));
-  }, [campaigns, priorLeadsByCampaign]);
+  }, [campaigns, priorResultsByCampaign]);
 
   const startCooldown = useCallback(() => {
     setCooldownRemaining(COOLDOWN_MS);
@@ -346,8 +366,8 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
         try { let pj = await priorRes.json(); pj = unwrapPipeboardResponse(pj);
           const pa = Array.isArray(pj.data ?? pj) ? (pj.data ?? pj) : [];
           const priorRows = (pa as unknown[]).map((r) => normalize(r, countLeads));
-          setPriorLeadsByCampaign(priorRows.reduce<Record<string, number>>((acc, r) => {
-            acc[r.name] = (acc[r.name] ?? 0) + r.leads;
+          setPriorResultsByCampaign(priorRows.reduce<Record<string, number>>((acc, r) => {
+            acc[r.name] = (acc[r.name] ?? 0) + r.results;
             return acc;
           }, {}));
           const pt = computeTotals(priorRows);
@@ -366,7 +386,7 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
             costPerApplication: calcChange(
               t.applications > 0 ? t.leadSpend / t.applications : 0,
               pt.applications > 0 ? pt.leadSpend / pt.applications : 0) });
-        } catch { setKpiChanges(null); setPriorLeadsByCampaign({}); }
+        } catch { setKpiChanges(null); setPriorResultsByCampaign({}); }
       }
       const parseBd = async (res: Response | null) => {
         if (!res?.ok) return [];
@@ -461,9 +481,10 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
       {!loading && !error && (<>
         {/* Executive Summary KPIs — the three headline numbers. */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* No sparkline: the day series has no per-action-type split, so a
+              per-day lead-only line is not derivable (see parseDailyRows). */}
           <SparklineKpiCard label="Leads" value={fmt(totals.leads)} change={kpiChanges?.leads.pct}
-            changeDirection={kpiChanges?.leads.direction} changeSentiment="positive-up" size="lg"
-            sparklineData={dailyData.map((d) => d.leads)} />
+            changeDirection={kpiChanges?.leads.direction} changeSentiment="positive-up" size="lg" />
           {/* No sparkline: the day series has no per-action-type split (see
               countLeads), so a per-day applications line would be flat zero. */}
           <SparklineKpiCard label="Submit Applications" value={fmt(totals.applications)}
@@ -475,21 +496,21 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
         </div>
 
         {/* Results by Campaign — breakout of the Leads KPI, per campaign. */}
-        {campaignLeads.length > 0 && (
+        {campaignResults.length > 0 && (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-6 py-3 border-b border-slate-200 bg-slate-50/50 flex items-baseline justify-between gap-4">
               <h3 className="text-sm font-semibold text-slate-700">Results by Campaign</h3>
               <span className="text-xs text-slate-500 tabular-nums">
-                {fmt(totals.leads)} total &middot; {campaignLeads.length} campaign{campaignLeads.length === 1 ? '' : 's'}
+                {fmt(totals.results)} total &middot; {campaignResults.length} campaign{campaignResults.length === 1 ? '' : 's'}
               </span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-200">
-              {campaignLeads.map((c) => (
+              {campaignResults.map((c) => (
                 <div key={c.name} className="bg-white p-4 flex flex-col gap-2">
                   <span className="text-xs font-medium text-slate-500 truncate" title={c.name}>{c.name}</span>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-semibold text-slate-900 tabular-nums">{fmt(c.leads)}</span>
-                    <span className="text-xs text-slate-400 tabular-nums">{fmtPct(c.share)} of leads</span>
+                    <span className="text-2xl font-semibold text-slate-900 tabular-nums">{fmt(c.results)}</span>
+                    <span className="text-xs text-slate-400 tabular-nums">{fmtPct(c.share)} of results</span>
                     {c.change.pct !== '--' && (
                       <span className="text-xs font-medium tabular-nums ml-auto"
                         style={{ color: getChangeColor(c.change.direction, 'positive-up') }}>
@@ -505,7 +526,7 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
                     <span>Application <span className="text-slate-900 font-medium">{fmt(c.applications)}</span></span>
                   </div>
                   <div className="flex justify-between text-xs text-slate-500 tabular-nums">
-                    <span>CPL {c.leads > 0 ? fmtMoney(c.cpl) : '--'}</span>
+                    <span>Cost/Result {c.results > 0 ? fmtMoney(c.spend / c.results) : '--'}</span>
                     <span>{fmtMoney(c.spend)} spent</span>
                   </div>
                 </div>
@@ -516,10 +537,12 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
 
         {/* 4-5. Charts */}
         {dailyData.length > 0 && (<>
-          <ReportChart title="Lead Volume & Cost Trend" data={dailyData} xKey="date"
+          {/* Daily figures are total tracked conversions — the day series has no
+              per-action-type split — so this charts Results, not leads alone. */}
+          <ReportChart title="Results & Cost Trend" data={dailyData} xKey="date"
             lines={[
-              { dataKey: 'leads', label: 'Leads', color: '#10B981', type: 'bar', yAxisId: 'left' },
-              { dataKey: 'cpl', label: 'CPL', color: '#8B5CF6', yAxisId: 'right' },
+              { dataKey: 'results', label: 'Results', color: '#10B981', type: 'bar', yAxisId: 'left' },
+              { dataKey: 'cpl', label: 'Cost/Result', color: '#8B5CF6', yAxisId: 'right' },
             ]} formatY={(v) => v.toFixed(0)} formatYRight={(v) => `$${v.toFixed(0)}`} />
         </>)}
 
