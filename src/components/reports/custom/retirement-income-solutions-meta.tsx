@@ -18,9 +18,14 @@
  *     Website Lead / Application split, CPL, and change vs. the prior period).
  *   - Adds Web Leads + Applications columns to the Campaign Performance table,
  *     and an Applications column to Ads Overview.
- *   - Executive summary is three headline cards: Leads, Submit Applications,
- *     Total Spend. Efficiency metrics (CPL, Cost/Application, Website Leads,
- *     Cost/Website Lead) moved to a supporting row beneath.
+ *   - Executive summary is exactly three cards: Leads, Submit Applications,
+ *     Total Spend. No second KPI row — efficiency metrics live in the tables
+ *     and the trend chart. NOTE: nothing now renders the account-level
+ *     `totals.cpl`, so the `leadSpend` basis below affects no visible figure
+ *     until a CPL card is restored.
+ *   - Conversion action types are matched against candidate LISTS, against
+ *     AdKit's post-strip `platformKey` strings rather than Graph API's raw
+ *     names. Matching the Graph name for SubmitApplication reported 0.
  *   - CPL and every other cost-per metric divide `leadSpend` — spend from
  *     campaigns that recorded at least one lead in the period — rather than
  *     total account spend, so budget in non-converting campaigns no longer
@@ -117,15 +122,37 @@ function getLeadsFromConversions(conversions: MetaAction[] | undefined, conversi
  * Total Leads is the sum of the two; each is also reported on its own so the
  * client can see how many enquiries became actual applications.
  */
-const WEBSITE_LEAD_TYPE = 'offsite_conversion.fb_pixel_lead';
-const APPLICATION_TYPE = 'offsite_conversion.fb_pixel_submit_application';
-const LEAD_CONVERSION_TYPES = [WEBSITE_LEAD_TYPE, APPLICATION_TYPE];
+/**
+ * Action types as they actually arrive from AdKit, verified against
+ * act_1423698879754960. `translateRow` in src/lib/pipeboard.ts derives
+ * action_type from AdKit's `platformKey`, stripping only an `actions:`
+ * prefix — a `conversions:` prefix is left intact. So the keys below are
+ * the post-strip strings, not Graph API's raw names.
+ *
+ * Each metric matches a LIST of candidates: the same logical event arrives
+ * under different platformKeys across campaigns (some carry the
+ * `actions:offsite_conversion.fb_pixel_lead` form, others a bare `lead`).
+ * Within a single row AdKit emits one entry per event key, so summing every
+ * match cannot double-count.
+ */
+const WEBSITE_LEAD_TYPES = [
+  'offsite_conversion.fb_pixel_lead',
+  'lead',
+];
+const APPLICATION_TYPES = [
+  // The live key. Note the retained `conversions:` prefix — matching
+  // 'offsite_conversion.fb_pixel_submit_application' silently yielded 0.
+  'conversions:submit_application_website',
+  'submit_application_website',
+  'offsite_conversion.fb_pixel_submit_application',
+];
+const LEAD_CONVERSION_TYPES = [...WEBSITE_LEAD_TYPES, ...APPLICATION_TYPES];
 
-/** Count a single conversion action_type off a raw insights row. */
+/** Sum every matching conversion action_type off a raw insights row. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function countConversionType(row: any, type: string): number {
+function countConversionTypes(row: any, types: string[]): number {
   const conversions = (Array.isArray(row?.conversions) ? row.conversions : []) as MetaAction[];
-  return actionVal(conversions, type);
+  return types.reduce((sum, t) => sum + actionVal(conversions, t), 0);
 }
 
 /**
@@ -149,8 +176,8 @@ function normalize(row: any, countLeads: LeadCounter = defaultLeadCounter): Lead
     name: row.campaign_name ?? row.adset_name ?? row.ad_name ?? 'Unknown',
     impressions, linkClicks, spend, leads, reach,
     leadSpend: leads > 0 ? spend : 0,
-    websiteLeads: countConversionType(row, WEBSITE_LEAD_TYPE),
-    applications: countConversionType(row, APPLICATION_TYPE),
+    websiteLeads: countConversionTypes(row, WEBSITE_LEAD_TYPES),
+    applications: countConversionTypes(row, APPLICATION_TYPES),
     frequency: reach > 0 ? impressions / reach : 0,
     cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
     cpl: leads > 0 ? spend / leads : 0,
@@ -183,8 +210,8 @@ function parseDailyRows(rows: any[], countLeads: LeadCounter = defaultLeadCounte
     const reach = Number(row.reach ?? 0);
     return { date: row.date_start ?? row.date ?? '', impressions, linkClicks, spend, leads, reach,
       leadSpend: leads > 0 ? spend : 0,
-      websiteLeads: countConversionType(row, WEBSITE_LEAD_TYPE),
-      applications: countConversionType(row, APPLICATION_TYPE),
+      websiteLeads: countConversionTypes(row, WEBSITE_LEAD_TYPES),
+      applications: countConversionTypes(row, APPLICATION_TYPES),
       frequency: reach > 0 ? impressions / reach : 0,
       cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
       cpl: leads > 0 ? spend / leads : 0, lctr: impressions > 0 ? linkClicks / impressions : 0 };
@@ -229,7 +256,13 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
     ? (row: any) => {
         // Cache fallback returns `conversions` as a scalar — guard with Array.isArray
         const conversions = (Array.isArray(row.conversions) ? row.conversions : []) as MetaAction[];
-        return getLeadsFromConversions(conversions, leadConversionTypes);
+        if (conversions.length > 0) return getLeadsFromConversions(conversions, leadConversionTypes);
+        // The day series (serveDaySeries in /api/meta/insights) serves from
+        // meta_insights_daily, which stores `conversions` as a single scalar and
+        // ships no conversions[] at all — it synthesizes
+        // actions:[{action_type:'lead', value: <total>}]. Without this fallback
+        // every sparkline and the trend chart read flat zero.
+        return getLeads((row.actions ?? []) as MetaAction[]);
       }
     : defaultLeadCounter, [leadConversionTypes]);
 
@@ -431,42 +464,15 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
           <SparklineKpiCard label="Leads" value={fmt(totals.leads)} change={kpiChanges?.leads.pct}
             changeDirection={kpiChanges?.leads.direction} changeSentiment="positive-up" size="lg"
             sparklineData={dailyData.map((d) => d.leads)} />
+          {/* No sparkline: the day series has no per-action-type split (see
+              countLeads), so a per-day applications line would be flat zero. */}
           <SparklineKpiCard label="Submit Applications" value={fmt(totals.applications)}
             change={kpiChanges?.applications.pct} changeDirection={kpiChanges?.applications.direction}
-            changeSentiment="positive-up" size="lg"
-            sparklineData={dailyData.map((d) => d.applications)} />
+            changeSentiment="positive-up" size="lg" />
           <SparklineKpiCard label="Total Spend" value={fmtMoney(totals.spend)} change={kpiChanges?.spend.pct}
             changeDirection={kpiChanges?.spend.direction} changeSentiment="neutral" size="lg"
             sparklineData={dailyData.map((d) => d.spend)} />
         </div>
-
-        {/* Supporting efficiency metrics. Every cost-per figure divides
-            `leadSpend` — spend from campaigns that recorded at least one lead
-            in the period — not total account spend. */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <SparklineKpiCard label="Cost Per Lead" value={totals.leads > 0 ? fmtMoney(totals.cpl) : '--'}
-            change={kpiChanges?.cpl.pct} changeDirection={kpiChanges?.cpl.direction}
-            changeSentiment="negative-up" sparklineData={dailyData.map((d) => d.cpl)} />
-          <SparklineKpiCard label="Cost / Application"
-            value={totals.applications > 0 ? fmtMoney(totals.leadSpend / totals.applications) : '--'}
-            change={kpiChanges?.costPerApplication.pct} changeDirection={kpiChanges?.costPerApplication.direction}
-            changeSentiment="negative-up" />
-          <SparklineKpiCard label="Website Leads" value={fmt(totals.websiteLeads)}
-            change={kpiChanges?.websiteLeads.pct} changeDirection={kpiChanges?.websiteLeads.direction}
-            changeSentiment="positive-up" sparklineData={dailyData.map((d) => d.websiteLeads)} />
-          <SparklineKpiCard label="Cost / Website Lead"
-            value={totals.websiteLeads > 0 ? fmtMoney(totals.leadSpend / totals.websiteLeads) : '--'}
-            change={kpiChanges?.costPerWebsiteLead.pct} changeDirection={kpiChanges?.costPerWebsiteLead.direction}
-            changeSentiment="negative-up" />
-        </div>
-
-        {totals.spend > totals.leadSpend && (
-          <p className="text-xs text-slate-500">
-            Cost-per figures are based on {fmtMoney(totals.leadSpend)} of lead-tracking spend.
-            {' '}{fmtMoney(totals.spend - totals.leadSpend)} ran in campaigns that recorded no leads
-            in this period and is excluded from them; Total Spend still shows the full amount.
-          </p>
-        )}
 
         {/* Leads by Campaign — top-section breakout of the Total Leads KPI */}
         {campaignLeads.length > 0 && (
@@ -549,7 +555,7 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
               linkClicks: Number(r.inline_link_clicks ?? r.clicks ?? 0),
               spend,
               leads,
-              applications: countConversionType(r, APPLICATION_TYPE),
+              applications: countConversionTypes(r, APPLICATION_TYPES),
               cpl: leads > 0 ? spend / leads : 0,
             };
           }).sort((a, b) => b.leads - a.leads).slice(0, 15);
