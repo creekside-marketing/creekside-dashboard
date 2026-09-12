@@ -13,7 +13,7 @@
  *     (offsite_conversion.fb_pixel_submit_application), rather than the
  *     template's `actions`-based 'lead' + fb_pixel_lead. Each action is also
  *     reported on its own, with cost-per, in a second KPI row.
- *   - Adds a "Leads by Campaign" breakout to the top executive-summary section,
+ *   - Adds a "Results by Campaign" breakout to the top executive-summary section,
  *     splitting total leads into per-campaign cards (leads, share of total, the
  *     Website Lead / Application split, CPL, and change vs. the prior period).
  *   - Adds Web Leads + Applications columns to the Campaign Performance table,
@@ -232,7 +232,7 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
   const [adCreatives, setAdCreatives] = useState<Record<string, { thumbnail: string | null; imageUrl: string | null }>>({});
   const [kpiChanges, setKpiChanges] = useState<Record<string, { pct: string; direction: 'up' | 'down' | 'flat' }> | null>(null);
   // Prior-period leads keyed by campaign name — powers the per-campaign change chips
-  // in the Leads by Campaign breakout. Populated from the same prior-period fetch
+  // in the Results by Campaign breakout. Populated from the same prior-period fetch
   // the KPI cards already use, so this costs no extra API calls.
   const [priorLeadsByCampaign, setPriorLeadsByCampaign] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
@@ -474,11 +474,11 @@ export default function RetirementIncomeSolutionsMetaReport({ client, mode, lead
             sparklineData={dailyData.map((d) => d.spend)} />
         </div>
 
-        {/* Leads by Campaign — top-section breakout of the Total Leads KPI */}
+        {/* Results by Campaign — breakout of the Leads KPI, per campaign. */}
         {campaignLeads.length > 0 && (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-6 py-3 border-b border-slate-200 bg-slate-50/50 flex items-baseline justify-between gap-4">
-              <h3 className="text-sm font-semibold text-slate-700">Leads by Campaign</h3>
+              <h3 className="text-sm font-semibold text-slate-700">Results by Campaign</h3>
               <span className="text-xs text-slate-500 tabular-nums">
                 {fmt(totals.leads)} total &middot; {campaignLeads.length} campaign{campaignLeads.length === 1 ? '' : 's'}
               </span>
