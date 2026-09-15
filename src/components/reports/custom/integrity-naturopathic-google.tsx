@@ -23,7 +23,7 @@
  * CANNOT: Display Meta Ads data — Google Ads only.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import CampaignsTable from '@/components/CampaignsTable';
 import ReportHeader, { DATE_RANGES, computePriorPeriod, fmt, fmtMoney, fmtPct } from '../ReportHeader';
 import ReportChart from '../ReportChart';
@@ -126,39 +126,57 @@ export default function IntegrityNaturopathicGoogleReport({
   // The account-level endpoint already returns `conversionBreakdown` (totals
   // per conversion action). We re-request it here rather than changing the
   // shared hook, keeping this fork fully self-contained.
-  const [bookedCount, setBookedCount] = useState(0);
+  //
+  // The count is stored with the exact window it was fetched for and is only
+  // displayed when that window matches the one on screen, so a previous
+  // range's number can never be shown as if it belonged to the current one.
+  const bookedKey = useMemo(() => {
+    if (customSince && customUntil) return `${customSince}|${customUntil}`;
+    const p = computePriorPeriod(dateRangeIndex);
+    return `${p.currentSince}|${p.currentUntil}`;
+  }, [customSince, customUntil, dateRangeIndex]);
+
+  // count === null means the request for that window failed.
+  const [booked, setBooked] = useState<{ key: string; count: number | null } | null>(null);
+
+  // Bumped only by the manual Refresh button. Deliberately NOT the shared
+  // hook's lastRefreshed: that also changes the moment the rest of the report
+  // finishes loading, which cancelled this panel's in-flight request and left
+  // the previous range's number on screen for several seconds.
+  const [bookedRefreshNonce, setBookedRefreshNonce] = useState(0);
 
   useEffect(() => {
     const cid = client.ad_account_id;
-    const period = (customSince && customUntil)
-      ? { currentSince: customSince, currentUntil: customUntil }
-      : computePriorPeriod(dateRangeIndex);
-
+    const [since, until] = bookedKey.split('|');
     let cancelled = false;
+
     (async () => {
-      if (!cid) {
-        if (!cancelled) setBookedCount(0);
-        return;
+      let count: number | null = null;
+      if (cid) {
+        try {
+          const res = await fetch(
+            `/api/google/insights?customer_id=${encodeURIComponent(cid)}&level=account` +
+            `&since=${since}&until=${until}`,
+          );
+          if (res.ok) {
+            const json = await res.json();
+            const rows: Array<{ name?: string; conversions?: number }> = json?.conversionBreakdown ?? [];
+            count = rows
+              .filter((r) => BOOKED_ACTION_NAMES.includes(String(r.name ?? '')))
+              .reduce((sum, r) => sum + Number(r.conversions ?? 0), 0);
+          }
+        } catch {
+          count = null;
+        }
       }
-      try {
-        const res = await fetch(
-          `/api/google/insights?customer_id=${encodeURIComponent(cid)}&level=account` +
-          `&since=${period.currentSince}&until=${period.currentUntil}`,
-        );
-        if (!res.ok) return;
-        const json = await res.json();
-        const rows: Array<{ name?: string; conversions?: number }> = json?.conversionBreakdown ?? [];
-        const total = rows
-          .filter((r) => BOOKED_ACTION_NAMES.includes(String(r.name ?? '')))
-          .reduce((sum, r) => sum + Number(r.conversions ?? 0), 0);
-        if (!cancelled) setBookedCount(total);
-      } catch {
-        if (!cancelled) setBookedCount(0);
-      }
+      if (!cancelled) setBooked({ key: bookedKey, count });
     })();
 
     return () => { cancelled = true; };
-  }, [client.ad_account_id, dateRangeIndex, customSince, customUntil, lastRefreshed]);
+  }, [client.ad_account_id, bookedKey, bookedRefreshNonce]);
+
+  // undefined = still loading this window, null = failed, number = result.
+  const bookedCount = booked?.key === bookedKey ? booked.count : undefined;
 
   const targetCpl = client.monthly_budget && totals.conversions > 0
     ? client.monthly_budget / Math.max(totals.conversions * (30 / Math.max(daysElapsed, 1)), 1)
@@ -175,7 +193,7 @@ export default function IntegrityNaturopathicGoogleReport({
         dateRangeIndex={dateRangeIndex}
         onDateRangeChange={handleDateRangeChange}
         loading={loading}
-        onRefresh={fetchData}
+        onRefresh={() => { setBookedRefreshNonce((n) => n + 1); fetchData(); }}
         lastRefreshed={lastRefreshed}
         cooldownRemaining={cooldownRemaining}
         customSince={customSince}
@@ -263,13 +281,24 @@ export default function IntegrityNaturopathicGoogleReport({
                 <p className="text-xs text-slate-400 mt-1">Google Ads form leads only</p>
               </div>
               <div className="text-right">
-                <div className="text-3xl font-semibold text-slate-900 tabular-nums leading-none">
-                  {fmt(bookedCount)}
-                </div>
-                {totals.conversions > 0 && (
-                  <div className="text-xs text-slate-400 mt-1.5">
-                    {fmtPct(bookedCount / totals.conversions)} of total leads
-                  </div>
+                {bookedCount === undefined ? (
+                  <div
+                    className="h-[30px] w-12 ml-auto rounded-md bg-slate-100 animate-pulse"
+                    aria-label="Loading booked consultations"
+                  />
+                ) : bookedCount === null ? (
+                  <div className="text-sm font-medium text-slate-400 leading-[30px]">Unavailable</div>
+                ) : (
+                  <>
+                    <div className="text-3xl font-semibold text-slate-900 tabular-nums leading-none">
+                      {fmt(bookedCount)}
+                    </div>
+                    {totals.conversions > 0 && (
+                      <div className="text-xs text-slate-400 mt-1.5">
+                        {fmtPct(bookedCount / totals.conversions)} of total leads
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
