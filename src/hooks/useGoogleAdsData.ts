@@ -185,6 +185,10 @@ export function useGoogleAdsData(adAccountId: string | null): GoogleAdsData {
     }, 1000);
   }, []);
 
+  // KNOWN ISSUE (2026-09-15, found in PR #27 review): no stale-response guard.
+  // Rapid date-range switches can let an older fetch overwrite newer data and
+  // flip `loading` off early. Custom report panels that need correctness key
+  // their data by since|until window (see integrity-naturopathic booked panel).
   const fetchData = useCallback(async () => {
     if (!adAccountId) {
       setLoading(false);

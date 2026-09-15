@@ -176,6 +176,9 @@ export default function ReportHeader({
 
 // ── Prior-period date computation ───────────────────────────────────────
 
+// KNOWN ISSUE (2026-09-15, found in PR #27 review): toISOString() is UTC, so
+// viewers in timezones east of UTC see every date preset shifted a day early
+// (e.g. This Month starts Aug 31). US-based viewers are unaffected.
 function formatDate(d: Date): string {
   return d.toISOString().split('T')[0];
 }
