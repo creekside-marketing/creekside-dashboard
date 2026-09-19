@@ -187,13 +187,48 @@ function BreakdownTable({ title, rows }: { title: string; rows: BreakdownRow[] }
 /*  PAGE                                                                     */
 /* ══════════════════════════════════════════════════════════════════════════ */
 
+type ResponseTimeWeek = {
+  weekOf: string; weekLabel: string; avgHours: number; medianHours: number; responses: number;
+};
+
+function ResponseTimeChart({ title, data }: { title: string; data: ResponseTimeWeek[] }) {
+  if (data.length === 0) return null;
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+      <h3 className="text-sm font-semibold text-slate-900 mb-1">{title}</h3>
+      <p className="text-xs text-slate-500 mb-4">Business hours only (8am–6pm CT, Mon–Fri), lead message to our reply. Gaps over 24 business hrs excluded.</p>
+      <ResponsiveContainer width="100%" height={280}>
+        <ComposedChart data={data.slice(-26)} margin={{ left: 0, right: 0, top: 0, bottom: 40 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <XAxis dataKey="weekLabel" tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} angle={-45} textAnchor="end" height={60} interval={Math.max(0, Math.floor(Math.min(data.length, 26) / 20))} />
+          <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}h`} />
+          <Tooltip content={({ active, payload }) => {
+            if (!active || !payload?.length) return null;
+            const d = payload[0].payload;
+            return (
+              <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-3 text-xs">
+                <p className="font-semibold text-slate-900 mb-1.5">Week of {d.weekLabel}</p>
+                <p className="text-[#8B5CF6]">Avg: {d.avgHours.toFixed(1)} business hrs</p>
+                <p className="text-slate-500">Median: {d.medianHours.toFixed(1)} business hrs</p>
+                <p className="text-slate-500">Responses measured: {d.responses}</p>
+              </div>
+            );
+          }} />
+          <Legend wrapperStyle={{ fontSize: 11 }} />
+          <Line type="monotone" dataKey="avgHours" stroke="#8B5CF6" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="Avg response time (business hrs)" />
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 export default function UpworkFunnelPage() {
   /* ── Data fetch ── */
   const [allJobs, setAllJobs] = useState<UpworkJob[]>([]);
   const [upworkLeads, setUpworkLeads] = useState<UpworkLead[]>([]);
-  const [responseTimeWeekly, setResponseTimeWeekly] = useState<{
-    weekOf: string; weekLabel: string; avgHours: number; medianHours: number; responses: number;
-  }[]>([]);
+  const [responseTime, setResponseTime] = useState<{
+    peterson: ResponseTimeWeek[]; lindsey: ResponseTimeWeek[];
+  }>({ peterson: [], lindsey: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -220,9 +255,9 @@ export default function UpworkFunnelPage() {
 
     // Response-time data is independent; failures here don't block the page
     fetch('/api/upwork-response-time')
-      .then((res) => (res.ok ? res.json() : { weekly: [] }))
-      .then((data) => setResponseTimeWeekly(data.weekly ?? []))
-      .catch(() => setResponseTimeWeekly([]));
+      .then((res) => (res.ok ? res.json() : {}))
+      .then((data) => setResponseTime({ peterson: data.peterson ?? [], lindsey: data.lindsey ?? [] }))
+      .catch(() => setResponseTime({ peterson: [], lindsey: [] }));
   }, []);
 
   /* ── Profile-filtered data ── */
@@ -254,17 +289,23 @@ export default function UpworkFunnelPage() {
 
     // Track which leads get matched to a job
     const matchedLeadIds = new Set<string>();
+    // Track which leads have already been counted as a reply (prevent double-counting
+    // when both profiles applied to the same job / share a clickup_task_id)
+    const countedLeadIds = new Set<string>();
 
     const enriched = profileJobs.map((job) => {
       const lead = job.clickup_task_id ? leadsById.get(job.clickup_task_id) : undefined;
       if (lead) matchedLeadIds.add(lead.clickup_task_id);
+      // Only count the first job per lead as a reply to avoid inflating metrics
+      const alreadyCounted = lead ? countedLeadIds.has(lead.clickup_task_id) : false;
+      if (lead && !alreadyCounted) countedLeadIds.add(lead.clickup_task_id);
       const leadStatus = (lead?.status ?? '').toLowerCase();
       const leadStage = lead?.lead_funnel_stage ?? '';
       return {
         ...job,
-        messaged: !!lead,
-        sales_call: !!lead && (CALL_STAGES.has(leadStage) || CALL_STATUSES.has(leadStatus)),
-        won: !!lead && WON_STATUSES.has(leadStatus),
+        messaged: !!lead && !alreadyCounted,
+        sales_call: !!lead && !alreadyCounted && (CALL_STAGES.has(leadStage) || CALL_STATUSES.has(leadStatus)),
+        won: !!lead && !alreadyCounted && WON_STATUSES.has(leadStatus),
       };
     });
 
@@ -643,34 +684,9 @@ export default function UpworkFunnelPage() {
             </ResponsiveContainer>
           </div>
 
-          {/* Chart 4: Avg Response Time to Lead Messages (business hours) */}
-          {responseTimeWeekly.length > 0 && (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-              <h3 className="text-sm font-semibold text-slate-900 mb-1">Avg Response Time to Lead Messages</h3>
-              <p className="text-xs text-slate-500 mb-4">Business hours only (8am–6pm CT, Mon–Fri), lead message to our reply. Gaps over 24 business hrs excluded.</p>
-              <ResponsiveContainer width="100%" height={280}>
-                <ComposedChart data={responseTimeWeekly.slice(-26)} margin={{ left: 0, right: 0, top: 0, bottom: 40 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="weekLabel" tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} angle={-45} textAnchor="end" height={60} interval={Math.max(0, Math.floor(Math.min(responseTimeWeekly.length, 26) / 20))} />
-                  <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}h`} />
-                  <Tooltip content={({ active, payload }) => {
-                    if (!active || !payload?.length) return null;
-                    const data = payload[0].payload;
-                    return (
-                      <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-3 text-xs">
-                        <p className="font-semibold text-slate-900 mb-1.5">Week of {data.weekLabel}</p>
-                        <p className="text-[#8B5CF6]">Avg: {data.avgHours.toFixed(1)} business hrs</p>
-                        <p className="text-slate-500">Median: {data.medianHours.toFixed(1)} business hrs</p>
-                        <p className="text-slate-500">Responses measured: {data.responses}</p>
-                      </div>
-                    );
-                  }} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Line type="monotone" dataKey="avgHours" stroke="#8B5CF6" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="Avg response time (business hrs)" />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          )}
+          {/* Charts 4-5: Avg Response Time to Lead Messages (business hours), one per profile */}
+          <ResponseTimeChart title="Avg Response Time to Lead Messages (Peterson)" data={responseTime.peterson} />
+          <ResponseTimeChart title="Avg Response Time to Lead Messages (Lindsey)" data={responseTime.lindsey} />
         </div>
       )}
 

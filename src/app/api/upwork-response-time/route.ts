@@ -3,15 +3,21 @@ import { supabase } from '@/lib/supabase';
 
 /**
  * Computes weekly average lead-response time in BUSINESS HOURS
- * (8am-6pm America/Chicago, Mon-Fri) from upwork_conversations.
+ * (8am-6pm America/Chicago, Mon-Fri) from upwork_conversations,
+ * split by profile (peterson vs lindsey).
  *
  * A "response" = the gap between the earliest unanswered lead message
- * and our next reply (senders starting with Samuel / Peterson / Creekside).
+ * and our next reply. "Our" senders are per-profile: Peterson's account
+ * sends as Samuel / Peterson / Creekside; Lindsey's sends as Lindsey B.
  * Time outside business hours does not count toward the gap.
  */
 
 const PAGE_SIZE = 500;
-const OUR_SENDER_PREFIXES = ['samuel', 'peterson', 'creekside'];
+type Profile = 'peterson' | 'lindsey';
+const OUR_SENDER_PREFIXES: Record<Profile, string[]> = {
+  peterson: ['samuel', 'peterson', 'creekside'],
+  lindsey: ['lindsey', 'creekside'],
+};
 const OPEN_HOUR = 8;
 const CLOSE_HOUR = 18;
 // Gaps over this are late follow-ups to stale threads, not responses — excluded
@@ -69,9 +75,9 @@ function mondayKey(wall: Date): string {
   return monday.toISOString().slice(0, 10);
 }
 
-function isOurs(sender: string | null | undefined): boolean {
+function isOurs(sender: string | null | undefined, profile: Profile): boolean {
   const s = (sender ?? '').trim().toLowerCase();
-  return OUR_SENDER_PREFIXES.some((p) => s.startsWith(p));
+  return OUR_SENDER_PREFIXES[profile].some((p) => s.startsWith(p));
 }
 
 function parseMessages(raw: unknown): ConvMessage[] {
@@ -90,7 +96,7 @@ async function fetchAllConversations(): Promise<{ data: any[]; error: any }> {
   while (true) {
     const { data, error } = await supabase()
       .from('upwork_conversations')
-      .select('room_id, messages')
+      .select('room_id, messages, profile')
       .gte('message_count', 2)
       .order('room_id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1);
@@ -103,15 +109,42 @@ async function fetchAllConversations(): Promise<{ data: any[]; error: any }> {
   return { data: allRows, error: null };
 }
 
+function buildWeekly(byWeek: Map<string, number[]>, currentWeekKey: string) {
+  return Array.from(byWeek.entries())
+    .filter(([weekOf]) => weekOf < currentWeekKey)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([weekOf, gaps]) => {
+      const sorted = [...gaps].sort((a, b) => a - b);
+      const avg = sorted.reduce((s, v) => s + v, 0) / sorted.length;
+      const mid = Math.floor(sorted.length / 2);
+      const median = sorted.length % 2 === 0
+        ? (sorted[mid - 1] + sorted[mid]) / 2
+        : sorted[mid];
+      const d = new Date(weekOf + 'T00:00:00Z');
+      const weekLabel = `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${String(d.getUTCFullYear()).slice(2)}`;
+      return {
+        weekOf,
+        weekLabel,
+        avgHours: +avg.toFixed(2),
+        medianHours: +median.toFixed(2),
+        responses: sorted.length,
+      };
+    });
+}
+
 export async function GET() {
   try {
     const { data: conversations, error } = await fetchAllConversations();
     if (error) throw error;
 
-    // weekKey -> business-hour gaps for lead messages in that week
-    const byWeek = new Map<string, number[]>();
+    // per-profile: weekKey -> business-hour gaps for lead messages in that week
+    const byWeek: Record<Profile, Map<string, number[]>> = {
+      peterson: new Map(),
+      lindsey: new Map(),
+    };
 
     for (const conv of conversations) {
+      const profile: Profile = conv.profile === 'lindsey' ? 'lindsey' : 'peterson';
       const messages = parseMessages(conv.messages)
         .filter((m) => m.timestamp)
         .sort((x, y) => String(x.timestamp).localeCompare(String(y.timestamp)));
@@ -123,16 +156,16 @@ export async function GET() {
         const t = new Date(msg.timestamp as string);
         if (Number.isNaN(t.getTime())) continue;
 
-        if (isOurs(msg.sender)) {
+        if (isOurs(msg.sender, profile)) {
           if (pendingLead) {
             const leadWall = toChicagoWall(pendingLead);
             const replyWall = toChicagoWall(t);
             const gap = businessHoursBetween(leadWall, replyWall);
             if (gap <= MAX_GAP_BUSINESS_HOURS) {
               const key = mondayKey(leadWall);
-              const arr = byWeek.get(key) ?? [];
+              const arr = byWeek[profile].get(key) ?? [];
               arr.push(gap);
-              byWeek.set(key, arr);
+              byWeek[profile].set(key, arr);
             }
             pendingLead = null;
           }
@@ -145,28 +178,11 @@ export async function GET() {
     // Exclude the current incomplete week (Chicago time)
     const currentWeekKey = mondayKey(toChicagoWall(new Date()));
 
-    const weekly = Array.from(byWeek.entries())
-      .filter(([weekOf]) => weekOf < currentWeekKey)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([weekOf, gaps]) => {
-        const sorted = [...gaps].sort((a, b) => a - b);
-        const avg = sorted.reduce((s, v) => s + v, 0) / sorted.length;
-        const mid = Math.floor(sorted.length / 2);
-        const median = sorted.length % 2 === 0
-          ? (sorted[mid - 1] + sorted[mid]) / 2
-          : sorted[mid];
-        const d = new Date(weekOf + 'T00:00:00Z');
-        const weekLabel = `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${String(d.getUTCFullYear()).slice(2)}`;
-        return {
-          weekOf,
-          weekLabel,
-          avgHours: +avg.toFixed(2),
-          medianHours: +median.toFixed(2),
-          responses: sorted.length,
-        };
-      });
-
-    return NextResponse.json({ weekly, fetchedAt: new Date().toISOString() });
+    return NextResponse.json({
+      peterson: buildWeekly(byWeek.peterson, currentWeekKey),
+      lindsey: buildWeekly(byWeek.lindsey, currentWeekKey),
+      fetchedAt: new Date().toISOString(),
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to compute response times';
     return NextResponse.json({ error: message }, { status: 500 });
