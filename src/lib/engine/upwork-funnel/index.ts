@@ -10,4 +10,5 @@ export {
   computeBreakdown,
   computeRateBreakdown,
   computeBoostComparison,
+  computeTimeToApplyTrend,
 } from './metrics';

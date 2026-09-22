@@ -141,6 +141,14 @@ export interface BreakdownRow {
   winRate: number;
 }
 
+export interface TimeToApplyWeek {
+  weekOf: string;        // ISO date of Monday
+  weekLabel: string;     // e.g. "8/4/25"
+  avgHours: number;
+  medianHours: number;
+  applications: number;  // count of proposals with valid hours_after_post
+}
+
 export interface WeeklyDataPoint {
   weekOf: string;        // ISO date of Monday
   weekLabel: string;     // e.g. "8/4/25"

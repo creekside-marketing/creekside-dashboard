@@ -12,6 +12,7 @@ import type {
   BoostComparisonMetrics,
   TrendGranularity,
   TrendDataPoint,
+  TimeToApplyWeek,
 } from '@/lib/types/upwork-funnel';
 
 /* ── Helpers ── */
@@ -363,6 +364,53 @@ export function computeWeeklyTrend(jobs: UpworkJob[]): WeeklyDataPoint[] {
         viewsToReplies: safeDiv(messaged, viewed) * 100,
         repliesToCalls: safeDiv(salesCalls, messaged) * 100,
         callsToClients: safeDiv(won, salesCalls) * 100,
+      };
+    });
+}
+
+/* ── Avg Time to Apply (hours_after_post by week) ── */
+
+export function computeTimeToApplyTrend(jobs: UpworkJob[]): TimeToApplyWeek[] {
+  const byWeek = new Map<string, number[]>();
+
+  for (const job of jobs) {
+    if (!job.application_date || job.hours_after_post == null) continue;
+    const d = new Date(job.application_date + 'T00:00:00');
+    const day = d.getDay();
+    const monday = new Date(d);
+    monday.setDate(d.getDate() - ((day + 6) % 7));
+    const key = localDateStr(monday);
+    const arr = byWeek.get(key) ?? [];
+    arr.push(job.hours_after_post);
+    byWeek.set(key, arr);
+  }
+
+  const now = new Date();
+  const nowDay = now.getDay();
+  const currentMonday = new Date(now);
+  currentMonday.setDate(now.getDate() - ((nowDay + 6) % 7));
+  const currentWeekKey = localDateStr(currentMonday);
+
+  return Array.from(byWeek.entries())
+    .filter(([weekOf]) => weekOf < currentWeekKey)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([weekOf, hours]) => {
+      const sorted = [...hours].sort((a, b) => a - b);
+      const avg = sorted.reduce((s, v) => s + v, 0) / sorted.length;
+      const mid = Math.floor(sorted.length / 2);
+      const median = sorted.length % 2 === 0
+        ? (sorted[mid - 1] + sorted[mid]) / 2
+        : sorted[mid];
+      const d = new Date(weekOf + 'T00:00:00');
+      const m = d.getMonth() + 1;
+      const dy = d.getDate();
+      const y = String(d.getFullYear()).slice(2);
+      return {
+        weekOf,
+        weekLabel: `${m}/${dy}/${y}`,
+        avgHours: +avg.toFixed(1),
+        medianHours: +median.toFixed(1),
+        applications: sorted.length,
       };
     });
 }

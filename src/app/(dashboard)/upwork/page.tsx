@@ -10,13 +10,13 @@ import type {
   UpworkJob, UpworkLead, UpworkFunnelFilters,
   FunnelMetrics, MonthlyDataPoint, ScriptPerformanceRow,
   HoursAfterPostBucket, BreakdownRow, BoostComparisonMetrics,
-  TrendGranularity,
+  TrendGranularity, TimeToApplyWeek,
 } from '@/lib/types/upwork-funnel';
 import {
   applyFilters, computeFunnelMetrics, computeMonthlyTrend, computeWeeklyTrend,
   computeTrend, computeScriptPerformance, computeScriptMonthlyComparison,
   computeHoursAfterPostBuckets, computeBreakdown, computeRateBreakdown,
-  computeBoostComparison,
+  computeBoostComparison, computeTimeToApplyTrend,
 } from '@/lib/engine/upwork-funnel';
 
 /* ── Helpers ── */
@@ -222,6 +222,37 @@ function ResponseTimeChart({ title, data }: { title: string; data: ResponseTimeW
   );
 }
 
+function TimeToApplyChart({ title, data }: { title: string; data: TimeToApplyWeek[] }) {
+  if (data.length === 0) return null;
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+      <h3 className="text-sm font-semibold text-slate-900 mb-1">{title}</h3>
+      <p className="text-xs text-slate-500 mb-4">Average hours between job posting and our application, by week.</p>
+      <ResponsiveContainer width="100%" height={280}>
+        <ComposedChart data={data.slice(-26)} margin={{ left: 0, right: 0, top: 0, bottom: 40 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <XAxis dataKey="weekLabel" tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} angle={-45} textAnchor="end" height={60} interval={Math.max(0, Math.floor(Math.min(data.length, 26) / 20))} />
+          <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}h`} />
+          <Tooltip content={({ active, payload }) => {
+            if (!active || !payload?.length) return null;
+            const d = payload[0].payload;
+            return (
+              <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-3 text-xs">
+                <p className="font-semibold text-slate-900 mb-1.5">Week of {d.weekLabel}</p>
+                <p className="text-[#F59E0B]">Avg: {d.avgHours.toFixed(1)} hrs after post</p>
+                <p className="text-slate-500">Median: {d.medianHours.toFixed(1)} hrs after post</p>
+                <p className="text-slate-500">Applications: {d.applications}</p>
+              </div>
+            );
+          }} />
+          <Legend wrapperStyle={{ fontSize: 11 }} />
+          <Line type="monotone" dataKey="avgHours" stroke="#F59E0B" strokeWidth={2} dot={false} activeDot={{ r: 4 }} name="Avg time to apply (hrs)" />
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 export default function UpworkFunnelPage() {
   /* ── Data fetch ── */
   const [allJobs, setAllJobs] = useState<UpworkJob[]>([]);
@@ -377,6 +408,7 @@ export default function UpworkFunnelPage() {
   // Weekly trend uses enrichedJobs (includes ClickUp leads) to match weekly comparison table
   // Slice to last 26 weeks (~6 months)
   const weeklyTrend = useMemo(() => computeWeeklyTrend(enrichedJobs).slice(-26), [enrichedJobs]);
+  const timeToApplyTrend = useMemo(() => computeTimeToApplyTrend(sheetJobs), [sheetJobs]);
 
   const weeklyComparison = useMemo(() => {
     const weeks = [getWeekRange(2), getWeekRange(3), getWeekRange(4)];
@@ -685,6 +717,7 @@ export default function UpworkFunnelPage() {
           </div>
 
           {/* Charts 4-5: Avg Response Time to Lead Messages (business hours), one per profile */}
+          <TimeToApplyChart title="Avg Time to Apply After Job Posted" data={timeToApplyTrend} />
           <ResponseTimeChart title="Avg Response Time to Lead Messages (Peterson)" data={responseTime.peterson} />
           <ResponseTimeChart title="Avg Response Time to Lead Messages (Lindsey)" data={responseTime.lindsey} />
         </div>
