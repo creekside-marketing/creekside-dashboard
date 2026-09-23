@@ -136,7 +136,8 @@ export async function GET() {
     // Interns whose $0 allocations should still surface as labor chips on the
     // Client tab (they touch the client, just at no cost right now). Once we
     // set their hourly_rate they roll into normal cost math.
-    const UNPAID_INTERNS = new Set(['Aldo']);
+    // (Aldo removed 2026-09-15 — no current unpaid interns; mechanism kept for future use.)
+    const UNPAID_INTERNS = new Set<string>();
 
     for (const row of laborResult.data ?? []) {
       if (!row.client_id) continue;

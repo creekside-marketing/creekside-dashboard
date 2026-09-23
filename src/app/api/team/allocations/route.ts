@@ -33,21 +33,19 @@ const LINDSEY_ADMIN_BUFFER = 5;
 // Interns work at no payroll cost but we want their client assignments visible
 // so we can see who they touch and update the rate once they cross the paid
 // threshold Cade sets.
-const UNPAID_INTERNS = new Set(['Aldo']);
+const UNPAID_INTERNS = new Set<string>();
 
 // Order in which members render on the page. Tobi remains excluded (AI-agent-only).
+// Aldo, Keith McGonigle, and Jay removed 2026-09-15 per Cade (no longer active on the team).
 const DISPLAY_ORDER: string[] = [
   'Lindsey Bouffard',
   'Scott Caldwell',
-  'Aldo',
   'Ahmed Imran',
   'Ade Aderibigbe',
   'Sophie Rainey',
   'David',
-  'Keith McGonigle',
   'Jordan Tryon',
   'Jonathan',
-  'Jay',
 ];
 
 interface AllocationRow {
