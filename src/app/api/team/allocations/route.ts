@@ -46,6 +46,7 @@ const DISPLAY_ORDER: string[] = [
   'David',
   'Jordan Tryon',
   'Jonathan',
+  'Brady Tibbets',
 ];
 
 interface AllocationRow {

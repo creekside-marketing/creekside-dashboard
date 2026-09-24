@@ -33,6 +33,7 @@ const TEAM_COLORS: Record<string, TeamColor> = {
   jonathan:{ bg: 'bg-pink-100',   text: 'text-pink-800',   ring: 'ring-pink-300',   dot: 'bg-pink-500' },
   aldo:    { bg: 'bg-indigo-100', text: 'text-indigo-800', ring: 'ring-indigo-300', dot: 'bg-indigo-500' },
   sophie:  { bg: 'bg-fuchsia-100', text: 'text-fuchsia-800', ring: 'ring-fuchsia-300', dot: 'bg-fuchsia-500' },
+  brady:   { bg: 'bg-teal-100', text: 'text-teal-800', ring: 'ring-teal-300', dot: 'bg-teal-500' },
 };
 
 export function getTeamColor(fullName: string | null | undefined): TeamColor {
