@@ -10,13 +10,19 @@
  */
 
 /**
- * IntegrityNaturopathicGoogleReport — Lead Gen Google Ads report with a
- * Booked Consultations panel.
+ * IntegrityNaturopathicGoogleReport — Lead Gen Google Ads report with
+ * Booked Consultations and Phone Calls panels.
  *
  * Adds, on top of the shared lead-gen template:
  * - A Booked Consultations panel sourced from the offline "Booked" conversion
  *   action that FirstUp imports into Google Ads, with an explicit disclaimer
- *   that phone-call bookings are not matched and offline data backfills.
+ *   that phone bookings are not matched and offline data backfills.
+ * - A Phone Calls panel summing the two conversion actions that make up
+ *   Google's own "Phone call lead" goal, so the number reconciles 1:1 with
+ *   what the client sees in the Google Ads UI.
+ *
+ * Both panels are derived from a single /api/google/insights response behind
+ * one window guard, so they can never show numbers from different date ranges.
  *
  * CANNOT: Modify ad account settings or budgets.
  * CANNOT: Write to any API — read-only data fetching.
@@ -44,12 +50,90 @@ import ReferralBanner from '../shared/ReferralBanner';
  */
 const BOOKED_ACTION_NAMES = ['FirstUp - Offline Conversion - Qualified Lead - Booked'];
 
+/**
+ * Google Ads conversion actions representing a real phone call driven by the
+ * ads. These are exactly the two actions inside Google's own "Phone call lead"
+ * goal, so this panel reconciles 1:1 with the Google Ads UI.
+ *
+ * Deliberately EXCLUDED:
+ * - "Clicks to call" and the "Local actions - *" set. Those are Google Business
+ *   Profile interactions, not ad-driven calls, and Google itself leaves them out
+ *   of the primary conversion total.
+ * - "FirstUp - Offline Conversion - Calls From Funnel". That is the CRM-side
+ *   import of these same calls; counting it here would double count.
+ */
+const CALL_ACTION_NAMES = ['Calls from ads', 'Calls from Website'];
+
+/** Sums `conversions` across every breakdown row whose name is in `names`. */
+function sumActions(
+  rows: Array<{ name?: string; conversions?: number }>,
+  names: readonly string[],
+): number {
+  return rows
+    .filter((r) => names.includes(String(r.name ?? '')))
+    .reduce((sum, r) => sum + Number(r.conversions ?? 0), 0);
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 const moneyCol = (v: unknown) => fmtMoney(Number(v ?? 0));
 const pctCol = (v: unknown) => fmtPct(Number(v ?? 0));
 const numCol = (v: unknown) => fmt(Number(v ?? 0));
 
+
+/**
+ * One headline-number panel. Shared by Booked Consultations and Phone Calls so
+ * the two stay visually identical and only their copy differs.
+ *
+ * `count` is a three-state value: undefined while the current window is still
+ * loading, null when its request failed, a number otherwise. Rounded on render
+ * because Google reports modelled call conversions as fractions.
+ */
+function ConversionPanel({
+  title, subtitle, count, totalLeads, note, loadingLabel,
+}: {
+  title: string;
+  subtitle: string;
+  count: number | null | undefined;
+  totalLeads: number;
+  note: string;
+  loadingLabel: string;
+}) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <div>
+          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{title}</h2>
+          <p className="text-xs text-slate-400 mt-1">{subtitle}</p>
+        </div>
+        <div className="text-right">
+          {count === undefined ? (
+            <div
+              className="h-[30px] w-12 ml-auto rounded-md bg-slate-100 animate-pulse"
+              aria-label={loadingLabel}
+            />
+          ) : count === null ? (
+            <div className="text-sm font-medium text-slate-400 leading-[30px]">Unavailable</div>
+          ) : (
+            <>
+              <div className="text-3xl font-semibold text-slate-900 tabular-nums leading-none">
+                {fmt(Math.round(count))}
+              </div>
+              {totalLeads > 0 && (
+                <div className="text-xs text-slate-400 mt-1.5">
+                  {fmtPct(count / totalLeads)} of total leads
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+      <p className="text-xs text-slate-500 leading-relaxed mt-4 pt-4 border-t border-slate-100">
+        {note}
+      </p>
+    </div>
+  );
+}
 
 /**
  * Merges separate age and gender API responses into AgeGenderRow format
@@ -130,28 +214,33 @@ export default function IntegrityNaturopathicGoogleReport({
   // The count is stored with the exact window it was fetched for and is only
   // displayed when that window matches the one on screen, so a previous
   // range's number can never be shown as if it belonged to the current one.
-  const bookedKey = useMemo(() => {
+  const panelKey = useMemo(() => {
     if (customSince && customUntil) return `${customSince}|${customUntil}`;
     const p = computePriorPeriod(dateRangeIndex);
     return `${p.currentSince}|${p.currentUntil}`;
   }, [customSince, customUntil, dateRangeIndex]);
 
-  // count === null means the request for that window failed.
-  const [booked, setBooked] = useState<{ key: string; count: number | null } | null>(null);
+  // A null count means the request for that window failed. Booked and calls
+  // are read off the SAME response, so the two panels can never disagree about
+  // which date range they are describing.
+  const [panel, setPanel] = useState<
+    { key: string; booked: number | null; calls: number | null } | null
+  >(null);
 
   // Bumped only by the manual Refresh button. Deliberately NOT the shared
   // hook's lastRefreshed: that also changes the moment the rest of the report
   // finishes loading, which cancelled this panel's in-flight request and left
   // the previous range's number on screen for several seconds.
-  const [bookedRefreshNonce, setBookedRefreshNonce] = useState(0);
+  const [panelRefreshNonce, setPanelRefreshNonce] = useState(0);
 
   useEffect(() => {
     const cid = client.ad_account_id;
-    const [since, until] = bookedKey.split('|');
+    const [since, until] = panelKey.split('|');
     let cancelled = false;
 
     (async () => {
-      let count: number | null = null;
+      let booked: number | null = null;
+      let calls: number | null = null;
       if (cid) {
         try {
           const res = await fetch(
@@ -161,22 +250,23 @@ export default function IntegrityNaturopathicGoogleReport({
           if (res.ok) {
             const json = await res.json();
             const rows: Array<{ name?: string; conversions?: number }> = json?.conversionBreakdown ?? [];
-            count = rows
-              .filter((r) => BOOKED_ACTION_NAMES.includes(String(r.name ?? '')))
-              .reduce((sum, r) => sum + Number(r.conversions ?? 0), 0);
+            booked = sumActions(rows, BOOKED_ACTION_NAMES);
+            calls = sumActions(rows, CALL_ACTION_NAMES);
           }
         } catch {
-          count = null;
+          booked = null;
+          calls = null;
         }
       }
-      if (!cancelled) setBooked({ key: bookedKey, count });
+      if (!cancelled) setPanel({ key: panelKey, booked, calls });
     })();
 
     return () => { cancelled = true; };
-  }, [client.ad_account_id, bookedKey, bookedRefreshNonce]);
+  }, [client.ad_account_id, panelKey, panelRefreshNonce]);
 
   // undefined = still loading this window, null = failed, number = result.
-  const bookedCount = booked?.key === bookedKey ? booked.count : undefined;
+  const bookedCount = panel?.key === panelKey ? panel.booked : undefined;
+  const callCount = panel?.key === panelKey ? panel.calls : undefined;
 
   const targetCpl = client.monthly_budget && totals.conversions > 0
     ? client.monthly_budget / Math.max(totals.conversions * (30 / Math.max(daysElapsed, 1)), 1)
@@ -193,7 +283,7 @@ export default function IntegrityNaturopathicGoogleReport({
         dateRangeIndex={dateRangeIndex}
         onDateRangeChange={handleDateRangeChange}
         loading={loading}
-        onRefresh={() => { setBookedRefreshNonce((n) => n + 1); fetchData(); }}
+        onRefresh={() => { setPanelRefreshNonce((n) => n + 1); fetchData(); }}
         lastRefreshed={lastRefreshed}
         cooldownRemaining={cooldownRemaining}
         customSince={customSince}
@@ -271,44 +361,24 @@ export default function IntegrityNaturopathicGoogleReport({
             />
           </div>
 
-          {/* 2b. Booked Consultations */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-            <div className="flex flex-wrap items-baseline justify-between gap-3">
-              <div>
-                <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Booked Consultations
-                </h2>
-                <p className="text-xs text-slate-400 mt-1">Google Ads form leads only</p>
-              </div>
-              <div className="text-right">
-                {bookedCount === undefined ? (
-                  <div
-                    className="h-[30px] w-12 ml-auto rounded-md bg-slate-100 animate-pulse"
-                    aria-label="Loading booked consultations"
-                  />
-                ) : bookedCount === null ? (
-                  <div className="text-sm font-medium text-slate-400 leading-[30px]">Unavailable</div>
-                ) : (
-                  <>
-                    <div className="text-3xl font-semibold text-slate-900 tabular-nums leading-none">
-                      {fmt(bookedCount)}
-                    </div>
-                    {totals.conversions > 0 && (
-                      <div className="text-xs text-slate-400 mt-1.5">
-                        {fmtPct(bookedCount / totals.conversions)} of total leads
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-            <p className="text-xs text-slate-500 leading-relaxed mt-4 pt-4 border-t border-slate-100">
-              This counts consultations booked by people who came in through a Google Ads
-              form submission. Phone calls generated by the ads cannot be matched to a
-              booking yet, so your real booked total is higher than the number shown here.
-              Bookings are also imported after the appointment is set, so the most recent
-              days fill in over time.
-            </p>
+          {/* 2b. Booked Consultations & Phone Calls */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <ConversionPanel
+              title="Booked Consultations"
+              subtitle="Google Ads form leads only"
+              count={bookedCount}
+              totalLeads={totals.conversions}
+              loadingLabel="Loading booked consultations"
+              note="Consultations booked by people who arrived through a Google Ads form submission. Consultations booked over the phone are not included here; those calls are counted in the Phone Calls panel. Bookings are imported from the CRM after the appointment is set, so the most recent days fill in over the following days."
+            />
+            <ConversionPanel
+              title="Phone Calls"
+              subtitle="Calls driven by Google Ads"
+              count={callCount}
+              totalLeads={totals.conversions}
+              loadingLabel="Loading phone calls"
+              note="Phone calls generated by your ads, counted the same way Google counts them under its Phone call lead goal: calls placed directly from an ad, plus calls to the tracking number on your website. Taps on your Google Business Profile, such as directions or website visits, are not included."
+            />
           </div>
 
           {/* 3. Lead Volume & Cost Trend */}
