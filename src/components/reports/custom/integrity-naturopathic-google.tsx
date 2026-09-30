@@ -99,6 +99,12 @@ function ConversionPanel({
   note: string;
   loadingLabel: string;
 }) {
+  // Round ONCE and drive both the headline and the percentage off the same
+  // value. Deriving the percentage from the raw figure instead produced
+  // "0" sitting next to "0.04% of total leads" on a window where the offline
+  // import had modelled 0.029 conversions.
+  const shown = typeof count === 'number' ? Math.round(count) : count;
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
@@ -107,21 +113,21 @@ function ConversionPanel({
           <p className="text-xs text-slate-400 mt-1">{subtitle}</p>
         </div>
         <div className="text-right">
-          {count === undefined ? (
+          {shown === undefined ? (
             <div
               className="h-[30px] w-12 ml-auto rounded-md bg-slate-100 animate-pulse"
               aria-label={loadingLabel}
             />
-          ) : count === null ? (
+          ) : shown === null ? (
             <div className="text-sm font-medium text-slate-400 leading-[30px]">Unavailable</div>
           ) : (
             <>
               <div className="text-3xl font-semibold text-slate-900 tabular-nums leading-none">
-                {fmt(Math.round(count))}
+                {fmt(shown)}
               </div>
               {totalLeads > 0 && (
                 <div className="text-xs text-slate-400 mt-1.5">
-                  {fmtPct(count / totalLeads)} of total leads
+                  {fmtPct(shown / totalLeads)} of total leads
                 </div>
               )}
             </>
